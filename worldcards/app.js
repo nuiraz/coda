@@ -36,8 +36,11 @@ const RARETES = {
   "legendaire": { nom: "Légendaire",   gems: "★",    ordre: 5, poids: 0.7, doublon: 150, prix: 1500 },
   "secrete":    { nom: "Secrète",      gems: "✦",    ordre: 6 },
 };
-const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", merveille: "Merveille", secrete: "Secrète" };
+const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", merveille: "Merveille", secrete: "Secrète" };
+const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", merveille: "🌟", secrete: "✦" };
+const VERSION_JEU = "v13"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
+const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
 
 // Boosters : plus ils sont chers, plus les cartes rares sont fréquentes
@@ -76,11 +79,32 @@ villes.forEach(([id, nom, pays, lat, lon, emoji, anecdote, wiki], i) => {
   if (wiki && !PHOTOS_WIKI["ville:" + id]) PHOTOS_WIKI["ville:" + id] = wiki;
   RECHERCHE_PHOTO["ville:" + id] = `${nom} ${NOM_PAYS[pays]}`;
 });
-const monuments = [...MONUMENTS_BRUTS, ...(typeof MONUMENTS_EXTRA !== "undefined" ? MONUMENTS_EXTRA : [])];
+const extra = (nom) => (typeof globalThis[nom] !== "undefined" ? globalThis[nom] : (() => { try { return eval(nom); } catch { return []; } })());
+for (const [i, [id, nom, pays, lat, lon, emoji, anecdote, wiki]] of extra("VILLES_EXTRA2").entries()) {
+  add({ id: "ville:" + id, univers: "monde", type: "ville", rarete: "peu-commun", num: villes.length + i + 1, nom, pays, lat, lon, emoji, anecdote, continent: CONT_PAYS[pays] });
+  if (wiki && !PHOTOS_WIKI["ville:" + id]) PHOTOS_WIKI["ville:" + id] = wiki;
+  RECHERCHE_PHOTO["ville:" + id] = `${nom} ${NOM_PAYS[pays]}`;
+}
+const monuments = [...MONUMENTS_BRUTS, ...(typeof MONUMENTS_EXTRA !== "undefined" ? MONUMENTS_EXTRA : []), ...extra("MONUMENTS_EXTRA2")];
 monuments.forEach(([id, nom, pays, lat, lon, emoji, rarete, anecdote, wiki], i) => {
   add({ id: "monu:" + id, univers: "monde", type: "monument", rarete, num: i + 1, nom, pays, lat, lon, emoji, anecdote, continent: CONT_PAYS[pays] });
   if (wiki && !PHOTOS_WIKI["monu:" + id]) PHOTOS_WIKI["monu:" + id] = wiki;
   RECHERCHE_PHOTO["monu:" + id] = nom;
+});
+extra("NATURE_BRUTS").forEach(([id, nom, pays, lat, lon, emoji, rarete, anecdote, wiki], i) => {
+  add({ id: "nat:" + id, univers: "monde", type: "nature", rarete, num: i + 1, nom, pays, lat, lon, emoji, anecdote, continent: CONT_PAYS[pays] });
+  if (wiki) PHOTOS_WIKI["nat:" + id] = wiki;
+  RECHERCHE_PHOTO["nat:" + id] = nom;
+});
+extra("ANIMAUX_BRUTS").forEach(([id, nom, pays, emoji, rarete, anecdote, wiki], i) => {
+  add({ id: "ani:" + id, univers: "monde", type: "animal", rarete, num: i + 1, nom, pays, emoji, anecdote, continent: CONT_PAYS[pays] });
+  if (wiki) PHOTOS_WIKI["ani:" + id] = wiki;
+  RECHERCHE_PHOTO["ani:" + id] = nom;
+});
+extra("PLATS_BRUTS").forEach(([id, nom, pays, emoji, rarete, anecdote, wiki], i) => {
+  add({ id: "plat:" + id, univers: "monde", type: "plat", rarete, num: i + 1, nom, pays, emoji, anecdote, continent: CONT_PAYS[pays] });
+  if (wiki) PHOTOS_WIKI["plat:" + id] = wiki;
+  RECHERCHE_PHOTO["plat:" + id] = nom;
 });
 MERVEILLES_BRUTES.forEach(([id, nom, pays, lat, lon, emoji, groupe, anecdote], i) =>
   add({ id: "merv:" + id, univers: "monde", type: "merveille", rarete: "legendaire", num: i + 1, nom, pays, lat, lon, emoji, groupe, anecdote, continent: CONT_PAYS[pays] }));
@@ -90,7 +114,7 @@ SECRETES_MONDE.forEach(([id, nom, emoji, condition, anecdote], i) =>
 // Un seul univers : le monde (gardé sous cette forme pour compte.js)
 const UNIVERS = {
   monde: { nom: "Monde", emoji: "🌍", dos: "🌐", titre: "Collectionner le monde",
-    intro: "Pays, villes, monuments et merveilles : ouvrez des boosters, complétez l'atlas et affrontez les autres joueurs avec vos cartes." },
+    intro: "Pays, villes, monuments, nature, animaux, gastronomie et merveilles : ouvrez des boosters, complétez l'atlas et affrontez les autres joueurs avec vos cartes." },
 };
 const of = (u, type) => CARDS.filter((c) => c.univers === u && (!type || c.type === type));
 
@@ -99,7 +123,7 @@ const of = (u, type) => CARDS.filter((c) => c.univers === u && (!type || c.type 
    ===================================================================== */
 const SAVE_KEY = "worldcards:v1";
 const nouvelleSauvegarde = () => ({
-  coins: 200, owned: {}, shiny: {}, qualite: {}, nouveaux: {}, recents: [], badges: {},
+  coins: 200, owned: {}, shiny: {}, holo: {}, qualite: {}, nouveaux: {}, recents: [], badges: {},
   boosters: { monde: 3, argent: 0, or: 0, prestige: 0 }, gratuitLe: 0, premiumJour: "", prestigeSemaine: "", ouverts: 0,
   quiz: { monde: { serie: 0, record: 0, bonnes: 0, total: 0 } }, quizJour: { d: "", n: 0 },
   deck: [], combat: { victoires: 0, defaites: 0, jour: "", recompenses: 0 },
@@ -125,7 +149,7 @@ function migrer(s) {
     if (pieces || anciens) s.messageMigration = { pieces, boosters: anciens };
   }
   // Chaque carte possédée reçoit ses statistiques (qualité tirée au hasard)
-  s.qualite ||= {};
+  s.qualite ||= {}; s.holo ||= {};
   for (const id of Object.keys(s.owned)) if (BY_ID[id] && !s.qualite[id]) s.qualite[id] = COMBAT.tirerQualite();
   s.deck = (s.deck || []).filter((id) => BY_ID[id] && (s.owned[id] || 0) > 0);
   return s;
@@ -203,6 +227,9 @@ function sousTitre(c) {
   switch (c.type) {
     case "pays": return "🏛️ " + court(c.capitale);
     case "ville": case "monument": return "📍 " + NOM_PAYS[c.pays];
+    case "nature": return "📍 " + NOM_PAYS[c.pays];
+    case "animal": return "🐾 " + NOM_PAYS[c.pays];
+    case "plat": return "🍽️ " + NOM_PAYS[c.pays];
     case "merveille": return c.groupe === "antiques" ? "🏺 Merveille antique" : "🌟 Merveille moderne";
     case "secrete": return "Carte secrète";
   }
@@ -310,16 +337,18 @@ function cardHTML(c, opts = {}) {
   }
   let art = "";
   if (c.type === "pays") art = silhouette(c.code) + `<img class="flag" src="flags/${c.code.toLowerCase()}.svg" alt="Drapeau : ${esc(c.nom)}" loading="lazy">`;
-  else if (["ville", "monument", "merveille"].includes(c.type)) art = silhouette(c.pays) + `<span class="emoji">${c.emoji}</span>`;
+  else if (c.pays) art = silhouette(c.pays) + `<span class="emoji">${c.emoji}</span>`;
   else art = `<span class="emoji">${esc(c.emoji || "🃏")}</span>`;
   art = photoHTML(c, false) + art;
   const n = S.owned[c.id] || 0;
   const shiny = opts.shiny ?? !!S.shiny?.[c.id];
+  const holo = !shiny && (opts.holo ?? !!S.holo?.[c.id]);
   const st = opts.stats ?? (n ? statsDe(c, S.qualite[c.id], n, shiny) : statsDe(c, [0, 0, 0], 1, shiny));
-  return `<div class="card${shiny ? " shiny" : ""}" data-id="${esc(c.id)}" data-r="${r}" tabindex="0" role="button" aria-label="${esc(c.nom)}">
+  const tal = COMBAT.TALENTS[st.talent || COMBAT.talentDe(c.id, c.type)];
+  return `<div class="card${shiny ? " shiny" : ""}${holo ? " holo" : ""}" data-id="${esc(c.id)}" data-r="${r}" tabindex="0" role="button" aria-label="${esc(c.nom)}">
     ${opts.compte && n > 1 ? `<span class="badge-count">×${n}</span>` : ""}${opts.compte && S.nouveaux[c.id] ? `<span class="badge-new">NEW</span>` : ""}
-    <div class="in"><div class="head"><span>${TYPES[c.type]}${c.continent && c.type === "pays" ? " · " + CONTINENTS[c.continent].nom : ""}</span><span class="gems" title="${RARETES[r].nom}${shiny ? " · Shiny" : ""}">${shiny ? "✨" : ""}${RARETES[r].gems}</span></div>
-    <div class="art" style="--g:${degrade(col)}">${art}${st.niveau > 1 ? `<span class="niv">Niv. ${st.niveau}</span>` : ""}</div>
+    <div class="in"><div class="head"><span>${TYPES[c.type]}${c.continent && c.type === "pays" ? " · " + CONTINENTS[c.continent].nom : ""}</span><span class="gems" title="${RARETES[r].nom}${shiny ? " · Shiny" : holo ? " · Holo" : ""}">${shiny ? "✨" : holo ? "🌈" : ""}${RARETES[r].gems}</span></div>
+    <div class="art" style="--g:${degrade(col)}">${art}${st.niveau > 1 ? `<span class="niv">Niv. ${st.niveau}</span>` : ""}${tal ? `<span class="talent" title="Talent : ${tal.nom} — ${esc(tal.desc)}">${tal.emoji}</span>` : ""}</div>
     <div class="name">${esc(c.nom)}</div><div class="sub">${esc(sousTitre(c))}</div>
     <div class="cstats" title="Attaque · Défense · Points de vie"><span>⚔️${st.atk}</span><span>🛡️${st.def}</span><span>❤️${st.pv}</span></div></div></div>`;
 }
@@ -332,6 +361,7 @@ function idsCondition(cond) {
   if (k === "continent") return of("monde", "pays").filter((c) => c.continent === v).map((c) => c.id);
   if (k === "merveilles") return of("monde", "merveille").filter((c) => c.groupe === v).map((c) => c.id);
   if (k === "tous-les-pays") return of("monde", "pays").map((c) => c.id);
+  if (k === "type") return of("monde", v).map((c) => c.id);
   return [];
 }
 function libelleCondition(cond) {
@@ -339,6 +369,7 @@ function libelleCondition(cond) {
   if (k === "continent") return `Collectionnez tous les pays d'${CONTINENTS[v].nom}`;
   if (k === "merveilles") return `Collectionnez les 7 merveilles ${v === "antiques" ? "du monde antique" : "du monde moderne"}`;
   if (k === "tous-les-pays") return "Collectionnez les 195 pays";
+  if (k === "type") return `Collectionnez toutes les cartes « ${TYPES[v]} »`;
   return "";
 }
 
@@ -359,9 +390,20 @@ function badgesDe() {
   list.push({ id: "monuments", nom: "Bâtisseur", emoji: "🏗️", niveau: "or", desc: "Tous les monuments", prog: () => frac(monuIds), seuil: 1 });
   list.push({ id: "merv-mod", nom: "Merveilles modernes", emoji: "🌟", niveau: "or", desc: "Les 7 merveilles du monde moderne", prog: () => frac(idsCondition("merveilles:modernes")), seuil: 1 });
   list.push({ id: "merv-ant", nom: "Merveilles antiques", emoji: "🏺", niveau: "or", desc: "Les 7 merveilles du monde antique", prog: () => frac(idsCondition("merveilles:antiques")), seuil: 1 });
+  for (const [t, nom, emoji] of [["nature", "Explorateur", "🧗"], ["animal", "Naturaliste", "🦁"], ["plat", "Gastronome", "👨‍🍳"]]) {
+    const ids = of("monde", t).map((c) => c.id);
+    if (!ids.length) continue;
+    list.push({ id: `${t}-25`, nom: `${nom} débutant`, emoji, niveau: "bronze", desc: `25 cartes « ${TYPES[t]} »`, prog: palier(() => count(ids), Math.min(25, ids.length)), seuil: 1 });
+    list.push({ id: `${t}-tout`, nom, emoji, niveau: "or", desc: `Toutes les cartes « ${TYPES[t]} »`, prog: () => frac(ids), seuil: 1 });
+  }
   const toutes = of("monde").map((c) => c.id);
   list.push({ id: "collec-100", nom: "Collectionneur", emoji: "📚", niveau: "argent", desc: "100 cartes différentes", prog: palier(() => count(toutes), 100), seuil: 1 });
   list.push({ id: "collec-300", nom: "Grand collectionneur", emoji: "🗃️", niveau: "or", desc: "300 cartes différentes", prog: palier(() => count(toutes), 300), seuil: 1 });
+  list.push({ id: "collec-600", nom: "Encyclopédie vivante", emoji: "📖", niveau: "or", desc: "600 cartes différentes", prog: palier(() => count(toutes), 600), seuil: 1 });
+  list.push({ id: "collec-1000", nom: "Le monde entier", emoji: "🌐", niveau: "or", desc: "1 000 cartes différentes", prog: palier(() => count(toutes), 1000), seuil: 1 });
+  const nbHolo = () => CARDS.filter((c) => S.holo?.[c.id]).length;
+  list.push({ id: "holo-10", nom: "Reflets irisés", emoji: "🌈", niveau: "bronze", desc: "10 cartes Holo", prog: palier(nbHolo, 10), seuil: 1 });
+  list.push({ id: "holo-50", nom: "Arc-en-ciel", emoji: "🎆", niveau: "argent", desc: "50 cartes Holo", prog: palier(nbHolo, 50), seuil: 1 });
   list.push({ id: "secret-1", nom: "Chasseur de secrets", emoji: "🔮", niveau: "bronze", desc: "Débloquer une carte secrète", prog: palier(() => count(of("monde", "secrete").map((c) => c.id)), 1), seuil: 1 });
   list.push({ id: "maitre", nom: "Maître du monde", emoji: "👑", niveau: "or", desc: "Les 195 pays", prog: () => frac(idsCondition("tous-les-pays")), seuil: 1 });
   const nbShiny = () => CARDS.filter((c) => S.shiny?.[c.id]).length;
@@ -524,13 +566,16 @@ document.addEventListener("pointerout", (e) => {
 function blocStats(c) {
   const n = S.owned[c.id] || 0;
   const st = statsDe(c), q = COMBAT.borne(S.qualite[c.id]);
+  const tal = COMBAT.TALENTS[st.talent];
+  const bat = COMBAT.AVANTAGE[c.type], battuPar = Object.keys(COMBAT.AVANTAGE).find((t) => COMBAT.AVANTAGE[t] === c.type);
   const prochain = st.niveau < COMBAT.NIVEAU_MAX ? 2 ** st.niveau : null;
   const pct = (x) => `<small class="${x > 0 ? "plus" : x < 0 ? "moins" : ""}">${x > 0 ? "+" : ""}${x} %</small>`;
   return `<div class="statbloc">
     <div><span>⚔️ Attaque</span><b>${st.atk}</b>${pct(q[0])}</div>
     <div><span>🛡️ Défense</span><b>${st.def}</b>${pct(q[1])}</div>
     <div><span>❤️ Vie</span><b>${st.pv}</b>${pct(q[2])}</div>
-    <p class="muted">Qualité de votre exemplaire : <b>${COMBAT.noteQualite(q)} %</b> · Niveau <b>${st.niveau}</b>${prochain ? ` (niveau ${st.niveau + 1} à ${prochain} exemplaires, vous en avez ${n})` : " (maximum)"}${S.shiny?.[c.id] ? " · ✨ Shiny : +5 %" : ""} · Coût en deck : <b>${coutDe(c)}</b>.
+    <p class="talentbloc">${tal.emoji} <b>Talent : ${tal.nom}</b> — ${esc(tal.desc)}${bat ? `<br><small class="muted">Fort contre ${EMOJI_TYPE[bat]} ${TYPES[bat]} · faible contre ${EMOJI_TYPE[battuPar]} ${TYPES[battuPar]}</small>` : ""}</p>
+    <p class="muted">Qualité de votre exemplaire : <b>${COMBAT.noteQualite(q)} %</b> · Niveau <b>${st.niveau}</b>${prochain ? ` (niveau ${st.niveau + 1} à ${prochain} exemplaires, vous en avez ${n})` : " (maximum)"}${S.shiny?.[c.id] ? " · ✨ Shiny : +5 %" : S.holo?.[c.id] ? " · 🌈 Holo" : ""} · Coût en deck : <b>${coutDe(c)}</b>.
     Chaque doublon peut améliorer la qualité.</p></div>`;
 }
 function ficheCarte(c) {
@@ -538,7 +583,8 @@ function ficheCarte(c) {
   if (S.nouveaux[c.id]) { delete S.nouveaux[c.id]; sauver(); }
   const rows = [];
   if (c.type === "pays") rows.push(["Capitale", c.capitale], ["Continent", CONTINENTS[c.continent].nom]);
-  if (["ville", "monument", "merveille"].includes(c.type)) rows.push(["Pays", NOM_PAYS[c.pays]], ["Continent", CONTINENTS[c.continent].nom], ["Coordonnées", `${Math.abs(c.lat).toFixed(2)}° ${c.lat >= 0 ? "N" : "S"}, ${Math.abs(c.lon).toFixed(2)}° ${c.lon >= 0 ? "E" : "O"}`]);
+  if (["animal", "plat"].includes(c.type)) rows.push([c.type === "plat" ? "Origine" : "Pays emblème", NOM_PAYS[c.pays]], ["Continent", CONTINENTS[c.continent].nom]);
+  if (["ville", "monument", "merveille", "nature"].includes(c.type)) rows.push(["Pays", NOM_PAYS[c.pays]], ["Continent", CONTINENTS[c.continent].nom], ["Coordonnées", `${Math.abs(c.lat).toFixed(2)}° ${c.lat >= 0 ? "N" : "S"}, ${Math.abs(c.lon).toFixed(2)}° ${c.lon >= 0 ? "E" : "O"}`]);
   if (c.type === "merveille") rows.push(["Liste", c.groupe === "antiques" ? "Sept merveilles du monde antique" : "Sept nouvelles merveilles du monde (2007)"]);
   if (c.type === "secrete" && !owned) rows.push(["Pour la débloquer", libelleCondition(c.condition)]);
   const secretVerrou = c.type === "secrete" && !owned;
@@ -592,7 +638,8 @@ function vueAccueil(v) {
   const secrets = of("monde", "secrete");
   const badges = badgesDe();
   const groupes = Object.entries(CONTINENTS).map(([k, ct]) => [ct.emoji + " " + ct.nom, of("monde", "pays").filter((c) => c.continent === k)])
-    .concat([["🏙️ Villes", of("monde", "ville")], ["🏛️ Monuments", of("monde", "monument")], ["🌟 Merveilles", of("monde", "merveille")]]);
+    .concat([["🏙️ Villes", of("monde", "ville")], ["🏛️ Monuments", of("monde", "monument")], ["🏔️ Nature", of("monde", "nature")], ["🐾 Animaux", of("monde", "animal")], ["🍜 Gastronomie", of("monde", "plat")], ["🌟 Merveilles", of("monde", "merveille")]])
+    .filter(([, l]) => l.length);
   const recents = S.recents.map((id) => BY_ID[id]).filter(Boolean).slice(0, 6);
   const attente = gratuitDans();
   v.innerHTML = `
@@ -605,7 +652,7 @@ function vueAccueil(v) {
           <div class="stat"><b>${count(of("monde", "pays").map((c) => c.id))}/${of("monde", "pays").length}</b><span>pays</span></div>
           <div class="stat"><b>${count(all.map((c) => c.id))}/${all.length}</b><span>cartes</span></div>
           <div class="stat"><b>${count(secrets.map((c) => c.id))}/${secrets.length}</b><span>cartes secrètes</span></div>
-          <div class="stat shinystat"><b>${CARDS.filter((c) => S.shiny?.[c.id]).length}</b><span>✨ cartes Shiny</span></div>
+          <div class="stat shinystat"><b>${CARDS.filter((c) => S.shiny?.[c.id]).length}</b><span>✨ Shiny · 🌈 ${CARDS.filter((c) => S.holo?.[c.id]).length} Holo</span></div>
           <div class="stat"><b>${S.combat.victoires}</b><span>⚔️ victoires</span></div>
           <div class="stat"><b>${badges.filter((b) => S.badges[b.id]).length}/${badges.length}</b><span>badges</span></div>
         </div>
@@ -721,21 +768,25 @@ function ouvrirBooster(type) {
   const cartes = tirerBooster(type);
   const res = cartes.map((c) => {
     const shiny = Math.random() < chance;
+    const holo = !shiny && Math.random() < CHANCE_HOLO;
     const g = gagner(c.id);
+    let nouveauHolo = false;
+    if (holo && !S.holo[c.id]) { S.holo[c.id] = 1; nouveauHolo = true; }
     let bonus = g.neuf ? 0 : RARETES[c.rarete].doublon, nouveauShiny = false;
     if (shiny) {
       if (!S.shiny[c.id]) { S.shiny[c.id] = 1; nouveauShiny = true; }
       else { S.shiny[c.id]++; bonus += RARETES[c.rarete].doublon * 3; }
     }
     S.coins += bonus;
-    return { c, ...g, bonus, shiny, nouveauShiny };
+    return { c, ...g, bonus, shiny, nouveauShiny, holo, nouveauHolo };
   });
   sauver(); majCoins();
   // Comme dans les jeux de cartes : la plus rare est révélée en dernier, et une Shiny après tout le reste
   const poidsOrdre = (x) => (x.shiny ? 10 : 0) + RARETES[x.c.rarete].ordre;
   const ordre = res.slice().sort((a, b) => poidsOrdre(a) - poidsOrdre(b));
-  const etiquette = ({ neuf, bonus, shiny, nouveauShiny, ameliore, niveauPlus }, court) => shiny
+  const etiquette = ({ neuf, bonus, shiny, nouveauShiny, holo, nouveauHolo, ameliore, niveauPlus }, court) => shiny
     ? `<span class="tagnew shinytag">✨ SHINY${nouveauShiny ? " NOUVELLE" : bonus ? ` · +${bonus} 🪙` : ""}</span>`
+    : nouveauHolo ? `<span class="tagnew holotag">🌈 HOLO${neuf ? " NOUVELLE" : ""}</span>`
     : neuf ? `<span class="tagnew">NOUVELLE</span>`
     : `<span class="tagdup">${niveauPlus ? "⬆ Niveau ! " : ameliore ? "📈 Stats ! " : court ? "" : "Doublon · "}+${bonus} 🪙</span>`;
   ouvrirModal(`<div class="poke">
@@ -759,7 +810,7 @@ function ouvrirBooster(type) {
     scene.innerHTML = `<div class="pk-carte">
         <div class="flip grand">
           <div class="face back ${rare ? "glow-" + (x.shiny ? "shiny" : c.rarete) : ""}">${UNIVERS.monde.dos}</div>
-          <div class="face front">${etiquette(x)}${cardHTML(c, { locked: false, shiny: x.shiny })}</div>
+          <div class="face front">${etiquette(x)}${cardHTML(c, { locked: false, shiny: x.shiny, holo: x.holo })}</div>
         </div></div>
       <div class="pk-rarete"></div>`;
     indice(rare ? "Ça brille… Touchez pour retourner !" : "Touchez pour retourner la carte");
@@ -773,7 +824,7 @@ function ouvrirBooster(type) {
     await attendre(450);
     const lab = scene.querySelector(".pk-rarete");
     lab.dataset.r = x.shiny ? "shiny" : c.rarete;
-    lab.textContent = x.shiny ? `✨ SHINY ! ✨` : r >= 4 ? `${RARETES[c.rarete].gems} ${RARETES[c.rarete].nom} ! ${RARETES[c.rarete].gems}` : RARETES[c.rarete].nom;
+    lab.textContent = x.shiny ? `✨ SHINY ! ✨` : x.nouveauHolo && r < 4 ? `🌈 ${RARETES[c.rarete].nom} Holo !` : r >= 4 ? `${RARETES[c.rarete].gems} ${RARETES[c.rarete].nom} ! ${RARETES[c.rarete].gems}` : RARETES[c.rarete].nom;
     if (r >= 2) scene.querySelector(".pk-carte").classList.add("eclat");
     etape = "retournee";
     indice(i < ordre.length - 1 ? "Touchez pour la carte suivante" : "Touchez pour voir votre booster");
@@ -792,7 +843,7 @@ function ouvrirBooster(type) {
     indice(`${neuves} nouvelle${neuves > 1 ? "s" : ""} carte${neuves > 1 ? "s" : ""}${pieces ? ` · +${pieces} 🪙 de doublons` : ""}`);
     const encore = Object.keys(PACKS).find((k) => S.boosters[k] > 0);
     scene.innerHTML = `<div class="opening">${res.map((x) => `<div class="flip done"><div class="face back"></div>
-        <div class="face front">${etiquette(x, true)}${cardHTML(x.c, { locked: false, shiny: x.shiny })}</div></div>`).join("")}</div>
+        <div class="face front">${etiquette(x, true)}${cardHTML(x.c, { locked: false, shiny: x.shiny, holo: x.holo })}</div></div>`).join("")}</div>
       <div class="row" style="justify-content:center;margin-top:14px">
         ${encore ? `<button class="btn primary" id="again">Ouvrir un booster ${PACKS[encore].nom} (${S.boosters[encore]})</button>` : ""}
         <button class="btn" data-close>Terminer</button></div>`;
@@ -825,15 +876,15 @@ const filtres = { type: "tout", cont: "tout", possedees: false, shiny: false, tr
 const sansAccents = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 function vueAlbum(v) {
   const f = filtres;
-  const chips = [["tout", "Tout"], ["pays", "Pays"], ["ville", "Villes"], ["monument", "Monuments"], ["merveille", "Merveilles"], ["secrete", "Secrètes"]];
+  const chips = [["tout", "Tout"], ["pays", "Pays"], ["ville", "Villes"], ["monument", "Monuments"], ["nature", "Nature"], ["animal", "Animaux"], ["plat", "Gastronomie"], ["merveille", "Merveilles"], ["secrete", "Secrètes"]].filter(([k]) => k === "tout" || of("monde", k).length);
   v.innerHTML = `<div class="toolbar">
       ${chips.map(([k, l]) => `<button class="chip ${f.type === k ? "on" : ""}" data-k="${k}">${l}</button>`).join("")}
       <input class="search" id="q" type="search" placeholder="Rechercher…" value="${esc(f.q)}">
       <label class="chip" style="cursor:pointer"><input type="checkbox" id="poss" ${f.possedees ? "checked" : ""}> Possédées</label>
-      <label class="chip" style="cursor:pointer"><input type="checkbox" id="filtreShiny" ${f.shiny ? "checked" : ""}> ✨ Shiny</label>
+      <label class="chip" style="cursor:pointer"><input type="checkbox" id="filtreShiny" ${f.shiny ? "checked" : ""}> ✨ Shiny / 🌈 Holo</label>
       <select class="chip" id="tri"><option value="num">Tri : numéro</option><option value="puissance">Tri : puissance</option><option value="rarete">Tri : rareté</option><option value="nom">Tri : nom</option></select>
     </div>
-    ${f.type === "tout" || f.type === "pays" || f.type === "ville" || f.type === "monument" ? `<div class="toolbar">${[["tout", "Tous les continents"], ...Object.entries(CONTINENTS).map(([k, c]) => [k, c.emoji + " " + c.nom])].map(([k, l]) => `<button class="chip ${f.cont === k ? "on" : ""}" data-cont="${k}">${l}</button>`).join("")}</div>` : ""}
+    ${f.type !== "merveille" && f.type !== "secrete" ? `<div class="toolbar">${[["tout", "Tous les continents"], ...Object.entries(CONTINENTS).map(([k, c]) => [k, c.emoji + " " + c.nom])].map(([k, l]) => `<button class="chip ${f.cont === k ? "on" : ""}" data-cont="${k}">${l}</button>`).join("")}</div>` : ""}
     <div id="sections"></div>`;
   $("#tri").value = f.tri;
   $$(".toolbar [data-k]", v).forEach((b) => b.onclick = () => { f.type = b.dataset.k; aller("album"); });
@@ -849,7 +900,7 @@ function dessinerSections() {
   const f = filtres;
   const q = sansAccents(f.q.trim());
   const contOk = (c) => f.cont === "tout" || c.continent === f.cont;
-  const ok = (c) => contOk(c) && (!f.shiny || S.shiny?.[c.id]) && (!f.possedees || has(c.id)) && (!q || sansAccents(c.nom + " " + (c.capitale || "") + " " + (NOM_PAYS[c.pays] || "")).includes(q) && (c.type !== "secrete" || has(c.id)));
+  const ok = (c) => contOk(c) && (!f.shiny || S.shiny?.[c.id] || S.holo?.[c.id]) && (!f.possedees || has(c.id)) && (!q || sansAccents(c.nom + " " + (c.capitale || "") + " " + (NOM_PAYS[c.pays] || "")).includes(q) && (c.type !== "secrete" || has(c.id)));
   const trier = (list) => {
     if (f.tri === "nom") return list.slice().sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
     if (f.tri === "rarete") return list.slice().sort((a, b) => RARETES[b.rarete].ordre - RARETES[a.rarete].ordre);
@@ -863,6 +914,9 @@ function dessinerSections() {
   }
   if (T === "tout" || T === "ville") sections.push(["🏙️ Villes", of("monde", "ville")]);
   if (T === "tout" || T === "monument") sections.push(["🏛️ Monuments", of("monde", "monument")]);
+  if (T === "tout" || T === "nature") sections.push(["🏔️ Nature", of("monde", "nature")]);
+  if (T === "tout" || T === "animal") sections.push(["🐾 Animaux", of("monde", "animal")]);
+  if (T === "tout" || T === "plat") sections.push(["🍜 Gastronomie", of("monde", "plat")]);
   if (T === "tout" || T === "merveille") sections.push(["🌟 Merveilles du monde moderne", of("monde", "merveille").filter((c) => c.groupe === "modernes")], ["🏺 Merveilles du monde antique", of("monde", "merveille").filter((c) => c.groupe === "antiques")]);
   if (T === "tout" || T === "secrete") sections.push(["✦ Cartes secrètes", of("monde", "secrete")]);
   const html = sections.map(([titre, list]) => {
@@ -877,12 +931,12 @@ function dessinerSections() {
 /* =====================================================================
    Atlas interactif
    ===================================================================== */
-const couches = { pays: true, villes: true, monuments: true, merveilles: true };
+const couches = { pays: true, villes: true, monuments: true, nature: true, merveilles: true };
 function vueAtlas(v, opts = {}) {
   const nPays = count(of("monde", "pays").map((c) => c.id));
   v.innerHTML = `<div class="toolbar">
       <b>${nPays}/195 pays</b><div class="bar" style="flex:1;min-width:120px;max-width:300px"><i style="width:${nPays / 1.95}%"></i></div>
-      ${[["villes", "🏙️ Villes"], ["monuments", "🏛️ Monuments"], ["merveilles", "🌟 Merveilles"]].map(([k, l]) => `<button class="chip ${couches[k] ? "on" : ""}" data-c="${k}">${l}</button>`).join("")}
+      ${[["villes", "🏙️ Villes"], ["monuments", "🏛️ Monuments"], ["nature", "🏔️ Nature"], ["merveilles", "🌟 Merveilles"]].map(([k, l]) => `<button class="chip ${couches[k] ? "on" : ""}" data-c="${k}">${l}</button>`).join("")}
     </div>
     <div class="atlas" id="atlas">
       <div class="zoombtns"><button class="iconbtn" id="zin" aria-label="Zoomer">＋</button><button class="iconbtn" id="zout" aria-label="Dézoomer">−</button><button class="iconbtn" id="zreset" aria-label="Vue entière">⟲</button></div>
@@ -925,7 +979,7 @@ function vueAtlas(v, opts = {}) {
     .on("pointerleave", cacherTip)
     .on("click", (ev, [code]) => ficheCarte(BY_ID["pays:" + code]));
   // Repères : villes, monuments, merveilles
-  const reperes = [...(couches.villes ? of("monde", "ville") : []), ...(couches.monuments ? of("monde", "monument") : []), ...(couches.merveilles ? of("monde", "merveille") : [])];
+  const reperes = [...(couches.villes ? of("monde", "ville") : []), ...(couches.monuments ? of("monde", "monument") : []), ...(couches.nature ? of("monde", "nature") : []), ...(couches.merveilles ? of("monde", "merveille") : [])];
   const pins = g.append("g").selectAll("g.pin").data(reperes).join("g")
     .attr("class", (c) => "pin" + (has(c.id) ? "" : " off"))
     .attr("transform", (c) => { const [x, y] = proj([c.lon, c.lat]); return `translate(${x},${y})`; })
@@ -978,8 +1032,15 @@ function options(bonne, pool, n = 4) {
 }
 function questionMonde() {
   const pays = of("monde", "pays");
-  const lieux = [...of("monde", "ville"), ...of("monde", "monument"), ...of("monde", "merveille")];
-  const type = pick(["capitale", "capitale", "drapeau", "drapeau", "lieu", "lieu", "continent", "anecdote"]);
+  const lieux = [...of("monde", "ville"), ...of("monde", "monument"), ...of("monde", "nature"), ...of("monde", "merveille")];
+  const plats = of("monde", "plat"), animaux = of("monde", "animal");
+  const type = pick(["capitale", "capitale", "drapeau", "drapeau", "lieu", "lieu", "continent", "anecdote", ...(plats.length ? ["plat", "plat"] : []), ...(animaux.length ? ["animal", "animal"] : [])]);
+  if (type === "plat" || type === "animal") {
+    const c = pick(type === "plat" ? plats : animaux);
+    const voisins = pays.filter((x) => x.continent === c.continent).map((x) => x.nom);
+    return { q: type === "plat" ? `De quel pays vient cette spécialité : ${c.nom} ?` : `À quel pays cet animal est-il associé : ${c.nom} ?`,
+      media: photoDe(c.id) ? `<img class="qphoto" src="${esc(photoDe(c.id))}" alt="">` : `<div class="qemoji">${c.emoji}</div>`, bonne: NOM_PAYS[c.pays], choix: options(NOM_PAYS[c.pays], voisins), carte: c };
+  }
   if (type === "capitale") {
     const c = pick(pays);
     const meme = pays.filter((x) => x.continent === c.continent).map((x) => court(x.capitale));
@@ -1090,6 +1151,7 @@ $("#settingsBtn").onclick = () => {
    ===================================================================== */
 async function demarrer() {
   appliquerTheme(); majCoins();
+  const pv = $("#versionJeu"); if (pv) pv.textContent = `${VERSION_JEU} · ${fmt(CARDS.length)} cartes`;
   // Raccourcis de l'app installée et des notifications (ex. ./#boosters, ./#combat)
   const ancre = location.hash.slice(1);
   if (["accueil", "boosters", "album", "quiz", "badges", "combat", "hub", "compte", "premium"].includes(ancre)) { S.vue = ancre; history.replaceState(null, "", location.pathname); }
@@ -1099,7 +1161,7 @@ async function demarrer() {
   initCompte();
   if (!S.ouverts && !count(CARDS.map((c) => c.id))) {
     ouvrirModal(`<div style="text-align:center"><div style="font-size:56px">🌐</div><h2>Bienvenue dans WorldCards !</h2>
-      <p>Collectionnez le monde : <b>195 pays</b>, des centaines de <b>villes</b> et de <b>monuments</b>, et les <b>merveilles</b> du monde. Chaque carte a ses points d'attaque, de défense et de vie : construisez votre deck et combattez !</p>
+      <p>Collectionnez le monde : <b>195 pays</b>, des centaines de <b>villes</b>, de <b>monuments</b> et de <b>sites naturels</b>, des <b>animaux</b>, des <b>plats</b> et les <b>merveilles</b> du monde. Chaque carte a ses points d'attaque, de défense et de vie : construisez votre deck et combattez !</p>
       <p class="muted">Vous recevez <b>3 boosters</b> et <b>200 🪙</b> pour commencer, puis un <b>booster gratuit toutes les 12 heures</b>.</p>
       <button class="btn primary" id="go">Ouvrir mon premier booster</button></div>`);
     $("#go").onclick = () => { const m = $("#modal"); m._onClose = null; fermerModal(); aller("boosters"); ouvrirBooster("monde"); };

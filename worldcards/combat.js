@@ -15,9 +15,37 @@
     monument: [0.93, 1.08, 1.0],
     merveille: [1.04, 1.04, 1.04],
     secrete: [1.06, 1.06, 1.06],
+    nature: [0.95, 1.06, 1.06],
+    animal: [1.08, 0.95, 1.0],
+    plat: [1.0, 0.97, 1.04],
   };
-  // Triangle des types : la ville l'emporte sur le monument, le monument sur le pays, le pays sur la ville
-  const AVANTAGE = { ville: "monument", monument: "pays", pays: "ville" };
+  // Cycle des types : chacun l'emporte sur le suivant
+  // Ville › Monument › Nature › Animal › Plat › Pays › Ville
+  const CYCLE = ["ville", "monument", "nature", "animal", "plat", "pays"];
+  const AVANTAGE = Object.fromEntries(CYCLE.map((t, i) => [t, CYCLE[(i + 1) % CYCLE.length]]));
+  // Talents : chaque carte a un pouvoir, tiré parmi ceux de son type
+  const TALENTS = {
+    bouclier: { nom: "Bouclier", emoji: "🛡️", desc: "Subit 11 % de dégâts en moins." },
+    rage: { nom: "Rage", emoji: "😡", desc: "+32 % de dégâts sous 50 % de vie." },
+    vampire: { nom: "Vampire", emoji: "🧛", desc: "Récupère 18 % des dégâts infligés." },
+    riposte: { nom: "Riposte", emoji: "↩️", desc: "Renvoie 15 % des dégâts subis." },
+    precision: { nom: "Précision", emoji: "🎯", desc: "33 % de coups critiques au lieu de 15 %." },
+    agilite: { nom: "Agilité", emoji: "💨", desc: "22 % d'esquive au lieu de 12 %." },
+    vitesse: { nom: "Vitesse", emoji: "⚡", desc: "Frappe plus souvent en premier." },
+    endurance: { nom: "Endurance", emoji: "🔋", desc: "La garde soigne 25 % de la vie et protège mieux." },
+    colosse: { nom: "Colosse", emoji: "🗿", desc: "+12 % de points de vie." },
+    perforant: { nom: "Perforant", emoji: "🗡️", desc: "Ignore 22 % de la défense adverse." },
+  };
+  const TALENTS_TYPE = {
+    pays: ["bouclier", "endurance", "colosse", "riposte"],
+    ville: ["vitesse", "precision", "rage", "perforant"],
+    monument: ["bouclier", "riposte", "colosse", "endurance"],
+    merveille: ["vampire", "precision", "bouclier", "rage"],
+    secrete: ["vampire", "perforant", "agilite", "precision"],
+    nature: ["colosse", "endurance", "riposte", "agilite"],
+    animal: ["agilite", "rage", "vitesse", "vampire"],
+    plat: ["vampire", "endurance", "precision", "agilite"],
+  };
   const BONUS_AVANTAGE = 1.12;
   const VARIATION = 8;     // chaque exemplaire varie de -8 % à +8 % par statistique
   const BONUS_NIVEAU = 2;   // +2 % par niveau au-delà du premier
@@ -47,6 +75,7 @@
     };
   }
   const arrondi = (x) => Math.round(x / 5) * 5;
+  const talentDe = (id, type) => { const l = TALENTS_TYPE[type] || TALENTS_TYPE.pays; return l[(hash(id) >>> 8) % l.length]; };
 
   // Statistiques de référence d'une carte : légère touche propre à chaque carte (une carte attaque un peu plus, une autre défend mieux)
   function base(id, type, rarete) {
@@ -77,6 +106,7 @@
       def: arrondi(b.def * (1 + q[1] / 100) * mult),
       pv: arrondi(b.pv * (1 + q[2] / 100) * mult),
       niveau: niveau(exemplaires || 1),
+      talent: talentDe(id, type),
     };
   }
   const puissance = (s) => Math.round(s.atk + s.def + s.pv / MULT_PV);
@@ -84,7 +114,11 @@
   /* ---------- Combat ---------- */
   // Une unité : { id, nom, type, atk, def, pv }
   function creer(equipeA, equipeB, graine) {
-    const prep = (eq) => eq.map((u) => ({ ...u, pvMax: u.pv, pv: u.pv, special: true, garde: false }));
+    const prep = (eq) => eq.map((u) => {
+      const talent = TALENTS[u.talent] || u.talent === "aucun" ? u.talent : talentDe(u.id, u.type);
+      const pv = talent === "colosse" ? Math.round(u.pv * 1.12) : u.pv;
+      return { ...u, talent, pvMax: pv, pv, special: true, garde: false };
+    });
     return { equipes: [prep(equipeA), prep(equipeB)], actifs: [0, 0], tour: 0, graine: graine >>> 0, r: rng(graine), fini: false, gagnant: null, journal: [] };
   }
   const actif = (etat, cote) => etat.equipes[cote][etat.actifs[cote]];
@@ -99,15 +133,17 @@
   }
 
   function degats(etat, att, def, action) {
-    let d = att.atk * 600 / (600 + def.def);
+    let d = att.atk * 600 / (600 + def.def * (att.talent === "perforant" ? 0.78 : 1));
     if (AVANTAGE[att.type] === def.type) d *= BONUS_AVANTAGE;
     if (action === "special") d *= 1.7;
+    if (att.talent === "rage" && att.pv / att.pvMax < 0.5) d *= 1.32;
     d *= 0.6 + etat.r() * 0.8;
-    const esquive = etat.r() < 0.12;
-    const critique = !esquive && etat.r() < 0.15;
+    const esquive = etat.r() < (def.talent === "agilite" ? 0.22 : 0.12);
+    const critique = !esquive && etat.r() < (att.talent === "precision" ? 0.33 : 0.15);
     if (critique) d *= 1.8;
     if (esquive) return { d: 0, critique: false, esquive: true };
-    if (def.garde) d *= 0.4;
+    if (def.garde) d *= def.talent === "endurance" ? 0.3 : 0.4;
+    if (def.talent === "bouclier") d *= 0.89;
     return { d: Math.max(1, Math.round(d)), critique, esquive: false };
   }
 
@@ -122,13 +158,14 @@
       if (actions[c] === "special" && !u.special) actions[c] = "attaque";
       u.garde = actions[c] === "garde";
       if (u.garde) {
-        const soin = Math.round(u.pvMax * 0.08);
+        const soin = Math.round(u.pvMax * (u.talent === "endurance" ? 0.25 : 0.08));
         u.pv = Math.min(u.pvMax, u.pv + soin);
         ev.push({ t: "garde", cote: c, soin });
       }
     }
     // Le plus rapide frappe en premier : l'attaque compte, avec une part de hasard
-    const vA = actif(etat, 0).atk * (0.8 + etat.r() * 0.4), vB = actif(etat, 1).atk * (0.8 + etat.r() * 0.4);
+    const vitesse = (u) => u.atk * (u.talent === "vitesse" ? 1.2 : 1);
+    const vA = vitesse(actif(etat, 0)) * (0.8 + etat.r() * 0.4), vB = vitesse(actif(etat, 1)) * (0.8 + etat.r() * 0.4);
     const ordre = vA >= vB ? [0, 1] : [1, 0];
     for (const c of ordre) {
       if (actions[c] === "garde") continue;
@@ -138,6 +175,8 @@
       const { d, critique, esquive } = degats(etat, att, cible, actions[c]);
       cible.pv = Math.max(0, cible.pv - d);
       ev.push({ t: actions[c], cote: c, degats: d, critique, esquive, avantage: AVANTAGE[att.type] === cible.type });
+      if (d > 0 && att.talent === "vampire") { const soin = Math.round(d * 0.18); att.pv = Math.min(att.pvMax, att.pv + soin); ev.push({ t: "talent", cote: c, talent: "vampire", valeur: soin }); }
+      if (d > 0 && cible.talent === "riposte" && cible.pv > 0) { const r = Math.round(d * 0.15); att.pv = Math.max(0, att.pv - r); ev.push({ t: "talent", cote: 1 - c, talent: "riposte", valeur: r }); if (att.pv <= 0) ev.push({ t: "ko", cote: c, id: att.id }); }
       if (cible.pv <= 0) ev.push({ t: "ko", cote: 1 - c, id: cible.id });
     }
     for (const c of [0, 1]) actif(etat, c).garde = false;
@@ -169,6 +208,6 @@
     return etat;
   }
 
-  return { COUT, BUDGET, TAILLE_DECK, PUISSANCE, PROFILS, AVANTAGE, VARIATION, NIVEAU_MAX, BONUS_SHINY, TOURS_MAX,
+  return { TALENTS, TALENTS_TYPE, CYCLE, talentDe, COUT, BUDGET, TAILLE_DECK, PUISSANCE, PROFILS, AVANTAGE, VARIATION, NIVEAU_MAX, BONUS_SHINY, TOURS_MAX,
     hash, rng, base, niveau, tirerQualite, borne, noteQualite, stats, puissance, creer, jouer, rejouer, actif, vivants };
 });

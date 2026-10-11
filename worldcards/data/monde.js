@@ -413,6 +413,11 @@ const SECRETES_MONDE = [
   ["mu", "Le continent de Mu", "🌊", "continent:OC", "Ce continent englouti du Pacifique a été imaginé au XIXe siècle ; aucune preuve géologique n'en a jamais été trouvée."],
   ["atlantide", "L'Atlantide", "🔱", "merveilles:antiques", "Platon la décrit vers 360 av. J.-C. comme une île puissante engloutie en une seule journée."],
   ["cite-z", "La Cité perdue de Z", "🧭", "merveilles:modernes", "L'explorateur Percy Fawcett disparut en 1925 en Amazonie en cherchant cette cité ; on ne l'a jamais retrouvé."],
+  ["babel", "La tour de Babel", "🗼", "type:ville", "Selon la Genèse, les hommes voulaient bâtir une tour jusqu'au ciel ; Dieu brouilla leurs langues pour les en empêcher."],
+  ["shambhala", "Shambhala", "☸️", "type:monument", "Ce royaume caché est décrit dans les textes bouddhistes du Kalachakra, apparus au XIe siècle."],
+  ["eden", "Le jardin d'Éden", "🌳", "type:nature", "Selon la Genèse, un fleuve en sortait pour se diviser en quatre bras, dont le Tigre et l'Euphrate."],
+  ["arche-noe", "L'Arche de Noé", "🛶", "type:animal", "Selon la Genèse, elle mesurait 300 coudées de long et abritait un couple de chaque espèce."],
+  ["ambroisie", "L'Ambroisie", "🍯", "type:plat", "Dans la mythologie grecque, c'était la nourriture des dieux de l'Olympe, qui leur donnait l'immortalité."],
   ["gaia", "Gaïa — la Terre entière", "🌐", "tous-les-pays", "Vous avez collectionné les 195 pays ! Selon l'ONU, il existe 193 États membres, plus deux observateurs : le Vatican et la Palestine."],
 ];
 

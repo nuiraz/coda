@@ -33,7 +33,7 @@ function vueCombat(v) {
   const complet = deck.length === COMBAT.TAILLE_DECK;
   const puissance = deck.reduce((s, c) => s + puissanceDe(c), 0);
   v.innerHTML = `
-    <div class="sectiontitle"><h3>⚔️ Combat</h3><span class="muted">Ville bat Monument · Monument bat Pays · Pays bat Ville (+12 % de dégâts)</span></div>
+    <div class="sectiontitle"><h3>⚔️ Combat</h3><span class="muted">${COMBAT.CYCLE.map((t) => EMOJI_TYPE[t] + " " + TYPES[t]).join(" › ")} › ${EMOJI_TYPE.ville} (+12 % de dégâts)</span></div>
     <div class="panel">
       <div class="row" style="justify-content:space-between">
         <h3 style="margin:0">Mon deck</h3>
@@ -60,6 +60,8 @@ function vueCombat(v) {
         <li><b>⚔️ Attaque</b> : dégâts selon votre attaque et la défense adverse.</li>
         <li><b>✨ Spécial</b> : 1,7 fois plus de dégâts, une seule fois par carte.</li>
         <li><b>🛡️ Garde</b> : vous ne subissez que 40 % des dégâts ce tour-ci et regagnez 8 % de vos points de vie.</li>
+        <li><b>Types</b> : ${COMBAT.CYCLE.map((t) => EMOJI_TYPE[t] + " " + TYPES[t]).join(" bat ")} qui bat ${TYPES.ville} (+12 % de dégâts). Merveilles et secrètes sont neutres.</li>
+        <li><b>Talents</b> : chaque carte a un pouvoir, visible en haut à droite de son image. ${Object.values(COMBAT.TALENTS).map((t) => `${t.emoji} <b>${t.nom}</b> : ${t.desc.toLowerCase()}`).join(" · ")}</li>
         <li>La carte la plus rapide (attaque élevée) frappe en premier. 15 % de coups critiques, 12 % d'esquives.</li>
         <li>Deux exemplaires d'une même carte n'ont pas les mêmes statistiques (de -8 % à +8 %). Les doublons font monter de niveau (+2 % par niveau) et peuvent améliorer vos statistiques.</li>
       </ul>
@@ -165,7 +167,7 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin }) {
     return `<div class="banc">${banc}</div>
       <div class="combattant" data-cote="${cote}">
         <div class="cb-carte">${c ? cardHTML(c, { locked: false, shiny: u.shiny, stats: u }) : ""}</div>
-        <div class="cb-infos"><b>${esc(u.nom)}</b><span class="muted">${TYPES[u.type] || ""}${u.special ? " · ✨ spécial prêt" : ""}</span>
+        <div class="cb-infos"><b>${esc(u.nom)}</b><span class="muted">${TYPES[u.type] || ""} · ${COMBAT.TALENTS[u.talent]?.emoji || ""} ${COMBAT.TALENTS[u.talent]?.nom || ""}${u.special ? " · ✨ spécial prêt" : ""}</span>
           <div class="pvbar"><i style="width:${(u.pv / u.pvMax) * 100}%" class="${u.pv / u.pvMax < 0.3 ? "bas" : ""}"></i></div>
           <span class="pvtxt">❤️ ${u.pv} / ${u.pvMax}</span></div>
       </div>`;
@@ -185,6 +187,7 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin }) {
       if (e.esquive) return `💨 ${nomDe(1 - e.cote)} esquive ${e.t === "special" ? "l'attaque spéciale" : "l'attaque"} !`;
       return `${e.t === "special" ? "✨ Attaque spéciale" : "⚔️ Attaque"} ${e.cote === 0 ? "de votre carte" : "adverse"} : ${e.degats} dégâts${e.critique ? " (critique !)" : ""}${e.avantage ? " (avantage de type)" : ""}.`;
     }
+    if (e.t === "talent") return e.talent === "vampire" ? `🧛 ${nomDe(e.cote)} récupère ${e.valeur} ❤️ (Vampire).` : `↩️ Riposte : ${e.valeur} dégâts renvoyés !`;
     if (e.t === "ko") return `💥 ${BY_ID[e.id]?.nom || "Une carte"} est K.O. !`;
     if (e.t === "entree") return `➡️ ${BY_ID[e.id]?.nom || "Une carte"} entre en jeu.`;
     return "";

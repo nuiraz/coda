@@ -6,6 +6,11 @@ import COMBAT from "../../worldcards/combat.js";
 import MONDE from "../../worldcards/data/monde.js";
 import VILLES2 from "../../worldcards/data/villes2.js";
 import MONUMENTS2 from "../../worldcards/data/monuments2.js";
+import VILLES3 from "../../worldcards/data/villes3.js";
+import MONUMENTS3 from "../../worldcards/data/monuments3.js";
+import NATURE from "../../worldcards/data/nature.js";
+import ANIMAUX from "../../worldcards/data/animaux.js";
+import PLATS from "../../worldcards/data/plats.js";
 
 const JOUR = 864e5;
 const SESSION_JOURS = 30;
@@ -532,8 +537,11 @@ const CATALOGUE = (() => {
   const m = {};
   const ajouter = (id, x) => { if (!m[id]) m[id] = x; };
   for (const p of MONDE.PAYS_BRUTS) ajouter("pays:" + p[0], { type: "pays", rarete: "commun", nom: p[1] });
-  for (const v of [...MONDE.VILLES_BRUTES, ...VILLES2.VILLES_EXTRA]) ajouter("ville:" + v[0], { type: "ville", rarete: "peu-commun", nom: v[1] });
-  for (const x of [...MONDE.MONUMENTS_BRUTS, ...MONUMENTS2.MONUMENTS_EXTRA]) ajouter("monu:" + x[0], { type: "monument", rarete: x[6], nom: x[1] });
+  for (const v of [...MONDE.VILLES_BRUTES, ...VILLES2.VILLES_EXTRA, ...VILLES3.VILLES_EXTRA2]) ajouter("ville:" + v[0], { type: "ville", rarete: "peu-commun", nom: v[1] });
+  for (const x of NATURE.NATURE_BRUTS) ajouter("nat:" + x[0], { type: "nature", rarete: x[6], nom: x[1] });
+  for (const x of ANIMAUX.ANIMAUX_BRUTS) ajouter("ani:" + x[0], { type: "animal", rarete: x[4], nom: x[1] });
+  for (const x of PLATS.PLATS_BRUTS) ajouter("plat:" + x[0], { type: "plat", rarete: x[4], nom: x[1] });
+  for (const x of [...MONDE.MONUMENTS_BRUTS, ...MONUMENTS2.MONUMENTS_EXTRA, ...MONUMENTS3.MONUMENTS_EXTRA2]) ajouter("monu:" + x[0], { type: "monument", rarete: x[6], nom: x[1] });
   for (const x of MONDE.MERVEILLES_BRUTES) ajouter("merv:" + x[0], { type: "merveille", rarete: "legendaire", nom: x[1] });
   for (const x of MONDE.SECRETES_MONDE) ajouter("secret:" + x[0], { type: "secrete", rarete: "secrete", nom: x[1] });
   return m;
@@ -555,7 +563,7 @@ async function construireDeck(env, userId, ids) {
     if (!c || !((save.owned || {})[id] > 0)) throw new ErreurApi("Une carte du deck ne fait pas partie de votre collection (sauvegarde du compte).");
     cout += COMBAT.COUT[c.rarete];
     const st = COMBAT.stats(id, c.type, c.rarete, (save.qualite || {})[id], Math.min(16, save.owned[id]), !!(save.shiny || {})[id]);
-    return { id, type: c.type, nom: c.nom, shiny: !!(save.shiny || {})[id], atk: st.atk, def: st.def, pv: st.pv, niveau: st.niveau };
+    return { id, type: c.type, nom: c.nom, shiny: !!(save.shiny || {})[id], atk: st.atk, def: st.def, pv: st.pv, niveau: st.niveau, talent: st.talent };
   });
   if (cout > COMBAT.BUDGET) throw new ErreurApi(`Deck trop coûteux (${cout}/${COMBAT.BUDGET}).`);
   return unites;
