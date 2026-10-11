@@ -1181,3 +1181,28 @@ h1 { font-weight: 800; }
   .top .titre-vue { display: block; flex: 1; font-size: 17px; min-width: 0; }
   .top > .brand { display: none !important; }
 }
+
+/* ===== Collections de pays ===== */
+.grille-pays { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.pays-tuile { display: flex; flex-direction: column; gap: 6px; align-items: stretch; text-align: left; padding: 10px; border-radius: 16px; border: 1px solid var(--border); background: var(--panel); box-shadow: var(--shadow); transition: transform .15s, border-color .15s; }
+.pays-tuile:hover { transform: translateY(-2px); border-color: var(--accent); }
+.pays-tuile img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,.2); }
+.pays-tuile .pt-nom { font-weight: 800; font-family: var(--titre); line-height: 1.1; }
+.pays-tuile small { color: var(--muted); font-weight: 700; }
+.pays-tuile.complet { border-color: var(--or); background: linear-gradient(160deg, color-mix(in srgb, var(--or) 18%, var(--panel)), var(--panel)); }
+.pays-entete { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; padding: 18px; border-radius: 22px; color: #fff; margin-bottom: 8px;
+  background: linear-gradient(130deg, color-mix(in srgb, var(--c) 85%, #000), color-mix(in srgb, var(--c) 45%, #1a1240)); box-shadow: var(--shadow); }
+.pays-entete img { width: 120px; border-radius: 10px; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+.pays-entete > div { flex: 1; min-width: 200px; } .pays-entete h1 { margin: 0; } .pays-entete p { margin: 4px 0; opacity: .9; }
+.pays-entete .bar { background: rgba(255,255,255,.25); }
+.poussiere-bloc { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-top: 16px; }
+/* ===== Amis ===== */
+.amis { display: grid; gap: 8px; }
+.ami { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); }
+.ami-infos { flex: 1; min-width: 160px; display: flex; flex-direction: column; }
+.enligne { color: var(--ok); font-size: 12px; margin-left: 6px; }
+/* ===== Arène, Premium ===== */
+.palier-arene { margin: 0 0 8px; font-weight: 800; font-size: 18px; font-family: var(--titre); }
+.zone-paypal { margin-top: 10px; min-height: 40px; }
+.offre-premium [data-payer].secours { background: none; color: var(--muted); border: 0; box-shadow: none; font-size: 13px; text-decoration: underline; padding: 4px; }
+@media (max-width: 760px) { .grille-pays { grid-template-columns: repeat(2, 1fr); } .pays-entete img { width: 84px; } }

@@ -182,6 +182,7 @@ async function initCompte() {
 
   if (location.protocol === "file:") { COMPTE.etat = "indispo"; majBoutonCompte(); return; }
   chargerEvenement();
+  chargerCorrectionsPhotos();
   // Affiche tout de suite le dernier compte connecté sur cet appareil, avant la réponse du serveur
   try { const c = JSON.parse(localStorage.getItem("worldcards:compte") || "null"); if (c && lireJeton()) { Object.assign(COMPTE, c); COMPTE.etat = "connecte"; majBoutonCompte(); } } catch {}
   try {
@@ -504,10 +505,10 @@ function vueHub(v) {
     return;
   }
   v.innerHTML = `<div class="sectiontitle"><h3>👥 Communauté WorldCards</h3><span class="muted">Fil d'actualité, marché d'échanges, tournois de la semaine & classements</span></div>
-    <div class="toolbar">${[["fil", "💬 Fil d'actualité"], ["echanges", "🤝 Marché d'échanges"], ["tournois", "🏆 Tournoi hebdo"], ["classement", "🌟 Classement"]].map(([k, l]) => `<button class="chip ${hubEtat.onglet === k ? "on" : ""}" data-o="${k}">${l}</button>`).join("")}</div>
+    <div class="toolbar">${[["fil", "💬 Fil d'actualité"], ["echanges", "🤝 Marché d'échanges"], ["tournois", "🏆 Tournoi hebdo"], ["classement", "🌟 Classement"], ["amis", "👫 Amis"]].map(([k, l]) => `<button class="chip ${hubEtat.onglet === k ? "on" : ""}" data-o="${k}">${l}</button>`).join("")}</div>
     <div id="hubCorps"></div>`;
   $$("[data-o]", v).forEach((b) => b.onclick = () => { hubEtat.onglet = b.dataset.o; aller("hub"); });
-  const router = { fil: hubFil, echanges: hubEchanges, tournois: hubTournois, classement: hubClassement };
+  const router = { fil: hubFil, echanges: hubEchanges, tournois: hubTournois, classement: hubClassement, amis: hubAmis };
   (router[hubEtat.onglet] || hubFil)($("#hubCorps"));
 }
 async function hubFil(el) {
@@ -936,7 +937,7 @@ async function vueAdmin(v) {
   if (!COMPTE.admin) { v.innerHTML = `<div class="panel"><p>Accès réservé à l'administrateur.</p><button class="btn" data-aller="compte">Mon compte</button></div>`; brancherLiens(v); return; }
   v.innerHTML = `<div class="sectiontitle"><h3>👑 Administration</h3><span class="muted">Connecté en tant que ${esc(COMPTE.pseudo)}</span></div>
     <div class="statgrid" id="aStats"><div class="stat"><b>…</b><span>chargement</span></div></div>
-    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
+    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
     <div id="aCorps"></div>`;
   $$("[data-a]", v).forEach((b) => b.onclick = () => { adminEtat.onglet = b.dataset.a; aller("admin"); });
   api("admin/stats").then((s) => {
@@ -944,7 +945,7 @@ async function vueAdmin(v) {
       .map(([l, n]) => `<div class="stat"><b>${fmt(n)}</b><span>${l}</span></div>`).join("");
   }).catch((e) => { $("#aStats").innerHTML = `<p class="err">${esc(e.message)}</p>`; });
   const corps = $("#aCorps");
-  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, evenements: adminEvenements, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
+  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, evenements: adminEvenements, photos: adminPhotos, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
 }
 async function adminJoueurs(el) {
   el.innerHTML = `<input class="search" id="aq" type="search" placeholder="Rechercher un joueur…" value="${esc(adminEtat.q)}" style="max-width:none;width:100%;margin-bottom:10px">
@@ -1273,7 +1274,8 @@ function vuePremium(v) {
         ${o.ruban ? `<span class="ruban">${o.ruban}</span>` : ""}
         <h3 style="margin:0">${o.nom}</h3><div class="prix">${o.prix}</div>
         <p class="muted" style="margin:0 0 10px">${o.detail}</p>
-        <a class="btn primary premium" href="${o.lien}" target="_blank" rel="noopener" data-payer="${k}">Payer ${o.prix} avec PayPal</a></div>`).join("")}</div>
+        <a class="btn primary premium" href="${o.lien}" target="_blank" rel="noopener" data-payer="${k}">Payer ${o.prix} avec PayPal</a>
+        ${connecte() ? `<div class="zone-paypal hidden" data-paypal="${k}"></div>` : ""}</div>`).join("")}</div>
     <div class="panel" style="margin-top:16px">
       <h3 style="margin-top:0">Comment ça marche ?</h3>
       <ol class="regles">
@@ -1297,6 +1299,7 @@ function vuePremium(v) {
         <button class="btn primary" data-close>OK</button></div>`);
     } catch (err) { $("#dErr").textContent = err.message; }
   });
+  brancherPaypal();
 }
 async function adminPremium(el) {
   el.innerHTML = `<form class="panel form" id="fPrem" style="max-width:520px"><h3 style="margin:0">Activer le Premium</h3>

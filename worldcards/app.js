@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v19"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v20"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -214,7 +214,7 @@ const prixOffre = (k) => Math.round(PACKS[k].prix * 0.6 / 10) * 10;
    ===================================================================== */
 const SAVE_KEY = "worldcards:v1";
 const nouvelleSauvegarde = () => ({
-  coins: 200, owned: {}, shiny: {}, holo: {}, doree: {}, qualite: {}, nouveaux: {}, recents: [], badges: {},
+  coins: 200, poussiere: 0, paysRecompense: {}, owned: {}, shiny: {}, holo: {}, doree: {}, qualite: {}, nouveaux: {}, recents: [], badges: {},
   boosters: { monde: 3, argent: 0, or: 0, prestige: 0, halloween: 1, noel: 1 }, gratuitLe: 0, xp: 0, defisFaits: 0, son: true, premiumJour: "", prestigeSemaine: "", ouverts: 0,
   pity: 0, tempsJeuTotal: 0, nbSessions: 1, premierJour: new Date().toISOString(),
   quiz: { monde: { serie: 0, record: 0, bonnes: 0, total: 0 } }, quizJour: { d: "", n: 0 },
@@ -716,14 +716,14 @@ const prestigeSemaineDispo = () => premium() && S.prestigeSemaine !== semaine();
 const boostersEnStock = () => Object.values(S.boosters).reduce((a, b) => a + (b || 0), 0);
 const NAV = [["accueil", "🏠", "Accueil"], ["boosters", "🎁", "Boutique"], ["album", "📚", "Album"], ["combat", "⚔️", "Combat"], ["atlas", "🗺️", "Atlas"], ["quiz", "❓", "Quiz"], ["badges", "🏅", "Badges"]];
 // Vues hors menu (définies dans compte.js)
-const VUES_GLOBALES = ["compte", "hub", "admin", "legal", "premium"];
+const VUES_GLOBALES = ["compte", "hub", "admin", "legal", "premium", "pays", "collections"];
 // Toutes les destinations : menu latéral (ordinateur), onglets du bas et panneau « Plus » (mobile)
 const DESTINATIONS = [
   ["accueil", "🏠", "Accueil"], ["boosters", "🎁", "Boutique"], ["album", "📚", "Album"], ["combat", "⚔️", "Combat"],
-  ["atlas", "🗺️", "Atlas"], ["quiz", "❓", "Quiz"], ["badges", "🏅", "Badges"], ["hub", "👥", "Communauté"], ["premium", "💎", "Premium"], ["compte", "👤", "Mon compte"],
+  ["collections", "🏳️", "Pays"], ["atlas", "🗺️", "Atlas"], ["quiz", "❓", "Quiz"], ["badges", "🏅", "Badges"], ["hub", "👥", "Communauté"], ["premium", "💎", "Premium"], ["compte", "👤", "Mon compte"],
 ];
 const ONGLETS_MOBILE = ["accueil", "boosters", "album", "combat"];
-const TITRES = Object.fromEntries([...DESTINATIONS.map(([v, ic, l]) => [v, `${ic} ${l}`]), ["admin", "👑 Administration"], ["legal", "📄 Informations légales"]]);
+const TITRES = Object.fromEntries([...DESTINATIONS.map(([v, ic, l]) => [v, `${ic} ${l}`]), ["admin", "👑 Administration"], ["legal", "📄 Informations légales"], ["pays", "🏳️ Collection du pays"]]);
 function renderNav() {
   if (!NAV.some(([v]) => v === S.vue) && !VUES_GLOBALES.includes(S.vue)) S.vue = "accueil";
   const pill = boostersEnStock() + (gratuitDans() === 0 ? 1 : 0) + (bonusPremiumDispo() ? 2 : 0);
@@ -790,7 +790,7 @@ function aller(vue, opts) {
   S.vue = vue; renderNav(); vue = S.vue; sauver(); // renderNav remplace une vue inconnue par l'accueil
   const v = $("#view"); v.innerHTML = "";
   ({ accueil: vueAccueil, boosters: vueBoosters, album: vueAlbum, atlas: vueAtlas, badges: vueBadges, quiz: vueQuiz, combat: vueCombat,
-    compte: vueCompte, hub: vueHub, admin: vueAdmin, legal: vueLegal, premium: vuePremium })[vue](v, opts);
+    compte: vueCompte, hub: vueHub, admin: vueAdmin, legal: vueLegal, premium: vuePremium, pays: vuePays, collections: vueCollectionsPays })[vue](v, opts);
   $("#hubBtn")?.classList.toggle("on", vue === "hub");
   $("#premiumBtn")?.classList.toggle("on", vue === "premium");
   $("#compteBtn")?.classList.toggle("on", vue === "compte" || vue === "admin");
@@ -877,6 +877,9 @@ function ficheCarte(c) {
         <div class="row" style="flex-wrap:wrap;gap:8px">
           ${!owned && !secretVerrou && prix ? `<button class="btn primary" id="craft" ${S.coins < prix ? "disabled" : ""}>Obtenir pour ${fmt(prix)} 🪙</button>` : ""}
           ${owned ? `<button class="btn primary" id="voir3d">🧊 Voir en 3D</button>` : ""}
+          ${!owned && c.type !== "secrete" && !c.saisonnier && POUSSIERE_FABRICATION[c.rarete] ? `<button class="btn" id="fabriquer" ${(S.poussiere || 0) < POUSSIERE_FABRICATION[c.rarete] ? "disabled" : ""}>🔨 Fabriquer · ${fmt(POUSSIERE_FABRICATION[c.rarete])} ✨ (vous : ${fmt(S.poussiere || 0)})</button>` : ""}
+          ${owned && doublonsRecyclables(c) > 0 && POUSSIERE_RECYCLAGE[c.rarete] ? `<button class="btn" id="recycler">♻️ Recycler ${doublonsRecyclables(c)} doublon${doublonsRecyclables(c) > 1 ? "s" : ""} · +${fmt(doublonsRecyclables(c) * POUSSIERE_RECYCLAGE[c.rarete])} ✨</button>` : ""}
+          ${(c.pays || c.code) ? `<button class="btn" id="voirPays">🏳️ Cartes de ${esc(NOM_PAYS[c.pays || c.code])}</button>` : ""}
           ${owned ? `<button class="btn" id="deckBtn">${dansDeck ? "Retirer du deck" : "⚔️ Ajouter au deck"}</button>` : ""}
           ${owned && (S.owned[c.id] || 0) >= 3 && !S.doree?.[c.id] ? `<button class="btn primary" id="evolveBtn" style="background:linear-gradient(135deg, #ffd700, #ff9800);color:#1a1409;font-weight:800">👑 Forger en Version Dorée ✨ (2 doublons)</button>` : ""}
           ${owned && S.doree?.[c.id] ? `<span class="rbadge" style="background:linear-gradient(135deg, #fff3b0, #ffd700);color:#1a1409;font-weight:800">👑 Version Dorée Débloquée (+15 % stats)</span>` : ""}
@@ -885,6 +888,7 @@ function ficheCarte(c) {
         </div>
         ${!owned && !secretVerrou && prix && S.coins < prix ? `<p class="muted" style="font-size:13px">Il vous manque ${fmt(prix - S.coins)} 🪙. Gagnez-en au quiz et en combat !</p>` : ""}
         ${!secretVerrou && PHOTOS[c.id] && S.photos !== false ? `<p class="credit" id="credit"></p>` : ""}
+        ${!secretVerrou && typeof connecte === "function" ? `<p class="muted" style="font-size:12.5px;margin:4px 0 0"><a href="#" id="signalerPhoto">📷 Photo incorrecte ?</a></p>` : ""}
       </div></div>`);
   if ($("#credit")) creditPhoto(c, $("#credit"));
   $("#craft")?.addEventListener("click", () => {
@@ -894,6 +898,9 @@ function ficheCarte(c) {
     fermerModal(); verifierProgression(); aller(S.vue);
   });
   $("#voir3d")?.addEventListener("click", () => voir3D(c));
+  $("#fabriquer")?.addEventListener("click", () => { if (fabriquer(c)) { majCoins(); toast(`🔨 <b>${esc(c.nom)}</b> fabriquée !`); fermerModal(); verifierProgression(); ficheCarte(c); } });
+  $("#recycler")?.addEventListener("click", () => confirmer(`Recycler ${doublonsRecyclables(c)} doublon(s) de « ${c.nom} » ? Vous gardez 1 exemplaire, mais la carte peut perdre des niveaux.`, "Recycler", () => { const g = recycler(c); sauver(); fermerModal(); toast(`♻️ +${fmt(g)} ✨ poussière`); ficheCarte(c); }));
+  $("#voirPays")?.addEventListener("click", () => { fermerModal(); aller("pays", { code: c.pays || c.code }); });
   $("#evolveBtn")?.addEventListener("click", () => {
     if ((S.owned[c.id] || 0) < 3) return toast("⚠ Il vous faut au moins 3 exemplaires pour forger la version dorée.");
     S.owned[c.id] -= 2;
@@ -910,6 +917,7 @@ function ficheCarte(c) {
   });
   $("#deckBtn")?.addEventListener("click", () => { basculerDeck(c.id); fermerModal(); if (S.vue === "combat") aller("combat"); });
   $("#voirAtlas")?.addEventListener("click", () => { fermerModal(); aller("atlas", { focus: c }); });
+  $("#signalerPhoto")?.addEventListener("click", (e) => { e.preventDefault(); signalerPhoto(c); });
 }
 /* =====================================================================
    Carte en 3D : faites-la tourner du doigt, ou en inclinant le téléphone
@@ -1044,7 +1052,7 @@ function vueAccueil(v) {
     </section>
     ${recents.length ? `<div class="sectiontitle"><h3>🆕 Dernières découvertes</h3><a href="#" id="voirAlbum" class="muted">Tout l'album →</a></div><div class="carrousel">${recents.map((c) => cardHTML(c, { compte: true })).join("")}</div>` : ""}
     <div class="accueil-grille">
-      <div id="blocDefis">${blocDefis()}</div>
+      <div id="blocDefis">${blocDefis()}<div style="margin-top:16px">${blocQuetes()}</div></div>
       <div class="panel progress-list">
         <h3 style="margin-top:0">🌍 Progression</h3>
         ${groupes.map(([nom, list]) => { const k = count(list.map((c) => c.id)); return `<div class="p"><span>${nom}</span><div class="bar"><i style="width:${(k / list.length) * 100}%"></i></div><span>${k}/${list.length}</span></div>`; }).join("")}
@@ -1053,6 +1061,7 @@ function vueAccueil(v) {
     <div class="sectiontitle"><h3>✦ Cartes secrètes</h3><span class="muted">Terminez une collection entière pour les débloquer</span></div>
     <div class="carrousel">${secrets.map((c) => cardHTML(c)).join("")}</div>`;
   $$("[data-defi-recu]", v).forEach((b) => b.onclick = () => recupererDefi(Number(b.dataset.defiRecu)));
+  $$("[data-quete]", v).forEach((b) => b.onclick = () => recupererQuete(Number(b.dataset.quete)));
   $("[data-aller-boutique]", v)?.addEventListener("click", () => aller("boosters"));
   $("#okMigration")?.addEventListener("click", () => { delete S.messageMigration; aller("accueil"); });
   $("#gratuit")?.addEventListener("click", recupererGratuit);
@@ -1130,6 +1139,8 @@ function vueBoosters(v) {
     </div>
     ${EVENEMENT && PACKS[EVENEMENT.cle] ? `<div class="sectiontitle"><h3>${PACKS[EVENEMENT.cle].emoji} Événement : ${esc(EVENEMENTS_SAISONNIERS[EVENEMENT.cle].nom)}</h3><span class="muted">Jusqu'au ${new Date(EVENEMENT.fin).toLocaleDateString("fr-FR")} · cartes exclusives</span></div>
       <div class="boutique evenement">${carteOffre(EVENEMENT.cle, PACKS[EVENEMENT.cle])}</div>` : ""}
+    <div class="panel poussiere-bloc"><div><b>✨ Poussière d'étoiles : ${fmt(S.poussiere || 0)}</b><br><span class="muted">Recyclez vos doublons en poussière, puis fabriquez la carte de votre choix depuis sa fiche (ou depuis la page d'un pays).</span></div>
+      <button class="btn" id="toutRecycler">♻️ Recycler tous les doublons</button></div>
     <div class="sectiontitle"><h3>🛍️ Boutique</h3><span class="muted">Plus le booster est cher, plus les cartes sont rares</span></div>
     <div class="boutique">${PACKS_PRINCIPAUX.map((k) => carteOffre(k, PACKS[k])).join("")}</div>
     <div class="sectiontitle"><h3>🎯 Boosters thématiques</h3><span class="muted">Ciblez la catégorie ou le continent qui vous manque</span></div>
@@ -1154,6 +1165,7 @@ function vueBoosters(v) {
     ouvrirBooster(offre);
   });
   $("#toutOuvrir")?.addEventListener("click", toutOuvrir);
+  $("#toutRecycler")?.addEventListener("click", toutRecycler);
   $("#gratuit")?.addEventListener("click", recupererGratuit);
   $("#bonusPremium")?.addEventListener("click", recupererBonusPremium);
   $("#prestigeOffert")?.addEventListener("click", () => { S.prestigeSemaine = semaine(); S.boosters.prestige++; sauver(); toast("💎 Booster Prestige offert !"); aller("boosters"); });
@@ -1437,7 +1449,7 @@ function vueAtlas(v, opts = {}) {
       <div class="legend">${Object.values(CONTINENTS).map((c) => `<span><i style="background:${c.couleur}"></i>${c.nom}</span>`).join("")}<span><i style="background:var(--panel2);border:1px solid var(--border)"></i>À découvrir</span></div>
       <div class="tip hidden" id="tip"></div>
     </div>
-    <p class="muted" style="font-size:13px">Faites glisser pour vous déplacer, molette ou pincement pour zoomer. Touchez un pays ou un symbole pour ouvrir sa carte.</p>`;
+    <p class="muted" style="font-size:13px">Plus un pays est coloré, plus vous avez de ses cartes. Touchez un pays pour voir toute sa collection, ou un symbole pour ouvrir sa carte.</p>`;
   $$("[data-c]", v).forEach((b) => b.onclick = () => { couches[b.dataset.c] = !couches[b.dataset.c]; aller("atlas"); });
 
   const W = 960, H = 500;
@@ -1457,12 +1469,13 @@ function vueAtlas(v, opts = {}) {
   const petits = [];
   g.selectAll("path.country").data(feats).join("path")
     .attr("d", path)
-    .attr("class", (f) => { const code = NUM_TO_CODE[f.id]; return "country " + (!code ? "none" : has("pays:" + code) ? "col own" : "col off"); })
-    .attr("fill", (f) => { const code = NUM_TO_CODE[f.id]; return code && has("pays:" + code) ? CONTINENTS[CONT_PAYS[code]].couleur : null; })
+    .attr("class", (f) => { const code = NUM_TO_CODE[f.id]; return "country " + (!code ? "none" : progresPays(code).n ? "col own" : "col off"); })
+    .attr("fill", (f) => { const code = NUM_TO_CODE[f.id]; if (!code) return null; const p = progresPays(code); return p.n ? CONTINENTS[CONT_PAYS[code]].couleur : null; })
+    .attr("fill-opacity", (f) => { const code = NUM_TO_CODE[f.id]; if (!code) return null; const p = progresPays(code); return p.n ? 0.35 + 0.65 * (p.n / p.t) : null; })
     .each(function (f) { const code = NUM_TO_CODE[f.id]; if (code && path.area(f) < 6) petits.push([code, path.centroid(f)]); })
-    .on("pointermove", (ev, f) => { const code = NUM_TO_CODE[f.id]; montrerTip(ev, code ? (has("pays:" + code) ? NOM_PAYS[code] : "🔒 " + NOM_PAYS[code]) : "Territoire hors collection"); })
+    .on("pointermove", (ev, f) => { const code = NUM_TO_CODE[f.id]; montrerTip(ev, code ? `${NOM_PAYS[code]} · ${progresPays(code).n}/${progresPays(code).t} cartes` : "Territoire hors collection"); })
     .on("pointerleave", cacherTip)
-    .on("click", (ev, f) => { const code = NUM_TO_CODE[f.id]; if (code) ficheCarte(BY_ID["pays:" + code]); });
+    .on("click", (ev, f) => { const code = NUM_TO_CODE[f.id]; if (code) aller("pays", { code }); });
   // Petits pays : un point cliquable en plus du tracé
   for (const [code, lonlat] of Object.entries(POINTS_ABSENTS)) petits.push([code, proj(lonlat)]);
   const dots = g.append("g").selectAll("circle").data(petits).join("circle")
@@ -1473,7 +1486,7 @@ function vueAtlas(v, opts = {}) {
     .on("pointerleave", cacherTip)
     .on("click", (ev, [code]) => ficheCarte(BY_ID["pays:" + code]));
   // Repères : villes, monuments, merveilles
-  const reperes = [...(couches.villes ? of("monde", "ville") : []), ...(couches.monuments ? of("monde", "monument") : []), ...(couches.nature ? of("monde", "nature") : []), ...(couches.merveilles ? of("monde", "merveille") : [])];
+  const reperes = [...(couches.villes ? of("monde", "ville") : []), ...(couches.monuments ? of("monde", "monument") : []), ...(couches.nature ? of("monde", "nature") : []), ...(couches.merveilles ? of("monde", "merveille") : [])].filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon) && !c.saisonnier);
   const pins = g.append("g").selectAll("g.pin").data(reperes).join("g")
     .attr("class", (c) => "pin" + (has(c.id) ? "" : " off"))
     .attr("transform", (c) => { const [x, y] = proj([c.lon, c.lat]); return `translate(${x},${y})`; })

@@ -381,6 +381,7 @@ async function blocArene(el, complet) {
   try {
     const a = await api("arene/moi");
     el.innerHTML = `<h3 style="margin-top:0">🏟️ Arène en ligne</h3>
+      <p class="palier-arene">${a.palier?.nom || ""} <span class="muted">· saison ${a.saison || ""}, fin dans ${a.finSaison ? Math.ceil((a.finSaison - Date.now()) / 864e5) + " jours" : "—"}</span></p>
       <div class="statgrid petit"><div class="stat"><b>🏆 ${fmt(a.trophees)}</b><span>trophées</span></div><div class="stat"><b>${a.rang ? "#" + a.rang : "—"}</b><span>rang</span></div>
       <div class="stat"><b>${a.victoires}/${a.defaites}</b><span>V / D</span></div><div class="stat"><b>${a.restants}/${a.limite}</b><span>combats aujourd'hui</span></div></div>
       <p class="muted" style="font-size:13.5px">Votre deck sert aussi à défendre : les autres joueurs l'affrontent quand vous êtes absent. ${a.deck ? "✅ Deck de défense enregistré." : "⚠ Pas encore de deck de défense."}</p>
@@ -439,7 +440,7 @@ async function classementArene() {
   try {
     const { joueurs } = await api("arene/classement");
     $("#clA").innerHTML = `<div style="overflow-x:auto"><table class="classement"><thead><tr><th>#</th><th>Joueur</th><th>Trophées</th><th>V / D</th></tr></thead><tbody>
-      ${joueurs.map((j, i) => `<tr class="${j.pseudo === COMPTE.pseudo ? "moi" : ""}"><td>${["🥇", "🥈", "🥉"][i] || i + 1}</td><td>${esc(j.pseudo)}${j.premium ? " 💎" : ""}${j.admin ? " 👑" : ""}</td><td>${fmt(j.trophees)}</td><td>${j.victoires} / ${j.defaites}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Personne pour l'instant.</td></tr>`}
+      ${joueurs.map((j, i) => `<tr class="${j.pseudo === COMPTE.pseudo ? "moi" : ""}"><td>${["🥇", "🥈", "🥉"][i] || i + 1}</td><td>${esc(j.pseudo)}${j.premium ? " 💎" : ""}${j.admin ? " 👑" : ""}</td><td>${j.palier?.nom || ""} · ${fmt(j.trophees)}</td><td>${j.victoires} / ${j.defaites}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Personne pour l'instant.</td></tr>`}
       </tbody></table></div>`;
   } catch (e) { $("#clA").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }

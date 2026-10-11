@@ -63,6 +63,9 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS livraisons ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, carte TEXT, doree INTEGER NOT NULL DEFAULT 0, pieces INTEGER NOT NULL DEFAULT 0, message TEXT, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS tournoi_scores ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, pseudo TEXT NOT NULL, semaine TEXT NOT NULL, score INTEGER NOT NULL DEFAULT 0, victoires INTEGER NOT NULL DEFAULT 0, jour TEXT, nb_jour INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL, PRIMARY KEY (user_id, semaine) )`,
   `CREATE TABLE IF NOT EXISTS hebdo ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, semaine TEXT NOT NULL, cartes_debut INTEGER NOT NULL, cartes INTEGER NOT NULL, PRIMARY KEY (user_id, semaine) )`,
+  `CREATE TABLE IF NOT EXISTS amis ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, ami_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, ami_id) )`,
+  `CREATE TABLE IF NOT EXISTS paiements ( commande TEXT PRIMARY KEY, user_id INTEGER NOT NULL, formule TEXT NOT NULL, montant TEXT NOT NULL, statut TEXT NOT NULL, cree_le INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS photos ( carte TEXT PRIMARY KEY, titre TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS combats ( id INTEGER PRIMARY KEY AUTOINCREMENT, attaquant INTEGER NOT NULL, defenseur INTEGER NOT NULL, graine INTEGER NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, cree_le INTEGER NOT NULL, fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER )`,
 ];
 // Colonnes ajoutées après coup aux tables existantes (l'erreur « colonne déjà présente » est ignorée)
@@ -239,7 +242,8 @@ async function supprimerUtilisateur(env, id) {
     "DELETE FROM abonnements WHERE user_id = ?", "DELETE FROM notifs WHERE user_id = ?", "DELETE FROM rappels WHERE user_id = ?",
     "DELETE FROM arene WHERE user_id = ?", "DELETE FROM demandes_premium WHERE user_id = ?",
     "DELETE FROM livraisons WHERE user_id = ?", "DELETE FROM echanges WHERE user_id = ?", "DELETE FROM tournoi_scores WHERE user_id = ?",
-    "DELETE FROM hebdo WHERE user_id = ?", "DELETE FROM presence WHERE user_id = ?", "DELETE FROM users WHERE id = ?",
+    "DELETE FROM hebdo WHERE user_id = ?", "DELETE FROM presence WHERE user_id = ?",
+    "DELETE FROM amis WHERE user_id = ?", "DELETE FROM amis WHERE ami_id = ?", "DELETE FROM users WHERE id = ?",
   ].map((sql) => env.DB.prepare(sql).bind(id)));
 }
 route("DELETE", "compte", async ({ request, env, user }) => {
@@ -537,6 +541,7 @@ export async function planifie(env) {
     env.DB.prepare("DELETE FROM metriques WHERE jour < ?").bind(new Date(maintenant() - 60 * JOUR).toISOString().slice(0, 10)),
   ]);
   await recompenserTournoi(env);
+  await finDeSaison(env);
 }
 async function prevenirAdmins(env, notif) {
   const { results } = await env.DB.prepare("SELECT id FROM users WHERE admin = 1").all();
@@ -562,6 +567,13 @@ route("GET", "admin/premium", async ({ env }) => {
   ]);
   return json({ demandes: d.results, premiums: p.results });
 }, { admin: true });
+async function activerPremium(env, ctx, userId, formule, demande) {
+  const u = await env.DB.prepare("SELECT id, premium_jusqu FROM users WHERE id = ?").bind(userId).first();
+  const jusqu = formule === "vie" ? PREMIUM_VIE : Math.max(maintenant(), u.premium_jusqu || 0) + (formule === "an" ? 365 : 31) * JOUR;
+  await env.DB.prepare("UPDATE users SET premium_jusqu = ? WHERE id = ?").bind(jusqu, userId).run();
+  enArrierePlan(ctx, envoyerPush(env, userId, { titre: "💎 Premium activé !", texte: formule === "vie" ? "Vous êtes Premium à vie. Merci pour votre soutien !" : `Votre Premium est actif pour ${formule === "an" ? "un an" : "31 jours"}. Merci !`, url: "./#premium" }));
+  return jusqu;
+}
 route("POST", "admin/premium", async ({ request, env, ctx }) => {
   const b = await corps(request);
   const u = await env.DB.prepare("SELECT id, premium_jusqu FROM users WHERE pseudo = ?").bind(String(b.pseudo || "").trim()).first();
@@ -633,7 +645,7 @@ const puissanceDeck = (d) => d.reduce((t, u) => t + COMBAT.puissance(u), 0);
 route("GET", "arene/moi", async ({ env, user }) => {
   const a = await ligneArene(env, user.id);
   const rang = await env.DB.prepare("SELECT COUNT(*) + 1 AS r FROM arene WHERE deck IS NOT NULL AND trophees > ?").bind(a.trophees).first();
-  return json({ trophees: a.trophees, victoires: a.victoires, defaites: a.defaites, deck: !!a.deck, rang: a.deck ? rang.r : null,
+  return json({ trophees: a.trophees, palier: palierArene(a.trophees), saison: saisonCourante(), finSaison: finSaison(), victoires: a.victoires, defaites: a.defaites, deck: !!a.deck, rang: a.deck ? rang.r : null,
     limite: limiteArene(user), restants: Math.max(0, limiteArene(user) - combatsFaits(a)) });
 }, { connecte: true });
 route("PUT", "arene/deck", async ({ request, env, user }) => {
@@ -691,7 +703,7 @@ route("POST", "arene/fin", async ({ request, env, user, ctx }) => {
 route("GET", "arene/classement", async ({ env }) => {
   const { results } = await env.DB.prepare(`SELECT u.pseudo, u.admin, u.premium_jusqu, a.trophees, a.victoires, a.defaites FROM arene a JOIN users u ON u.id = a.user_id
     WHERE a.deck IS NOT NULL AND u.banni = 0 ORDER BY a.trophees DESC, a.victoires DESC LIMIT 50`).all();
-  return json({ joueurs: results.map((x) => ({ pseudo: x.pseudo, admin: !!x.admin, premium: estPremium(x), trophees: x.trophees, victoires: x.victoires, defaites: x.defaites })) });
+  return json({ saison: saisonCourante(), finSaison: finSaison(), joueurs: results.map((x) => ({ pseudo: x.pseudo, admin: !!x.admin, premium: estPremium(x), trophees: x.trophees, palier: palierArene(x.trophees), victoires: x.victoires, defaites: x.defaites })) });
 });
 
 
@@ -814,7 +826,7 @@ route("POST", "feedback", async ({ request, env, user, ctx }) => {
   const b = await corps(request);
   const titre = String(b.titre || "").trim().slice(0, 100), texte = String(b.texte || b.message || "").trim().slice(0, 1000);
   if (!titre || !texte) return erreur("Indiquez un titre et une description.");
-  const type = b.type === "bug" ? "bug" : "suggestion";
+  const type = ["bug", "photo"].includes(b.type) ? b.type : "suggestion";
   if (user) {
     const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM feedback WHERE user_id = ? AND cree_le > ?").bind(user.id, maintenant() - JOUR).first();
     if (r.n >= 10) return erreur("Vous avez déjà envoyé beaucoup de messages aujourd'hui. Merci !", 429);
@@ -972,6 +984,124 @@ route("POST", "admin/evenement", async ({ request, env, ctx }) => {
     for (const { user_id } of results) await envoyerPush(env, user_id, { titre: `🎉 Événement : ${NOM_EVENEMENT(b.cle)} !`, texte: "Cartes exclusives à collectionner pendant une durée limitée.", url: "./#boosters" });
   })());
   return json({ ok: true, evenement: ev });
+}, { admin: true });
+
+
+/* =====================================================================
+   Amis : ajouter, voir leur collection, les défier dans l'arène
+   ===================================================================== */
+route("GET", "amis", async ({ env, user }) => {
+  const { results } = await env.DB.prepare(`SELECT u.pseudo, u.admin, u.premium_jusqu, COALESCE(s.cartes, 0) AS cartes, COALESCE(a.trophees, 1000) AS trophees, a.deck IS NOT NULL AS deck,
+      (SELECT MAX(vu) FROM presence p WHERE p.user_id = u.id) AS vu,
+      EXISTS (SELECT 1 FROM amis r WHERE r.user_id = u.id AND r.ami_id = ?1) AS reciproque
+    FROM amis f JOIN users u ON u.id = f.ami_id LEFT JOIN sauvegardes s ON s.user_id = u.id LEFT JOIN arene a ON a.user_id = u.id
+    WHERE f.user_id = ?1 AND u.banni = 0 ORDER BY u.pseudo`).bind(user.id).all();
+  const demandes = await env.DB.prepare(`SELECT u.pseudo FROM amis f JOIN users u ON u.id = f.user_id
+    WHERE f.ami_id = ? AND NOT EXISTS (SELECT 1 FROM amis r WHERE r.user_id = ? AND r.ami_id = f.user_id) AND u.banni = 0`).bind(user.id, user.id).all();
+  return json({ amis: results.map((x) => ({ pseudo: x.pseudo, admin: !!x.admin, premium: estPremium(x), cartes: x.cartes, trophees: x.trophees, palier: palierArene(x.trophees), deck: !!x.deck, enLigne: !!x.vu && maintenant() - x.vu < EN_LIGNE_MS, reciproque: !!x.reciproque })), demandes: demandes.results.map((x) => x.pseudo) });
+}, { connecte: true });
+route("POST", "amis", async ({ request, env, user, ctx }) => {
+  const b = await corps(request);
+  const ami = await env.DB.prepare("SELECT id, pseudo FROM users WHERE pseudo = ? AND banni = 0").bind(String(b.pseudo || "").trim()).first();
+  if (!ami) return erreur("Joueur introuvable.", 404);
+  if (ami.id === user.id) return erreur("Vous ne pouvez pas vous ajouter vous-même.");
+  const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM amis WHERE user_id = ?").bind(user.id).first();
+  if (n.n >= 200) return erreur("Liste d'amis pleine (200).");
+  const r = await env.DB.prepare("INSERT OR IGNORE INTO amis (user_id, ami_id, cree_le) VALUES (?, ?, ?)").bind(user.id, ami.id, maintenant()).run();
+  if (r.meta.changes) enArrierePlan(ctx, envoyerPush(env, ami.id, { titre: "👫 Nouvel ami", texte: `${user.pseudo} vous a ajouté en ami. Ajoutez-le aussi pour vous défier !`, url: "./#hub" }));
+  return json({ ok: true, pseudo: ami.pseudo }, 201);
+}, { connecte: true });
+route("DELETE", "amis/([A-Za-z0-9_-]{3,20})", async ({ env, user, p }) => {
+  await env.DB.prepare("DELETE FROM amis WHERE user_id = ? AND ami_id = (SELECT id FROM users WHERE pseudo = ?)").bind(user.id, p[1]).run();
+  return json({ ok: true });
+}, { connecte: true });
+// Collection d'un joueur : visible par ses amis (ou par lui-même / l'admin)
+route("GET", "collection/([A-Za-z0-9_-]{3,20})", async ({ env, user, p }) => {
+  const u = await env.DB.prepare("SELECT id, pseudo FROM users WHERE pseudo = ? AND banni = 0").bind(p[1]).first();
+  if (!u) return erreur("Joueur introuvable.", 404);
+  const ami = u.id === user.id || user.admin || await env.DB.prepare("SELECT 1 FROM amis WHERE user_id = ? AND ami_id = ?").bind(u.id, user.id).first();
+  if (!ami) return erreur(`${u.pseudo} doit d'abord vous ajouter en ami pour que vous voyiez sa collection.`, 403);
+  const save = await saveDe(env, u.id);
+  const owned = Object.keys(save.owned || {}).filter((id) => save.owned[id] > 0 && CATALOGUE[id]);
+  return json({ pseudo: u.pseudo, cartes: owned, shiny: Object.keys(save.shiny || {}), doree: Object.keys(save.doree || {}) });
+}, { connecte: true });
+
+/* =====================================================================
+   Saisons d'arène : un mois chacune, paliers Bronze → Diamant, récompenses
+   ===================================================================== */
+const PALIERS = [[1700, "diamant", "💠 Diamant", 3000, 4], [1500, "platine", "🔷 Platine", 1800, 3], [1300, "or", "🥇 Or", 1000, 2], [1100, "argent", "🥈 Argent", 500, 1], [0, "bronze", "🥉 Bronze", 200, 0]];
+const palierArene = (t) => { const p = PALIERS.find(([min]) => t >= min); return { cle: p[1], nom: p[2] }; };
+const saisonCourante = () => new Date().toISOString().slice(0, 7);
+const finSaison = () => { const d = new Date(); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1); };
+async function finDeSaison(env) {
+  const saison = saisonCourante(), derniere = await lireConfig(env, "saison");
+  if (!derniere) return ecrireConfig(env, "saison", saison);
+  if (derniere === saison) return;
+  await ecrireConfig(env, "saison", saison);
+  const { results } = await env.DB.prepare("SELECT user_id, trophees FROM arene WHERE deck IS NOT NULL AND (victoires + defaites) > 0").all();
+  for (const x of results) {
+    const p = PALIERS.find(([min]) => x.trophees >= min);
+    await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, ?, ?, ?, ?)").bind(x.user_id, p[3], p[4], `Fin de la saison d'arène ${derniere} : palier ${p[2]} !`, maintenant()).run();
+  }
+  // Remise à niveau douce : on se rapproche de 1000 trophées
+  await env.DB.prepare("UPDATE arene SET trophees = 1000 + (trophees - 1000) / 2, victoires = 0, defaites = 0").run();
+}
+
+/* =====================================================================
+   Paiement automatique PayPal (Checkout) : activé si PAYPAL_CLIENT_ID et PAYPAL_SECRET sont configurés
+   ===================================================================== */
+const PRIX_FORMULES = { mois: "3.99", an: "29.99", vie: "89.00" };
+const urlPaypal = (env) => (env.PAYPAL_MODE === "sandbox" ? "https://api-m.sandbox.paypal.com" : "https://api-m.paypal.com");
+async function jetonPaypal(env) {
+  const r = await fetch(urlPaypal(env) + "/v1/oauth2/token", { method: "POST", headers: { Authorization: "Basic " + btoa(`${env.PAYPAL_CLIENT_ID}:${env.PAYPAL_SECRET}`), "Content-Type": "application/x-www-form-urlencoded" }, body: "grant_type=client_credentials" });
+  if (!r.ok) throw new ErreurApi("PayPal est indisponible pour le moment.", 502);
+  return (await r.json()).access_token;
+}
+route("GET", "premium/config", async ({ env }) => json({ paypalClientId: env.PAYPAL_CLIENT_ID && env.PAYPAL_SECRET ? env.PAYPAL_CLIENT_ID : null, prix: PRIX_FORMULES }));
+route("POST", "premium/paypal/commande", async ({ request, env, user }) => {
+  if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_SECRET) return erreur("Paiement automatique non configuré.", 503);
+  const b = await corps(request);
+  const formule = PRIX_FORMULES[b.formule] ? b.formule : "mois";
+  const r = await fetch(urlPaypal(env) + "/v2/checkout/orders", { method: "POST", headers: { Authorization: "Bearer " + await jetonPaypal(env), "Content-Type": "application/json" },
+    body: JSON.stringify({ intent: "CAPTURE", purchase_units: [{ amount: { currency_code: "EUR", value: PRIX_FORMULES[formule] }, description: `WorldCards Premium (${formule})`, custom_id: `${user.id}:${formule}` }] }) });
+  const j = await r.json();
+  if (!r.ok || !j.id) return erreur("Impossible de créer la commande PayPal.", 502);
+  await env.DB.prepare("INSERT INTO paiements (commande, user_id, formule, montant, statut, cree_le) VALUES (?, ?, ?, ?, 'cree', ?)").bind(j.id, user.id, formule, PRIX_FORMULES[formule], maintenant()).run();
+  return json({ id: j.id });
+}, { connecte: true });
+route("POST", "premium/paypal/valider", async ({ request, env, user, ctx }) => {
+  const b = await corps(request);
+  const p = await env.DB.prepare("SELECT * FROM paiements WHERE commande = ? AND user_id = ?").bind(String(b.commande || ""), user.id).first();
+  if (!p) return erreur("Commande inconnue.", 404);
+  if (p.statut === "paye") return erreur("Ce paiement a déjà été utilisé.", 409);
+  const r = await fetch(`${urlPaypal(env)}/v2/checkout/orders/${encodeURIComponent(p.commande)}/capture`, { method: "POST", headers: { Authorization: "Bearer " + await jetonPaypal(env), "Content-Type": "application/json" } });
+  const j = await r.json();
+  const capture = j.purchase_units?.[0]?.payments?.captures?.[0];
+  // Vérifications : paiement terminé, bon montant, bonne devise, bon joueur
+  if (j.status !== "COMPLETED" || capture?.status !== "COMPLETED" || capture.amount?.value !== p.montant || capture.amount?.currency_code !== "EUR" || capture.custom_id !== `${user.id}:${p.formule}`)
+    return erreur("Le paiement n'a pas pu être confirmé. Aucun montant n'a été validé.", 402);
+  const fait = await env.DB.prepare("UPDATE paiements SET statut = 'paye' WHERE commande = ? AND statut != 'paye'").bind(p.commande).run();
+  if (!fait.meta.changes) return erreur("Ce paiement a déjà été utilisé.", 409);
+  const jusqu = await activerPremium(env, ctx, user.id, p.formule);
+  enArrierePlan(ctx, prevenirAdmins(env, { titre: "💰 Paiement Premium reçu", texte: `${user.pseudo} : ${p.formule} (${p.montant} €)`, url: "./#admin" }));
+  return json({ ok: true, premiumJusqu: jusqu });
+}, { connecte: true });
+
+/* =====================================================================
+   Corrections de photos (l'admin choisit un autre article Wikipédia)
+   ===================================================================== */
+route("GET", "photos/corrections", async ({ env }) => {
+  const { results } = await env.DB.prepare("SELECT carte, titre, maj FROM photos").all();
+  return json({ corrections: results });
+});
+route("POST", "admin/photos", async ({ request, env }) => {
+  const b = await corps(request);
+  const carte = String(b.carte || "");
+  if (!CATALOGUE[carte] && !/^pays:[A-Z]{2}$/.test(carte)) return erreur("Carte inconnue.");
+  const titre = String(b.titre || "").trim().slice(0, 200);
+  if (!titre) await env.DB.prepare("DELETE FROM photos WHERE carte = ?").bind(carte).run();
+  else await env.DB.prepare("INSERT INTO photos (carte, titre, maj) VALUES (?, ?, ?) ON CONFLICT(carte) DO UPDATE SET titre = excluded.titre, maj = excluded.maj").bind(carte, titre, maintenant()).run();
+  return json({ ok: true });
 }, { admin: true });
 
 /* =====================================================================
