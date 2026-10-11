@@ -21,6 +21,7 @@ import PAYS_AF from "../../worldcards/data/pays-af.js";
 import PAYS_EUAS from "../../worldcards/data/pays-euas.js";
 import PAYS_AMOC from "../../worldcards/data/pays-amoc.js";
 import PAYS_MOYENS from "../../worldcards/data/pays-moyens.js";
+import PAYS_PLUS from "../../worldcards/data/pays-plus.js";
 import EVENEMENTS_DATA from "../../worldcards/data/evenements.js";
 
 const JOUR = 864e5;
@@ -611,7 +612,7 @@ const CATALOGUE = (() => {
   for (const x of EXTENSIONS.NATURE_NOUVELLE) ajouter("nat:" + x[0], { type: "nature", rarete: x[6], nom: x[1] });
   for (const ev of [...Object.values(EXTENSIONS.EVENEMENTS_SAISONNIERS), ...Object.values(EVENEMENTS_DATA.EVENEMENTS_EXTRA)]) for (const x of ev.cartes || []) ajouter("event:" + x[0], { type: "monument", rarete: x[4], nom: x[1] });
   const prefixes = { ville: "ville:", monument: "monu:", nature: "nat:", animal: "ani:", plat: "plat:", culture: "cult:" };
-  for (const liste of [PAYS_AF.CARTES_PAYS_AF, PAYS_EUAS.CARTES_PAYS_EUAS, PAYS_AMOC.CARTES_PAYS_AMOC, PAYS_MOYENS.CARTES_PAYS_MOYENS])
+  for (const liste of [PAYS_AF.CARTES_PAYS_AF, PAYS_EUAS.CARTES_PAYS_EUAS, PAYS_AMOC.CARTES_PAYS_AMOC, PAYS_MOYENS.CARTES_PAYS_MOYENS, PAYS_PLUS.CARTES_PAYS_PLUS])
     for (const x of liste) if (prefixes[x[0]]) ajouter(prefixes[x[0]] + x[1], { type: x[0], rarete: x[0] === "ville" ? "peu-commun" : x[7], nom: x[2] });
   for (const x of MONDE.MERVEILLES_BRUTES) ajouter("merv:" + x[0], { type: "merveille", rarete: "legendaire", nom: x[1] });
   for (const x of MONDE.SECRETES_MONDE) ajouter("secret:" + x[0], { type: "secrete", rarete: "secrete", nom: x[1] });

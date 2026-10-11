@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v20"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v21"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -148,7 +148,7 @@ if (typeof NATURE_NOUVELLE !== "undefined") {
 }
 // Cartes supplémentaires par pays (tous les types), sans doublon de nom
 const PREFIXES = { ville: "ville:", monument: "monu:", nature: "nat:", animal: "ani:", plat: "plat:", culture: "cult:" };
-for (const liste of ["CARTES_PAYS_AF", "CARTES_PAYS_EUAS", "CARTES_PAYS_AMOC", "CARTES_PAYS_MOYENS"]) {
+for (const liste of ["CARTES_PAYS_AF", "CARTES_PAYS_EUAS", "CARTES_PAYS_AMOC", "CARTES_PAYS_MOYENS", "CARTES_PAYS_PLUS"]) {
   for (const [type, id, nom, pays, lat, lon, emoji, rarete, anecdote, wiki] of extra(liste)) {
     if (!PREFIXES[type] || !RARETES[rarete] || BY_ID[PREFIXES[type] + id] || doublon(nom)) continue;
     const cid = PREFIXES[type] + id;
