@@ -415,3 +415,6 @@ const SECRETES_MONDE = [
   ["cite-z", "La Cité perdue de Z", "🧭", "merveilles:modernes", "L'explorateur Percy Fawcett disparut en 1925 en Amazonie en cherchant cette cité ; on ne l'a jamais retrouvé."],
   ["gaia", "Gaïa — la Terre entière", "🌐", "tous-les-pays", "Vous avez collectionné les 195 pays ! Selon l'ONU, il existe 193 États membres, plus deux observateurs : le Vatican et la Palestine."],
 ];
+
+// Utilisé aussi par le serveur (arène en ligne)
+if (typeof module === "object" && module.exports) module.exports = { CONTINENTS, PAYS_BRUTS, VILLES_BRUTES, MONUMENTS_BRUTS, MERVEILLES_BRUTES, SECRETES_MONDE };

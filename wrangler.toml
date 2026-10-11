@@ -13,3 +13,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "worldcards"
+
+# Tâche planifiée : notifications « booster gratuit prêt » et ménage
+[triggers]
+crons = ["*/15 * * * *"]

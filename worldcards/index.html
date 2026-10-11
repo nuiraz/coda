@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>WorldCards — Collectionner le monde</title>
-<meta name="description" content="Collectionnez les 195 pays, des villes, des monuments, les merveilles du monde, les grands jeux vidéo et les objets du quotidien, sous forme de cartes.">
+<meta name="description" content="Collectionnez les 195 pays, des centaines de villes et de monuments et les merveilles du monde sous forme de cartes, puis affrontez les autres joueurs dans l'arène.">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="stylesheet" href="style.css">
@@ -19,12 +19,8 @@
 <body>
 <header class="top">
   <div class="brand">🌐 <b><span>WorldCards</span></b></div>
-  <div class="seg" id="univers">
-    <button data-u="monde" aria-label="Monde">🌍<span class="lbl"> Monde</span></button>
-    <button data-u="gaming" aria-label="Gaming">🎮<span class="lbl"> Gaming</span></button>
-    <button data-u="objets" aria-label="Objets">🧰<span class="lbl"> Objets</span></button>
-  </div>
   <div class="coins" title="Pièces : gagnez-en au quiz, ouvrez des boosters">🪙 <span id="coins">0</span></div>
+  <button class="iconbtn premiumbtn" id="premiumBtn" title="Premium" aria-label="Premium">💎</button>
   <button class="iconbtn" id="hubBtn" title="Communauté" aria-label="Communauté">👥</button>
   <button class="iconbtn compte" id="compteBtn" title="Mon compte" aria-label="Mon compte">👤</button>
   <button class="hidden" id="settingsBtn" aria-hidden="true" tabindex="-1"></button>
@@ -34,7 +30,7 @@
 <footer class="pied">
   <div class="liens"><a href="#" data-pied="hub">Communauté</a> · <a href="#" data-pied="compte">Mon compte</a> ·
   <a href="#" data-pied-legal="mentions">Mentions légales</a> · <a href="#" data-pied-legal="cgu">Conditions d'utilisation</a> ·
-  <a href="#" data-pied-legal="confidentialite">Confidentialité</a></div>
+  <a href="#" data-pied-legal="confidentialite">Confidentialité</a> · <a href="#" data-pied-legal="cgv">CGV</a> · <a href="#" data-pied="premium">💎 Premium</a></div>
   <button class="btn small hidden" id="installBtn">📲 Installer l'app</button>
   <div class="muted">© 2026 WorldCards · jeu gratuit, sans publicité</div>
 </footer>
@@ -43,12 +39,15 @@
 
 <script src="vendor/d3.min.js"></script>
 <script src="vendor/topojson-client.min.js"></script>
+<script src="combat.js"></script>
 <script src="data/carte.js"></script>
 <script src="data/monde.js"></script>
-<script src="data/gaming.js"></script>
-<script src="data/objets.js"></script>
+<script src="data/villes2.js"></script>
+<script src="data/monuments2.js"></script>
 <script src="data/photos.js"></script>
+<script src="data/photos-pays.js"></script>
 <script src="compte.js"></script>
 <script src="app.js"></script>
+<script src="combat-ui.js"></script>
 </body>
 </html>

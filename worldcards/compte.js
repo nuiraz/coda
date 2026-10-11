@@ -6,8 +6,23 @@
 const EDITEUR = "nuiraz";
 const CONTACT = "[votre adresse e-mail de contact]";
 const NOM_SITE = "WorldCards";
+// Vente du Premium : la loi impose d'indiquer l'identité réelle du vendeur et son adresse (ou son numéro SIRET)
+const ADRESSE = ""; // ex. : "Prénom Nom, 1 rue Exemple, 75000 Paris"
+const SIRET = "";   // ex. : "SIRET 123 456 789 00010 (micro-entreprise)"
+const TVA_NON_APPLICABLE = true;
 
-let COMPTE = { etat: "inconnu", pseudo: null, admin: false, creeLe: null };
+let COMPTE = { etat: "inconnu", pseudo: null, admin: false, creeLe: null, premiumJusqu: 0 };
+// Le statut Premium est mémorisé pour rester actif hors ligne
+try { COMPTE.premiumJusqu = Number(localStorage.getItem("worldcards:premium")) || 0; } catch {}
+const estPremium = () => COMPTE.premiumJusqu > Date.now();
+const PREMIUM_VIE = 4102444800000; // « à vie » : jusqu'en 2100
+function majPremium(jusqu) {
+  COMPTE.premiumJusqu = Number(jusqu) || 0;
+  try { localStorage.setItem("worldcards:premium", String(COMPTE.premiumJusqu)); } catch {}
+  if (typeof renderNav === "function") renderNav();
+}
+const PAYPAL = "https://paypal.me/noozoaa";
+const OFFRES_PREMIUM = { mois: { nom: "1 mois", prix: "5,99 €", lien: PAYPAL + "/5.99EUR" }, vie: { nom: "À vie", prix: "39,99 €", lien: PAYPAL + "/39.99EUR" } };
 let SYNC = { etat: "", timer: 0, enCours: false, encore: false };
 
 /* =====================================================================
@@ -43,19 +58,19 @@ async function initCompte() {
   if (location.protocol === "file:") { COMPTE.etat = "indispo"; majBoutonCompte(); return; }
   try {
     const moi = await api("moi");
-    if (moi.connecte) { Object.assign(COMPTE, { etat: "connecte", pseudo: moi.pseudo, admin: moi.admin, creeLe: moi.creeLe }); await apresConnexion(false); }
-    else COMPTE.etat = "anonyme";
+    if (moi.connecte) { Object.assign(COMPTE, { etat: "connecte", pseudo: moi.pseudo, admin: moi.admin, creeLe: moi.creeLe }); majPremium(moi.premiumJusqu); await apresConnexion(false); }
+    else { COMPTE.etat = "anonyme"; majPremium(0); }
   } catch (e) {
     COMPTE.etat = e.status === 0 ? "hors-ligne" : "indispo";
   }
   majBoutonCompte();
-  if (["compte", "hub", "admin"].includes(S.vue)) aller(S.vue);
+  if (["compte", "hub", "admin", "premium", "combat"].includes(S.vue) && $("#modal").classList.contains("hidden")) aller(S.vue);
 }
 function majBoutonCompte() {
   const b = $("#compteBtn");
   if (!b) return;
   const icone = { "": "", attente: " ⋯", ok: " ✓", erreur: " ⚠" }[SYNC.etat] || "";
-  b.innerHTML = connecte() ? `<span class="avatar">${esc(COMPTE.pseudo[0].toUpperCase())}</span><span class="lbl">${esc(COMPTE.pseudo)}</span>${COMPTE.admin ? "👑" : ""}<span class="sync">${icone}</span>` : "👤<span class='lbl'> Connexion</span>";
+  b.innerHTML = connecte() ? `<span class="avatar">${esc(COMPTE.pseudo[0].toUpperCase())}</span><span class="lbl">${esc(COMPTE.pseudo)}</span>${COMPTE.admin ? "👑" : ""}${estPremium() ? "💎" : ""}<span class="sync">${icone}</span>` : "👤<span class='lbl'> Connexion</span>";
   b.title = connecte() ? `Mon compte (${SYNC.etat === "ok" ? "sauvegardé dans le cloud" : SYNC.etat === "erreur" ? "sauvegarde en échec" : "synchronisation"})` : "Se connecter ou créer un compte";
 }
 
@@ -99,8 +114,8 @@ addEventListener("pagehide", () => {
   }
 });
 function appliquerSauvegardeCloud(data) {
-  S = { ...nouvelleSauvegarde(), ...data.sauvegarde, boosters: { ...nouvelleSauvegarde().boosters, ...data.sauvegarde.boosters }, quiz: { ...nouvelleSauvegarde().quiz, ...data.sauvegarde.quiz } };
-  PERSO = data.perso || { collections: [], illus: {} };
+  S = migrer(data.sauvegarde);
+  PERSO = data.perso || PERSO;
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch {}
   sauverPerso(); appliquerTheme(); majCoins();
 }
@@ -136,8 +151,7 @@ async function verifierCadeaux() {
     for (const c of cadeaux) {
       const g = await api(`cadeaux/${c.id}/recevoir`, { methode: "POST", corps: {} });
       S.coins += g.pieces;
-      const univers = Object.keys(UNIVERS);
-      for (let i = 0; i < g.boosters; i++) S.boosters[univers[i % univers.length]]++;
+      S.boosters.monde += g.boosters;
       sauver(); majCoins(); renderNav();
       ouvrirModal(`<div class="reveal"><div style="font-size:56px">🎁</div><h2>Un cadeau de l'équipe ${NOM_SITE} !</h2>
         ${g.message ? `<p>« ${esc(g.message)} »</p>` : ""}
@@ -195,6 +209,14 @@ function vueCompte(v) {
         <div class="row">${COMPTE.admin ? `<button class="btn primary" data-aller="admin">👑 Administration</button>` : ""}
           <button class="btn" id="syncBtn">☁️ Sauvegarder maintenant</button><button class="btn" id="deco">Se déconnecter</button></div>
       </div></div>
+      <div class="grid2" style="margin-top:16px">
+        <div class="panel"><h3 style="margin-top:0">💎 Premium</h3>
+          <p class="muted" style="margin-top:0">${estPremium() ? (COMPTE.premiumJusqu >= PREMIUM_VIE ? "Premium à vie : merci pour votre soutien !" : `Premium actif jusqu'au ${new Date(COMPTE.premiumJusqu).toLocaleDateString("fr-FR")}.`) : "2 boosters de plus par jour, boosters Prestige, Shiny ×2, 20 questions de quiz par jour…"}</p>
+          <button class="btn ${estPremium() ? "" : "primary premium"}" data-aller="premium">${estPremium() ? "Voir mes avantages" : "💎 Découvrir le Premium"}</button></div>
+        <div class="panel"><h3 style="margin-top:0">🔔 Notifications</h3>
+          <p class="muted" style="margin-top:0" id="notifEtat">${etatNotifications()}</p>
+          <button class="btn" id="notifBtn">${NOTIF.active ? "Désactiver" : "🔔 Activer les notifications"}</button></div>
+      </div>
       <div class="panel" style="margin-top:16px">
         <h3 style="margin-top:0">🏆 Ma vitrine</h3>
         <p class="muted" style="margin-top:0">Choisissez jusqu'à 5 cartes à montrer sur votre profil public.</p>
@@ -222,13 +244,14 @@ function vueCompte(v) {
     </div>`;
   brancherLiens(v);
   $("#ouvrirReglages").onclick = () => $("#settingsBtn").click();
+  $("#notifBtn")?.addEventListener("click", () => (NOTIF.active ? desactiverNotifications() : activerNotifications()));
   $("#installer")?.addEventListener("click", installer);
   // Connexion
   $("#fConnexion")?.addEventListener("submit", async (e) => {
     e.preventDefault(); $("#cErr").textContent = "";
     try {
       const r = await api("connexion", { methode: "POST", corps: { pseudo: $("#cPseudo").value.trim(), motdepasse: $("#cMdp").value } });
-      Object.assign(COMPTE, { etat: "connecte", pseudo: r.pseudo, admin: r.admin, creeLe: r.creeLe });
+      Object.assign(COMPTE, { etat: "connecte", pseudo: r.pseudo, admin: r.admin, creeLe: r.creeLe }); majPremium(r.premiumJusqu);
       majBoutonCompte(); toast(`👋 Bon retour, <b>${esc(r.pseudo)}</b> !`);
       await apresConnexion(true); aller("compte");
     } catch (err) { $("#cErr").textContent = err.message; }
@@ -250,7 +273,7 @@ function vueCompte(v) {
   $("#deco")?.addEventListener("click", async () => {
     await envoyerSauvegarde();
     try { await api("deconnexion", { methode: "POST", corps: {} }); } catch {}
-    Object.assign(COMPTE, { etat: "anonyme", pseudo: null, admin: false }); SYNC.etat = "";
+    Object.assign(COMPTE, { etat: "anonyme", pseudo: null, admin: false }); SYNC.etat = ""; majPremium(0);
     majBoutonCompte(); aller("compte"); toast("Vous êtes déconnecté. Votre progression reste aussi sur cet appareil.");
   });
   $("#syncBtn")?.addEventListener("click", async () => { await envoyerSauvegarde(); toast(SYNC.etat === "ok" ? "☁️ Sauvegardé." : "⚠ La sauvegarde a échoué."); aller("compte"); });
@@ -370,7 +393,7 @@ async function chargerPosts(box, avant) {
 function postHTML(p) {
   const c = p.carte && BY_ID[p.carte];
   return `<article class="post${p.epingle ? " pinned" : ""}" data-post="${p.id}">
-    <header><button class="pseudo" data-profil="${esc(p.pseudo)}"><span class="avatar">${esc(p.pseudo[0].toUpperCase())}</span>${esc(p.pseudo)}${p.admin ? " 👑" : ""}</button>
+    <header><button class="pseudo" data-profil="${esc(p.pseudo)}"><span class="avatar">${esc(p.pseudo[0].toUpperCase())}</span>${esc(p.pseudo)}${p.admin ? " 👑" : ""}${p.premium ? " 💎" : ""}</button>
       <span class="muted">${p.epingle ? "📌 Annonce · " : ""}${depuis(p.cree_le)}</span></header>
     ${p.texte ? `<p class="txt">${esc(p.texte)}</p>` : ""}
     ${c ? `<div class="pj"><div style="width:130px">${cardHTML(c, { locked: false })}</div></div>` : ""}
@@ -410,7 +433,7 @@ async function hubClassement(el) {
   try {
     const { joueurs } = await api(`classement?tri=${hubEtat.tri}`);
     $("#cl").innerHTML = joueurs.length ? joueurs.map((j, i) => `<tr class="${j.pseudo === COMPTE.pseudo ? "moi" : ""}">
-      <td>${["🥇", "🥈", "🥉"][i] || i + 1}</td><td><button class="pseudo" data-profil="${esc(j.pseudo)}"><span class="avatar">${esc(j.pseudo[0].toUpperCase())}</span>${esc(j.pseudo)}${j.admin ? " 👑" : ""}</button></td>
+      <td>${["🥇", "🥈", "🥉"][i] || i + 1}</td><td><button class="pseudo" data-profil="${esc(j.pseudo)}"><span class="avatar">${esc(j.pseudo[0].toUpperCase())}</span>${esc(j.pseudo)}${j.admin ? " 👑" : ""}${j.premium ? " 💎" : ""}</button></td>
       <td>${fmt(j.cartes)}</td><td>${j.secretes}</td><td>${j.badges}</td></tr>`).join("") : `<tr><td colspan="5" class="muted">Personne au classement pour l'instant.</td></tr>`;
     $$("[data-profil]", el).forEach((b) => b.onclick = () => ouvrirProfil(b.dataset.profil));
   } catch (err) { $("#cl").innerHTML = `<tr><td colspan="5" class="err">${esc(err.message)}</td></tr>`; }
@@ -421,10 +444,10 @@ async function ouvrirProfil(pseudo) {
     const p = await api("profil/" + encodeURIComponent(pseudo));
     const vitrine = p.vitrine.map((id) => BY_ID[id]).filter(Boolean);
     $("#modal .box").innerHTML = `<button class="close" data-close aria-label="Fermer">✕</button>
-      <div class="row"><span class="avatar big">${esc(p.pseudo[0].toUpperCase())}</span><div><h2 style="margin:0">${esc(p.pseudo)}${p.admin ? " 👑" : ""}</h2>
+      <div class="row"><span class="avatar big">${esc(p.pseudo[0].toUpperCase())}</span><div><h2 style="margin:0">${esc(p.pseudo)}${p.admin ? " 👑" : ""}${p.premium ? " 💎" : ""}</h2>
       <span class="muted">Membre depuis le ${new Date(p.creeLe).toLocaleDateString("fr-FR")}</span></div></div>
       <div class="statgrid"><div class="stat"><b>${fmt(p.cartes)}</b><span>cartes</span></div><div class="stat"><b>${p.secretes}</b><span>secrètes</span></div>
-      <div class="stat"><b>${p.badges}</b><span>badges</span></div><div class="stat"><b>${p.messages}</b><span>messages</span></div></div>
+      <div class="stat"><b>${p.badges}</b><span>badges</span></div><div class="stat"><b>🏆 ${fmt(p.trophees || 0)}</b><span>trophées</span></div></div>
       <h3>🏆 Vitrine</h3>${vitrine.length ? `<div class="cards">${vitrine.map((c) => cardHTML(c, { locked: false })).join("")}</div>` : `<p class="muted">Pas encore de cartes en vitrine.</p>`}`;
   } catch (err) { $("#modal .box").innerHTML = `<button class="close" data-close>✕</button><p class="err">${esc(err.message)}</p>`; }
 }
@@ -437,7 +460,7 @@ async function vueAdmin(v) {
   if (!COMPTE.admin) { v.innerHTML = `<div class="panel"><p>Accès réservé à l'administrateur.</p><button class="btn" data-aller="compte">Mon compte</button></div>`; brancherLiens(v); return; }
   v.innerHTML = `<div class="sectiontitle"><h3>👑 Administration</h3><span class="muted">Connecté en tant que ${esc(COMPTE.pseudo)}</span></div>
     <div class="statgrid" id="aStats"><div class="stat"><b>…</b><span>chargement</span></div></div>
-    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
+    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
     <div id="aCorps"></div>`;
   $$("[data-a]", v).forEach((b) => b.onclick = () => { adminEtat.onglet = b.dataset.a; aller("admin"); });
   api("admin/stats").then((s) => {
@@ -445,7 +468,7 @@ async function vueAdmin(v) {
       .map(([l, n]) => `<div class="stat"><b>${fmt(n)}</b><span>${l}</span></div>`).join("");
   }).catch((e) => { $("#aStats").innerHTML = `<p class="err">${esc(e.message)}</p>`; });
   const corps = $("#aCorps");
-  ({ joueurs: adminJoueurs, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
+  ({ joueurs: adminJoueurs, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
 }
 async function adminJoueurs(el) {
   el.innerHTML = `<input class="search" id="aq" type="search" placeholder="Rechercher un joueur…" value="${esc(adminEtat.q)}" style="max-width:none;width:100%;margin-bottom:10px">
@@ -457,9 +480,9 @@ async function adminJoueurs(el) {
       const { utilisateurs } = await api("admin/utilisateurs?q=" + encodeURIComponent(adminEtat.q));
       $("#aj").innerHTML = utilisateurs.map((u) => `<tr class="${u.banni ? "banni" : ""}" data-u="${u.id}" data-p="${esc(u.pseudo)}">
         <td><button class="pseudo" data-profil="${esc(u.pseudo)}">${esc(u.pseudo)}${u.admin ? " 👑" : ""}${u.banni ? " ⛔" : ""}</button></td>
-        <td>${new Date(u.cree_le).toLocaleDateString("fr-FR")}</td><td>${u.derniere_co ? depuis(u.derniere_co) : "—"}</td><td>${fmt(u.cartes)}</td><td>${u.messages}</td>
+        <td>${new Date(u.cree_le).toLocaleDateString("fr-FR")}${u.premium_jusqu > Date.now() ? " 💎" : ""}</td><td>${u.derniere_co ? depuis(u.derniere_co) : "—"}</td><td>${fmt(u.cartes)}</td><td>${u.messages}</td>
         <td><div class="row" style="gap:4px;flex-wrap:nowrap">${u.admin ? "" : `<button class="btn small" data-ban>${u.banni ? "Réactiver" : "Bannir"}</button>
-          <button class="btn small" data-mdp>Nouveau mot de passe</button><button class="btn small" data-cadeau>🎁</button><button class="btn small" data-del style="color:var(--bad)">Supprimer</button>`}</div></td></tr>`).join("") || `<tr><td colspan="6" class="muted">Aucun joueur.</td></tr>`;
+          <button class="btn small" data-mdp>Nouveau mot de passe</button><button class="btn small" data-prem>💎</button><button class="btn small" data-cadeau>🎁</button><button class="btn small" data-del style="color:var(--bad)">Supprimer</button>`}</div></td></tr>`).join("") || `<tr><td colspan="6" class="muted">Aucun joueur.</td></tr>`;
       $$("#aj [data-profil]").forEach((b) => b.onclick = () => ouvrirProfil(b.dataset.profil));
       $$("#aj tr[data-u]").forEach((tr) => {
         const id = tr.dataset.u, pseudo = tr.dataset.p;
@@ -474,6 +497,7 @@ async function adminJoueurs(el) {
               <p class="code">${esc(r.motdepasse)}</p><button class="btn primary" data-close>Fermer</button>`);
           } catch (e) { toast("⚠ " + e.message); }
         }));
+        tr.querySelector("[data-prem]")?.addEventListener("click", () => { adminEtat.onglet = "premium"; adminEtat.pseudoPremium = pseudo; aller("admin"); });
         tr.querySelector("[data-cadeau]")?.addEventListener("click", () => { adminEtat.onglet = "cadeaux"; adminEtat.pseudoCadeau = pseudo; aller("admin"); });
         tr.querySelector("[data-del]")?.addEventListener("click", () => confirmer(`Supprimer définitivement le compte de ${pseudo}, sa sauvegarde et ses messages ?`, "Supprimer", async () => {
           try { await api(`admin/utilisateurs/${id}`, { methode: "DELETE" }); fermerModal(); toast(`Compte de ${esc(pseudo)} supprimé.`); charger(); } catch (e) { toast("⚠ " + e.message); }
@@ -506,6 +530,7 @@ function adminCadeaux(el) {
     <label>Joueur (laisser vide pour tout le monde)<input id="gPseudo" value="${esc(adminEtat.pseudoCadeau || "")}" placeholder="Tous les joueurs"></label>
     <div class="grid2" style="gap:10px"><label>Pièces<input id="gPieces" type="number" min="0" max="100000" value="500"></label><label>Boosters<input id="gBoosters" type="number" min="0" max="50" value="1"></label></div>
     <label>Message<input id="gMsg" maxlength="200" placeholder="Ex. : Merci de jouer à WorldCards !"></label>
+    <p class="muted" style="margin:0;font-size:13px">Les boosters offerts sont des boosters Classiques. Les joueurs qui ont activé les notifications sont prévenus.</p>
     <button class="btn primary">🎁 Envoyer</button><p class="err" id="gErr"></p>
     <p class="muted" style="margin:0;font-size:13px">Le joueur reçoit le cadeau à sa prochaine visite, une seule fois.</p></form>`;
   adminEtat.pseudoCadeau = "";
@@ -530,14 +555,142 @@ function adminAnnonce(el) {
 function adminOutils(el) {
   el.innerHTML = `<div class="panel"><h3 style="margin-top:0">Outils de test (sur votre progression uniquement)</h3>
     <p class="muted">Pratique pour vérifier une nouveauté. Ces outils modifient votre propre collection, puis la sauvegardent.</p>
-    <div class="row"><button class="btn" id="tPieces">+1 000 🪙</button><button class="btn" id="tBoosters">+5 boosters par univers</button>
+    <div class="row"><button class="btn" id="tPieces">+1 000 🪙</button><button class="btn" id="tBoosters">+5 boosters de chaque sorte</button>
     <button class="btn" id="tTout">Débloquer toutes les cartes</button></div></div>`;
   $("#tPieces").onclick = () => { S.coins += 1000; sauver(); majCoins(); toast("+1 000 🪙"); };
-  $("#tBoosters").onclick = () => { for (const u of Object.keys(UNIVERS)) S.boosters[u] += 5; sauver(); renderNav(); toast("+5 boosters par univers"); };
+  $("#tBoosters").onclick = () => { for (const k of Object.keys(PACKS)) S.boosters[k] = (S.boosters[k] || 0) + 5; sauver(); renderNav(); toast("+5 boosters de chaque sorte"); };
   $("#tTout").onclick = () => confirmer("Ajouter toutes les cartes à votre collection ?", "Débloquer", () => {
     for (const c of CARDS) if (c.type !== "secrete") S.owned[c.id] = Math.max(1, S.owned[c.id] || 0);
     sauver(); fermerModal(); verifierProgression(); toast("Toutes les cartes sont débloquées.");
   });
+}
+
+
+/* =====================================================================
+   Premium (paiement PayPal, activation par l'administrateur)
+   ===================================================================== */
+const AVANTAGES_PREMIUM = [
+  ["🎁", "2 boosters Classiques de plus chaque jour", "à récupérer sur l'accueil ou dans la boutique"],
+  ["💎", "Boosters Prestige", "6 cartes dont une légendaire garantie, Shiny ×3 ; un offert chaque semaine"],
+  ["✨", "Chances de Shiny ×2", "dans tous les boosters"],
+  ["❓", "20 questions de quiz par jour", "au lieu de 10"],
+  ["⚔️", "20 combats d'arène par jour", "au lieu de 10, et 30 entraînements récompensés au lieu de 15"],
+  ["💠", "Badge 💎 à côté de votre pseudo", "dans le hub, le classement et l'arène"],
+  ["❤️", "Vous soutenez le jeu", "hébergement, nouvelles cartes et nouveautés"],
+];
+function vuePremium(v) {
+  const actif = estPremium();
+  v.innerHTML = `<div class="panel premium-hero">
+      <div style="font-size:52px">💎</div>
+      <h1 style="margin:6px 0">WorldCards Premium</h1>
+      <p class="muted" style="margin:0">${actif ? (COMPTE.premiumJusqu >= PREMIUM_VIE ? "Vous êtes Premium à vie. Merci !" : `Votre Premium est actif jusqu'au <b>${new Date(COMPTE.premiumJusqu).toLocaleDateString("fr-FR")}</b>.`) : "Plus de boosters, plus de Shiny, plus de jeu."}</p>
+    </div>
+    <div class="avantages">${AVANTAGES_PREMIUM.map(([e, t, d]) => `<div class="avantage"><span>${e}</span><div><b>${t}</b><small class="muted">${d}</small></div></div>`).join("")}</div>
+    <div class="grid2 offres" style="margin-top:16px">${Object.entries(OFFRES_PREMIUM).map(([k, o]) => `<div class="panel offre-premium ${k === "vie" ? "meilleure" : ""}">
+        ${k === "vie" ? `<span class="ruban">Meilleure offre</span>` : ""}
+        <h3 style="margin:0">${o.nom}</h3><div class="prix">${o.prix}</div>
+        <p class="muted" style="margin:0 0 10px">${k === "vie" ? "Un seul paiement, Premium pour toujours." : "31 jours de Premium, sans renouvellement automatique."}</p>
+        <a class="btn primary premium" href="${o.lien}" target="_blank" rel="noopener" data-payer="${k}">Payer ${o.prix} avec PayPal</a></div>`).join("")}</div>
+    <div class="panel" style="margin-top:16px">
+      <h3 style="margin-top:0">Comment ça marche ?</h3>
+      <ol class="regles">
+        <li>${connecte() ? `Vous êtes connecté en tant que <b>${esc(COMPTE.pseudo)}</b>.` : `<a href="#" data-aller="compte">Créez un compte ou connectez-vous</a> : le Premium est lié à votre compte.`}</li>
+        <li>Payez avec PayPal et <b>écrivez votre pseudo dans la note du paiement</b>.</li>
+        <li>Revenez ici et touchez « J'ai payé » : l'administrateur vérifie le paiement et active votre Premium, en général sous 24 heures. Vous recevez une notification.</li>
+      </ol>
+      ${connecte() ? `<form class="form" id="fDemande" style="max-width:520px">
+        <label>Formule<select id="dFormule"><option value="mois">1 mois · 5,99 €</option><option value="vie">À vie · 39,99 €</option></select></label>
+        <label>Nom ou e-mail utilisé sur PayPal (pour retrouver le paiement)<input id="dNote" maxlength="120" placeholder="Facultatif"></label>
+        <button class="btn primary">✅ J'ai payé</button><p class="err" id="dErr"></p></form>` : ""}
+      <p class="muted" style="font-size:12.5px;margin-bottom:0">En payant, vous acceptez les ${lienLegal("cgv", "conditions générales de vente")}. Le Premium est un contenu numérique fourni dès son activation : vous renoncez donc à votre droit de rétractation une fois le Premium activé (article L221-28 du Code de la consommation). Une question ? ${esc(CONTACT)}.</p>
+    </div>`;
+  brancherLiens(v);
+  $$("[data-payer]", v).forEach((a) => a.addEventListener("click", () => { if ($("#dFormule")) $("#dFormule").value = a.dataset.payer; }));
+  $("#fDemande")?.addEventListener("submit", async (e) => {
+    e.preventDefault(); $("#dErr").textContent = "";
+    try {
+      await api("premium/demande", { methode: "POST", corps: { formule: $("#dFormule").value, note: $("#dNote").value } });
+      ouvrirModal(`<div class="reveal"><div style="font-size:52px">💎</div><h2>Demande envoyée !</h2><p>L'administrateur va vérifier votre paiement et activer votre Premium. Activez les notifications pour être prévenu.</p>
+        <button class="btn primary" data-close>OK</button></div>`);
+    } catch (err) { $("#dErr").textContent = err.message; }
+  });
+}
+async function adminPremium(el) {
+  el.innerHTML = `<form class="panel form" id="fPrem" style="max-width:520px"><h3 style="margin:0">Activer le Premium</h3>
+      <label>Joueur<input id="prPseudo" value="${esc(adminEtat.pseudoPremium || "")}" required></label>
+      <label>Formule<select id="prFormule"><option value="mois">+1 mois (5,99 €)</option><option value="vie">À vie (39,99 €)</option><option value="retirer">Retirer le Premium</option></select></label>
+      <button class="btn primary">💎 Valider</button><p class="err" id="prErr"></p>
+      <p class="muted" style="margin:0;font-size:13px">Vérifiez d'abord le paiement dans votre compte PayPal (montant et pseudo dans la note).</p></form>
+    <h3>Demandes en attente</h3><div id="prDemandes"><p class="muted">Chargement…</p></div>
+    <h3>Joueurs Premium</h3><div id="prListe"></div>`;
+  adminEtat.pseudoPremium = "";
+  const activer = async (pseudo, formule, demande) => {
+    try {
+      const r = await api("admin/premium", { methode: "POST", corps: { pseudo, formule, demande } });
+      toast(formule === "retirer" ? `Premium retiré à ${esc(pseudo)}.` : `💎 ${esc(pseudo)} est Premium jusqu'au ${new Date(r.premiumJusqu).toLocaleDateString("fr-FR")}.`);
+      aller("admin");
+    } catch (e) { toast("⚠ " + e.message); }
+  };
+  $("#fPrem").onsubmit = (e) => { e.preventDefault(); activer($("#prPseudo").value.trim(), $("#prFormule").value); };
+  try {
+    const { demandes, premiums } = await api("admin/premium");
+    $("#prDemandes").innerHTML = demandes.length ? `<div class="posts">${demandes.map((d) => `<article class="post" data-d="${d.id}" data-p="${esc(d.pseudo)}" data-f="${d.formule}">
+        <header><b>${esc(d.pseudo)}</b><span class="muted">${depuis(d.cree_le)} · ${d.formule === "vie" ? "À vie · 39,99 €" : "1 mois · 5,99 €"}</span></header>
+        ${d.note ? `<p class="txt">PayPal : ${esc(d.note)}</p>` : ""}
+        <footer><button class="btn small primary" data-ok>✅ Paiement reçu : activer</button><button class="btn small" data-non>Refuser</button></footer></article>`).join("")}</div>`
+      : `<p class="muted">Aucune demande en attente.</p>`;
+    $$("#prDemandes [data-d]").forEach((a) => {
+      a.querySelector("[data-ok]").onclick = () => activer(a.dataset.p, a.dataset.f, Number(a.dataset.d));
+      a.querySelector("[data-non]").onclick = async () => { await api(`admin/premium/demandes/${a.dataset.d}`, { methode: "DELETE" }).catch((e) => toast("⚠ " + e.message)); aller("admin"); };
+    });
+    $("#prListe").innerHTML = premiums.length ? `<div class="panel" style="padding:0;overflow-x:auto"><table class="classement"><thead><tr><th>Joueur</th><th>Jusqu'au</th></tr></thead><tbody>
+      ${premiums.map((u) => `<tr><td>${esc(u.pseudo)}</td><td>${u.premium_jusqu >= PREMIUM_VIE ? "À vie" : new Date(u.premium_jusqu).toLocaleDateString("fr-FR")}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">Aucun joueur Premium pour l'instant.</p>`;
+  } catch (e) { $("#prDemandes").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+
+/* =====================================================================
+   Notifications push
+   ===================================================================== */
+const NOTIF = { active: false };
+try { NOTIF.active = localStorage.getItem("worldcards:notif") === "1" && typeof Notification !== "undefined" && Notification.permission === "granted"; } catch {}
+const pushPossible = () => "serviceWorker" in navigator && "PushManager" in window && typeof Notification !== "undefined";
+const iosNonInstalle = () => /iPhone|iPad|iPod/.test(navigator.userAgent) && !PWA.installee;
+function etatNotifications() {
+  if (NOTIF.active) return "✅ Activées : booster gratuit prêt, attaques dans l'arène, Premium, cadeaux.";
+  if (iosNonInstalle()) return "Sur iPhone, ajoutez d'abord WorldCards à l'écran d'accueil (bouton Partager → « Sur l'écran d'accueil »), puis ouvrez l'app depuis l'icône.";
+  if (!pushPossible()) return "Votre navigateur ne gère pas les notifications.";
+  if (Notification.permission === "denied") return "Notifications bloquées : autorisez-les dans les réglages du navigateur.";
+  return "Soyez prévenu quand votre booster gratuit est prêt, quand on attaque votre deck, et plus encore.";
+}
+const b64urlVersOctets = (t) => { const b = atob(t.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((t.length + 3) % 4)); return Uint8Array.from(b, (c) => c.charCodeAt(0)); };
+async function activerNotifications() {
+  if (!connecte()) { toast("Connectez-vous pour activer les notifications."); return; }
+  if (iosNonInstalle() || !pushPossible()) { toast(etatNotifications(), 6000); return; }
+  try {
+    if ((await Notification.requestPermission()) !== "granted") { toast("Notifications refusées."); return; }
+    const reg = await navigator.serviceWorker.ready;
+    const { cle } = await api("push/cle");
+    let abo = await reg.pushManager.getSubscription();
+    if (!abo) abo = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlVersOctets(cle) });
+    await api("push/abonner", { methode: "POST", corps: { abonnement: abo.toJSON() } });
+    NOTIF.active = true; localStorage.setItem("worldcards:notif", "1");
+    if (gratuitDans() > 0) programmerRappel(S.gratuitLe + GRATUIT_MS);
+    toast("🔔 Notifications activées !");
+  } catch (e) { toast("⚠ Impossible d'activer les notifications : " + e.message, 5000); }
+  if (S.vue === "compte") aller("compte");
+}
+async function desactiverNotifications() {
+  try {
+    const abo = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+    if (abo) { await api("push/abonner", { methode: "DELETE", corps: { endpoint: abo.endpoint } }).catch(() => {}); await abo.unsubscribe(); }
+  } catch {}
+  NOTIF.active = false; localStorage.removeItem("worldcards:notif");
+  toast("🔕 Notifications désactivées."); if (S.vue === "compte") aller("compte");
+}
+// Le serveur enverra une notification quand le booster gratuit sera prêt
+function programmerRappel(quand) {
+  if (!connecte() || !NOTIF.active) return;
+  api("push/rappel", { methode: "POST", corps: { quand } }).catch(() => {});
 }
 
 /* =====================================================================
@@ -547,23 +700,22 @@ const MAJ_LEGALE = "11 octobre 2026";
 const PAGES_LEGALES = {
   mentions: ["Mentions légales", `
     <h3>Éditeur du site</h3>
-    <p>${NOM_SITE} est un site personnel et non commercial, édité par <b>${EDITEUR}</b>.<br>
-    Contact : ${CONTACT}.<br>
-    Conformément à l'article 6-III-2 de la loi n° 2004-575 du 21 juin 2004 pour la confiance dans l'économie numérique (LCEN), l'éditeur, agissant à titre non professionnel, a communiqué son identité à l'hébergeur.</p>
+    <p>${NOM_SITE} est édité par <b>${EDITEUR}</b>${ADRESSE ? `, ${ADRESSE}` : ""}.<br>
+    Contact : ${CONTACT}.${SIRET ? `<br>Immatriculation : ${SIRET}.` : ""}</p>
     <h3>Directeur de la publication</h3><p>${EDITEUR}.</p>
     <h3>Hébergement</h3>
-    <p>Cloudflare, Inc. (service Cloudflare Pages), 101 Townsend St, San Francisco, CA 94107, États-Unis. Site : cloudflare.com.</p>
+    <p>Cloudflare, Inc. (service Cloudflare Workers), 101 Townsend St, San Francisco, CA 94107, États-Unis. Site : cloudflare.com.</p>
     <h3>Propriété intellectuelle</h3>
     <p>Les textes, le code et le graphisme de ${NOM_SITE} appartiennent à l'éditeur, sauf mention contraire.<br>
     Photos : contributeurs de Wikipédia et de Wikimedia Commons, sous licences libres ; l'auteur et la licence de chaque photo sont indiqués sur la fiche de la carte.
-    Carte du monde : Natural Earth (domaine public). Drapeaux : projet flag-icons (licence MIT). Bibliothèques : D3 et TopoJSON (licence ISC).<br>
-    Les noms de jeux vidéo, de studios et de marques citées appartiennent à leurs propriétaires respectifs ; ils sont cités à titre informatif et encyclopédique, sans lien avec ces sociétés.</p>
+    Carte du monde : Natural Earth (domaine public). Drapeaux : projet flag-icons (licence MIT). Bibliothèques : D3 et TopoJSON (licence ISC).</p>
     <h3>Signaler un contenu</h3>
     <p>Tout contenu illicite publié dans le hub peut être signalé avec le bouton « Signaler » ou à l'adresse de contact ci-dessus.</p>`],
   cgu: ["Conditions générales d'utilisation", `
-    <h3>1. Objet</h3><p>Les présentes conditions encadrent l'utilisation de ${NOM_SITE}, un jeu gratuit de cartes à collectionner, et de son hub communautaire. Créer un compte implique de les accepter.</p>
+    <h3>1. Objet</h3><p>Les présentes conditions encadrent l'utilisation de ${NOM_SITE}, un jeu de cartes à collectionner gratuit (avec une option Premium payante), et de son hub communautaire. Créer un compte implique de les accepter.</p>
     <h3>2. Accès et compte</h3><p>Le jeu est gratuit et jouable sans compte. Le compte, gratuit lui aussi, permet de sauvegarder sa collection dans le cloud et de participer au hub. L'inscription est ouverte aux personnes de 15 ans et plus, ou plus jeunes avec l'accord d'un parent. Vous êtes responsable de la confidentialité de votre mot de passe ; un seul compte par personne est conseillé.</p>
-    <h3>3. Pièces et cartes virtuelles</h3><p>Les pièces, boosters et cartes du jeu n'ont aucune valeur monétaire : ils ne s'achètent pas, ne se vendent pas et ne s'échangent pas contre de l'argent. Aucun achat n'est proposé.</p>
+    <h3>3. Pièces, cartes et Premium</h3><p>Les pièces, boosters et cartes du jeu n'ont aucune valeur monétaire : ils ne se vendent pas et ne s'échangent pas contre de l'argent. Seule l'option Premium est payante ; elle est régie par les conditions générales de vente. Le jeu reste entièrement jouable sans payer.</p>
+    <h3>3 bis. Arène et combats</h3><p>L'arène oppose votre deck à celui d'autres joueurs. Toute triche (modification de la sauvegarde, automatisation) peut entraîner la remise à zéro des trophées ou la suspension du compte.</p>
     <h3>4. Règles du hub communautaire</h3><p>Sont interdits : les insultes, le harcèlement, les propos haineux ou discriminatoires, les contenus violents, sexuels ou illégaux, le spam, la publicité, la publication d'informations personnelles (les vôtres ou celles d'autrui) et l'usurpation d'identité, notamment de l'administrateur. Les pseudos doivent rester respectueux.</p>
     <h3>5. Modération</h3><p>L'administrateur peut supprimer tout message contraire à ces règles et suspendre ou supprimer un compte, sans préavis en cas de manquement grave. Chacun peut signaler un message.</p>
     <h3>6. Vos contenus</h3><p>Vous restez propriétaire des messages que vous publiez et accordez à ${NOM_SITE} le droit de les afficher dans le hub tant qu'ils sont en ligne. Les illustrations que vous ajoutez à vos cartes restent privées : elles ne sont pas publiées dans le hub.</p>
@@ -580,12 +732,21 @@ const PAGES_LEGALES = {
     <h3>Finalités et bases légales</h3>
     <ul><li>Fournir le compte, la sauvegarde et le hub : exécution du service que vous demandez (article 6.1.b du RGPD).</li>
     <li>Sécurité du site et modération : intérêt légitime de l'éditeur (article 6.1.f).</li></ul>
+    <h3>Notifications</h3><p>Si vous les activez, l'adresse technique d'abonnement fournie par votre navigateur (Apple, Google ou Mozilla) est enregistrée pour vous envoyer des notifications ; les notifications ne contiennent aucune donnée personnelle. Vous pouvez les désactiver à tout moment depuis « Mon compte ».</p>
+    <h3>Premium</h3><p>Pour activer le Premium, nous conservons la formule choisie, la date et l'information que vous indiquez pour retrouver votre paiement. Le paiement lui-même est traité par PayPal, selon sa propre politique de confidentialité ; nous ne recevons jamais vos coordonnées bancaires. Ces données sont conservées 10 ans à des fins comptables (obligation légale).</p>
     <h3>Cookies et stockage local</h3><p>Le site utilise un seul cookie, « wc_session », strictement nécessaire pour rester connecté (durée : 30 jours), ainsi que le stockage local du navigateur pour votre progression et vos réglages. Ces éléments sont indispensables au service et ne nécessitent pas de consentement. Aucun cookie publicitaire ou de mesure d'audience n'est utilisé.</p>
     <h3>Photos de Wikipédia</h3><p>Les photos des cartes sont chargées directement depuis les serveurs de la Wikimedia Foundation, qui reçoivent donc votre adresse IP lors de leur affichage (voir la politique de confidentialité de la Wikimedia Foundation). Vous pouvez désactiver les photos dans les réglages du jeu.</p>
     <h3>Destinataires</h3><p>Seul l'administrateur du site accède aux données des comptes. Le pseudo, la vitrine, les statistiques de collection et les messages sont publics dans le hub. Les données sont hébergées par Cloudflare, Inc., qui peut les traiter hors de l'Union européenne dans le cadre de garanties prévues par le RGPD (Data Privacy Framework UE–États-Unis et clauses contractuelles types).</p>
     <h3>Durée de conservation</h3><p>Les données du compte sont conservées tant que le compte existe et peuvent être supprimées après 3 ans sans connexion. Les sessions de connexion expirent après 30 jours. Un compte supprimé est effacé immédiatement, avec sa sauvegarde et ses messages.</p>
     <h3>Vos droits</h3><p>Vous disposez des droits d'accès, de rectification, d'effacement, de portabilité, d'opposition et de limitation. Depuis « Mon compte », vous pouvez télécharger toutes vos données et supprimer votre compte vous-même. Pour toute autre demande : ${CONTACT}. Vous pouvez aussi adresser une réclamation à la CNIL (www.cnil.fr).</p>
     <h3>Mineurs</h3><p>Avant 15 ans, l'inscription nécessite l'accord d'un parent.</p>`],
+  cgv: ["Conditions générales de vente", `
+    <h3>1. Vendeur</h3><p>${EDITEUR}${ADRESSE ? `, ${ADRESSE}` : ""}. Contact : ${CONTACT}.${SIRET ? ` ${SIRET}.` : ""}</p>
+    <h3>2. Offre</h3><p>Le Premium est un abonnement à des avantages numériques dans ${NOM_SITE} : 2 boosters Classiques supplémentaires par jour, accès aux boosters Prestige (dont un offert par semaine), chances de cartes Shiny doublées, 20 questions de quiz par jour au lieu de 10, 20 combats d'arène par jour au lieu de 10 et un badge 💎. Deux formules : <b>1 mois pour 5,99 €</b> (31 jours, sans renouvellement automatique) et <b>à vie pour 39,99 €</b> (pendant toute la durée d'exploitation du jeu). Prix toutes taxes comprises${TVA_NON_APPLICABLE ? " ; TVA non applicable, article 293 B du CGI" : ""}.</p>
+    <h3>3. Commande et paiement</h3><p>Le paiement se fait par PayPal (paypal.me/noozoaa), en indiquant son pseudo dans la note. Le Premium est lié au compte du joueur et activé manuellement après vérification du paiement, en général sous 24 heures et au plus tard sous 7 jours. Sans activation dans ce délai, le joueur est remboursé sur simple demande.</p>
+    <h3>4. Droit de rétractation</h3><p>Le Premium est un contenu numérique fourni sur un support immatériel. Conformément à l'article L221-28 13° du Code de la consommation, en demandant son activation, le joueur accepte que l'exécution commence immédiatement et renonce à son droit de rétractation une fois le Premium activé. Avant activation, il peut annuler sa commande et être remboursé intégralement.</p>
+    <h3>5. Durée et fin</h3><p>Les avantages s'appliquent pendant la durée achetée. En cas de suspension du compte pour manquement grave aux conditions d'utilisation, le Premium prend fin sans remboursement. En cas d'arrêt définitif du jeu, les joueurs Premium en cours (formule mensuelle) sont remboursés au prorata de la durée restante.</p>
+    <h3>6. Réclamations et médiation</h3><p>Pour toute réclamation : ${CONTACT}. En cas de litige, le consommateur peut recourir gratuitement à un médiateur de la consommation ou à la plateforme européenne de règlement en ligne des litiges. Droit applicable : droit français.</p>`],
 };
 function vueLegal(v, opts = {}) {
   const page = PAGES_LEGALES[opts.page] ? opts.page : "mentions";

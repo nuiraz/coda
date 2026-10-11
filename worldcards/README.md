@@ -1,33 +1,41 @@
 # 🌐 WorldCards — Collectionner le monde
 
-Une application web de cartes à collectionner, en deux univers.
+Une application web de cartes à collectionner sur le monde, avec un mode combat.
 
-## 🌍 Monde
-- **195 pays** (les 193 membres de l'ONU, plus le Vatican et la Palestine) avec drapeau, silhouette, capitale et anecdote
-- **70 villes**, **93 monuments** rares, épiques et ultra rares, et les **14 merveilles** (7 modernes et 7 antiques), toutes légendaires
-- **Badges par continent** : bronze (25 %), argent (50 %) et or (100 %), plus des badges spéciaux
-- **Atlas interactif** : la carte du monde se colore à mesure que vous collectionnez ; villes et monuments y sont épinglés
-- **Cartes secrètes** : terminez une collection pour les débloquer (Avalon, El Dorado, Shangri-La, l'Atlantide…)
+## 🌍 Les cartes
+- **195 pays** (les 193 membres de l'ONU, plus le Vatican et la Palestine) avec drapeau, silhouette, capitale,
+  anecdote et la **photo d'un lieu emblématique** (souvent la capitale)
+- **210 villes**, **203 monuments et sites naturels** (peu communs à ultra rares) et les **14 merveilles**
+  (7 modernes et 7 antiques), toutes légendaires, avec de vraies photos de Wikipédia
+- **Cartes Shiny** (environ 1 sur 45) avec effet holographique
+- **Badges**, **atlas interactif**, **cartes secrètes** (Avalon, El Dorado, l'Atlantide…)
 
-## 🧰 Objets du quotidien
-- **76 objets** de la vie courante (fourchette, crayon, jean, ampoule, smartphone…) en 6 catégories :
-  cuisine, maison, bureau & école, mode & soin, jeux & loisirs, technologie
-- Quatre raretés : **commune**, **rare**, **ultra rare** et **légendaire**, avec date d'apparition, origine et anecdote
-- 7 cartes secrètes : la pierre de Rosette, la lampe d'Aladin, le Disque d'or de Voyager…
+## ⚔️ Combat
+- Chaque carte a des points d'**attaque**, de **défense** et de **vie**, selon sa rareté et son type.
+  Deux exemplaires d'une même carte diffèrent (de -8 % à +8 % par statistique).
+- Les **doublons** font monter la carte de niveau (+2 % par niveau, niveau 5 à 16 exemplaires) et peuvent améliorer ses statistiques.
+- **Deck de 3 cartes** avec un budget de 12 points (une légendaire coûte 6, une commune 1) : les decks restent équilibrés.
+- Triangle des types : Ville > Monument > Pays > Ville. Actions : attaque, spécial (une fois par carte), garde.
+- **Entraînement** contre l'ordinateur (3 difficultés) et **arène en ligne** contre les decks des autres joueurs,
+  avec trophées et classement. Le serveur rejoue chaque combat (`combat.js`, partagé) pour vérifier le résultat.
 
-## 🎮 Gaming — les cartes du gaming
-- Une **encyclopédie de 71 jeux vidéo** à collectionner, de Pong (1972) à Elden Ring (2022), rangés par époque
-- Des cartes secrètes en hommage aux légendes du jeu vidéo (MissingNo., le code Konami…)
-- **Mes collections** : créez vos propres collections autour de vos jeux préférés, avec **vos illustrations**
-  (dessins, captures, photos) et vos propres cartes
+## 🎁 Économie
+- **Booster gratuit toutes les 12 heures** (avec notification quand il est prêt).
+- **Boutique** : Classique (120 🪙), Argent (380 🪙), Or (900 🪙) et Prestige (1 500 🪙, Premium) : plus cher, plus rare.
+- **Quiz** : 10 questions par jour (20 en Premium), 25 🪙 par bonne réponse.
 
-## Comment jouer
-- **Boosters** : 5 cartes par booster, dont au moins une rare. 3 boosters Monde, 2 Gaming et 2 Objets offerts au départ,
-  puis un cadeau chaque jour. Les cartes que vous n'avez pas sortent plus souvent ; les doublons rapportent des pièces.
-- **Quiz** : capitales, drapeaux, lieux, années de sortie, studios, anecdotes… Chaque bonne réponse rapporte 20 🪙,
-  avec un bonus toutes les 5 bonnes réponses d'affilée.
-- **Pièces** : achetez des boosters, ou obtenez directement une carte qui vous manque depuis l'album.
-- Les **anecdotes** se révèlent quand vous possédez la carte.
+## 💎 Premium (5,99 € par mois ou 39,99 € à vie)
+- Paiement par PayPal (paypal.me/noozoaa), pseudo dans la note, puis « J'ai payé » dans le jeu ; l'administrateur
+  vérifie et active le Premium depuis *Administration → Premium* (le joueur reçoit une notification).
+- Avantages : +2 boosters par jour, boosters Prestige (un offert par semaine), Shiny ×2, 20 questions de quiz,
+  20 combats d'arène par jour, badge 💎.
+- ⚠ **Vendre impose d'indiquer votre identité réelle** : remplissez `ADRESSE`, `SIRET` et `CONTACT` en haut de
+  `compte.js` (mentions légales et CGV). Les revenus doivent être déclarés (micro-entreprise conseillée).
+
+## 🔔 Notifications push
+Web Push standard : les clés VAPID sont créées automatiquement et gardées dans la base D1. Une tâche planifiée
+(cron toutes les 15 minutes, dans `wrangler.toml`) envoie les rappels de booster gratuit. Sur iPhone, il faut
+d'abord ajouter le site à l'écran d'accueil (iOS 16.4 ou plus).
 
 ## 👤 Comptes, sauvegarde dans le cloud et communauté
 - **Inscription** avec un pseudo et un mot de passe (sans e-mail), acceptation des conditions et de la politique
@@ -35,7 +43,7 @@ Une application web de cartes à collectionner, en deux univers.
 - **Sauvegarde dans le cloud** automatique : la collection suit le joueur sur tous ses appareils. Si un appareil
   a déjà une progression, le jeu demande laquelle garder.
 - **Hub communautaire** : fil de messages avec cartes jointes, « j'aime », signalements, classement des joueurs
-  et profils publics avec une vitrine de 5 cartes.
+  et profils publics avec une vitrine de 5 cartes et les trophées d'arène.
 - **Mode administrateur** (réservé au pseudo `nuiraz`) : statistiques, liste des joueurs, bannissement,
   réinitialisation de mot de passe, suppression de compte, traitement des signalements, cadeaux (pièces et
   boosters) à un joueur ou à tous, annonces épinglées et outils de test.
@@ -76,7 +84,7 @@ La progression est enregistrée dans le navigateur ; exportez-la depuis ⚙︎ R
 Pour la publier en ligne, activez GitHub Pages sur ce dépôt (le dossier `worldcards/` est un site statique).
 
 ## Vraies photos
-Les villes, monuments, merveilles, objets et cartes secrètes affichent la photo principale de leur article Wikipédia,
+Les pays, villes, monuments et merveilles affichent la photo principale de leur article Wikipédia,
 chargée depuis Wikimedia Commons dans le navigateur du joueur, puis gardée en mémoire 30 jours. Les cartes non
 possédées montrent un aperçu flouté. La fiche de chaque carte indique l'auteur et la licence de la photo. Sans
 connexion, les cartes gardent leur dessin. Les photos se désactivent dans ⚙︎ Réglages. Les jeux vidéo n'ont pas

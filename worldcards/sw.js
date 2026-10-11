@@ -1,8 +1,8 @@
 "use strict";
 // Service worker de WorldCards : le jeu fonctionne hors ligne et se charge instantanément.
 // Changez VERSION à chaque mise en ligne pour forcer la mise à jour du cache.
-const VERSION = "wc-2026-10-11-6";
-const COEUR = ["./","index.html","style.css","app.js","compte.js","manifest.webmanifest", "apple-touch-icon.png","data/carte.js","data/gaming.js","data/monde.js","data/objets.js","data/photos.js","vendor/d3.min.js","vendor/topojson-client.min.js","icons/apple-touch-icon.png","icons/favicon-32.png","icons/icon-192.png","icons/icon-512.png","icons/icon-maskable-512.png","icons/icon.svg"];
+const VERSION = "wc-2026-10-11-7";
+const COEUR = ["./","index.html","style.css","app.js","compte.js","combat.js","combat-ui.js","manifest.webmanifest", "apple-touch-icon.png","data/carte.js","data/monde.js","data/villes2.js","data/monuments2.js","data/photos.js","data/photos-pays.js","vendor/d3.min.js","vendor/topojson-client.min.js","icons/apple-touch-icon.png","icons/favicon-32.png","icons/icon-192.png","icons/icon-512.png","icons/icon-maskable-512.png","icons/icon.svg"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => Promise.allSettled(COEUR.map((f) => c.add(f)))).then(() => self.skipWaiting()));
@@ -45,3 +45,21 @@ function typeAttendu(chemin, r) {
   if (chemin.endsWith("/") || /\.html$/.test(chemin)) return t.includes("html");
   return true;
 }
+
+// Notifications push : le serveur envoie un signal vide, le texte est lu sur /api/notifs/derniere
+self.addEventListener("push", (e) => {
+  e.waitUntil((async () => {
+    let n = { titre: "WorldCards", texte: "Du nouveau vous attend !", url: "./" };
+    try { const r = await fetch("/api/notifs/derniere", { credentials: "include" }); if (r.ok) { const j = await r.json(); if (j.notif) n = j.notif; } } catch {}
+    await self.registration.showNotification(n.titre, { body: n.texte, icon: "icons/icon-192.png", badge: "icons/favicon-32.png", data: { url: n.url || "./" }, tag: n.tag || undefined });
+  })());
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || "./", self.location.href).href;
+  e.waitUntil((async () => {
+    const fenetres = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const f of fenetres) { if ("focus" in f) { await f.navigate(url).catch(() => {}); return f.focus(); } }
+    return self.clients.openWindow(url);
+  })());
+});
