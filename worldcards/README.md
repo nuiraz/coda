@@ -4,13 +4,13 @@ Une application web de cartes à collectionner, en deux univers.
 
 ## 🌍 Monde
 - **195 pays** (les 193 membres de l'ONU, plus le Vatican et la Palestine) avec drapeau, silhouette, capitale et anecdote
-- **30 villes**, **56 monuments** rares, épiques et ultra rares, et les **14 merveilles** (7 modernes et 7 antiques), toutes légendaires
+- **70 villes**, **93 monuments** rares, épiques et ultra rares, et les **14 merveilles** (7 modernes et 7 antiques), toutes légendaires
 - **Badges par continent** : bronze (25 %), argent (50 %) et or (100 %), plus des badges spéciaux
 - **Atlas interactif** : la carte du monde se colore à mesure que vous collectionnez ; villes et monuments y sont épinglés
 - **Cartes secrètes** : terminez une collection pour les débloquer (Avalon, El Dorado, Shangri-La, l'Atlantide…)
 
 ## 🧰 Objets du quotidien
-- **55 objets** de la vie courante (fourchette, crayon, jean, ampoule, smartphone…) en 6 catégories :
+- **76 objets** de la vie courante (fourchette, crayon, jean, ampoule, smartphone…) en 6 catégories :
   cuisine, maison, bureau & école, mode & soin, jeux & loisirs, technologie
 - Quatre raretés : **commune**, **rare**, **ultra rare** et **légendaire**, avec date d'apparition, origine et anecdote
 - 7 cartes secrètes : la pierre de Rosette, la lampe d'Aladin, le Disque d'or de Voyager…

@@ -23,6 +23,9 @@ const OBJETS_BRUTS = [
   ["cocotte", "Cocotte-minute", "cuisine", "♨️", "rare", 1679, "1679", "France", "Son ancêtre est le « digesteur » du Français Denis Papin, présenté à Londres en 1679."],
   ["micro-ondes", "Four à micro-ondes", "cuisine", "⚡", "rare", 1945, "1945", "États-Unis", "Inventé par hasard : l'ingénieur Percy Spencer a remarqué qu'une barre chocolatée avait fondu dans sa poche près d'un radar."],
   ["refrigerateur", "Réfrigérateur", "cuisine", "🧊", "ultra-rare", 1913, "Début du XXe siècle", "États-Unis", "Albert Einstein a lui-même déposé un brevet de réfrigérateur en 1930, avec le physicien Leó Szilárd."],
+  ["paille", "Paille", "cuisine", "🥤", "commun", -3000, "Il y a environ 5 000 ans", "Mésopotamie", "Les Sumériens buvaient déjà leur bière avec de longues pailles, pour éviter les résidus au fond des jarres."],
+  ["conserve", "Boîte de conserve", "cuisine", "🥫", "commun", 1810, "Début du XIXe siècle", "France", "Le Français Nicolas Appert a inventé la mise en conserve ; l'armée de Napoléon cherchait à mieux nourrir ses soldats."],
+  ["lave-vaisselle", "Lave-vaisselle", "cuisine", "🍽️", "rare", 1886, "1886", "États-Unis", "Josephine Cochrane l'a inventé parce qu'elle voulait que sa vaisselle soit lavée sans être cassée."],
   // Maison
   ["allumette", "Allumette", "maison", "🔥", "commun", 1826, "1826", "Angleterre", "Le pharmacien anglais John Walker a inventé par hasard la première allumette à friction, en grattant un bâtonnet enduit de produits chimiques."],
   ["bougie", "Bougie", "maison", "🕯️", "commun", null, "Antiquité", "Rome et Chine", "Les Romains fabriquaient déjà des bougies en suif, une graisse animale qui fumait et sentait fort."],
@@ -33,6 +36,7 @@ const OBJETS_BRUTS = [
   ["miroir", "Miroir", "maison", "🪞", "rare", -6000, "Il y a environ 8 000 ans", "Anatolie", "Les premiers miroirs étaient des disques d'obsidienne, une roche volcanique noire, soigneusement polis."],
   ["aspirateur", "Aspirateur", "maison", "🧹", "rare", 1901, "1901", "Royaume-Uni", "Le premier aspirateur motorisé était si gros qu'il restait dans la rue, tiré par des chevaux : on passait les tuyaux par les fenêtres."],
   ["ampoule", "Ampoule électrique", "maison", "💡", "legendaire", 1879, "1879", "États-Unis et Royaume-Uni", "Une ampoule de caserne de pompiers, à Livermore en Californie, brille presque sans interruption depuis 1901."],
+  ["fer-repasser", "Fer à repasser", "maison", "👔", "commun", null, "Moyen Âge", "Europe", "Avant l'électricité, on chauffait des fers en métal sur le poêle, et on en alternait plusieurs pour qu'ils restent chauds."],
   // Bureau & école
   ["crayon", "Crayon à papier", "bureau", "✏️", "commun", 1795, "1795", "France", "Sa mine ne contient pas de plomb mais du graphite mêlé d'argile, selon le procédé du Français Nicolas-Jacques Conté."],
   ["gomme", "Gomme", "bureau", "🧽", "commun", 1770, "1770", "Angleterre", "Avant le caoutchouc, on effaçait les traits de crayon avec de la mie de pain."],
@@ -43,6 +47,10 @@ const OBJETS_BRUTS = [
   ["calculatrice", "Machine à calculer", "bureau", "🧮", "rare", 1642, "1642", "France", "La Pascaline, inventée par Blaise Pascal à 19 ans, est l'une des premières machines à calculer."],
   ["papier", "Papier", "bureau", "📜", "ultra-rare", 105, "Vers 105", "Chine", "Son invention est traditionnellement attribuée à Cai Lun, un fonctionnaire de la cour impériale chinoise."],
   ["livre-imprime", "Livre imprimé", "bureau", "📖", "legendaire", 1455, "Vers 1455", "Allemagne", "La Bible de Gutenberg est l'un des premiers livres imprimés en Europe avec des caractères mobiles."],
+  ["agrafeuse", "Agrafeuse", "bureau", "📌", "commun", null, "XVIIIe siècle", "France", "Selon la légende, la première agrafeuse aurait été fabriquée pour le roi Louis XV, chaque agrafe gravée à ses armes."],
+  ["taille-crayon", "Taille-crayon", "bureau", "✏️", "commun", 1828, "1828", "France", "Le Français Bernard Lassimonne a déposé un brevet de taille-crayon en 1828."],
+  ["machine-ecrire", "Machine à écrire", "bureau", "⌨️", "rare", 1868, "1868", "États-Unis", "La disposition QWERTY des claviers, dont dérive l'AZERTY, vient des machines à écrire du XIXe siècle."],
+  ["globe", "Globe terrestre", "bureau", "🌐", "ultra-rare", 1492, "1492", "Allemagne", "Le plus ancien globe terrestre conservé, celui de Martin Behaim (1492), ne montre pas encore l'Amérique."],
   // Mode & soin
   ["bouton", "Bouton", "mode", "🔘", "commun", 1250, "XIIIe siècle", "Europe", "Les boutonnières ne sont apparues qu'au XIIIe siècle : avant, les boutons servaient surtout de décoration."],
   ["savon", "Savon", "mode", "🧼", "commun", -2800, "Il y a près de 5 000 ans", "Mésopotamie", "Les Babyloniens fabriquaient déjà du savon à partir de graisses et de cendres."],
@@ -53,6 +61,9 @@ const OBJETS_BRUTS = [
   ["velcro", "Velcro", "mode", "🧷", "rare", 1955, "1955", "Suisse", "George de Mestral en a eu l'idée en observant les fruits de bardane accrochés aux poils de son chien après une promenade."],
   ["montre-bracelet", "Montre-bracelet", "mode", "⌚", "rare", 1904, "Début du XXe siècle", "France et Suisse", "Elle s'est imposée chez les hommes pendant la Première Guerre mondiale, bien plus pratique que la montre à gousset."],
   ["lunettes", "Lunettes", "mode", "👓", "ultra-rare", 1290, "Vers 1290", "Italie", "Les premières lunettes de lecture sont apparues en Italie, à la fin du XIIIe siècle."],
+  ["epingle-nourrice", "Épingle à nourrice", "mode", "🧷", "commun", 1849, "1849", "États-Unis", "Walter Hunt l'a inventée en tortillant un fil de fer, puis a vendu son brevet pour 400 dollars."],
+  ["machine-coudre", "Machine à coudre", "mode", "🪡", "rare", 1830, "1830", "France", "Barthélemy Thimonnier en a breveté une en 1830 ; des tailleurs inquiets pour leur métier ont saccagé son atelier."],
+  ["basket", "Basket", "mode", "👟", "rare", 1917, "1917", "États-Unis", "La Converse All Star, sortie en 1917, est l'une des chaussures les plus vendues de l'histoire."],
   // Jeux & loisirs
   ["des", "Dés", "loisirs", "🎲", "commun", -3000, "Il y a plus de 5 000 ans", "Moyen-Orient", "Sur un dé classique, les faces opposées totalisent toujours 7."],
   ["yoyo", "Yo-yo", "loisirs", "🪀", "commun", -500, "Vers 500 av. J.-C.", "Grèce", "On voit déjà un yo-yo peint sur un vase grec d'environ 500 av. J.-C."],
@@ -62,6 +73,11 @@ const OBJETS_BRUTS = [
   ["ours-peluche", "Ours en peluche", "loisirs", "🧸", "rare", 1902, "1902", "États-Unis", "Le « teddy bear » doit son nom au président Theodore « Teddy » Roosevelt, qui refusa d'abattre un ours attaché lors d'une chasse."],
   ["echecs", "Jeu d'échecs", "loisirs", "♟️", "rare", 600, "Vers le VIe siècle", "Inde", "La dame, pièce la plus puissante, n'a pris ses pouvoirs actuels qu'à la fin du XVe siècle, en Europe."],
   ["velo", "Vélo", "loisirs", "🚲", "ultra-rare", 1817, "1817", "Allemagne", "Son ancêtre, la draisienne, n'avait pas de pédales : on avançait en poussant avec les pieds."],
+  ["cerf-volant", "Cerf-volant", "loisirs", "🪁", "commun", -400, "Il y a plus de 2 000 ans", "Chine", "Les Chinois en faisaient voler il y a plus de 2 000 ans, parfois pour envoyer des signaux militaires."],
+  ["frisbee", "Frisbee", "loisirs", "🥏", "commun", 1957, "1957", "États-Unis", "Son nom viendrait des moules à tarte de la Frisbie Pie Company, que des étudiants s'amusaient à lancer."],
+  ["monopoly", "Monopoly", "loisirs", "🎩", "rare", 1935, "1935", "États-Unis", "Il descend du Landlord's Game, créé en 1904 par Elizabeth Magie pour dénoncer les monopoles."],
+  ["rubiks-cube", "Rubik's Cube", "loisirs", "🟥", "rare", 1974, "1974", "Hongrie", "Il existe environ 43 trillions de combinaisons possibles, mais on peut toujours le résoudre en 20 mouvements au plus."],
+  ["lego", "Brique Lego", "loisirs", "🧱", "rare", 1958, "1958", "Danemark", "La brique brevetée en 1958 s'emboîte encore parfaitement avec celles fabriquées aujourd'hui."],
   // Technologie
   ["souris", "Souris d'ordinateur", "tech", "🖱️", "rare", 1964, "1964", "États-Unis", "La première souris, imaginée par Douglas Engelbart, était un simple boîtier en bois à roulettes."],
   ["code-barres", "Code-barres", "tech", "🏷️", "rare", 1974, "1974", "États-Unis", "Le premier produit scanné en caisse, en 1974 dans l'Ohio, était un paquet de chewing-gums."],
@@ -73,6 +89,11 @@ const OBJETS_BRUTS = [
   ["telephone", "Téléphone", "tech", "☎️", "legendaire", 1876, "1876", "États-Unis", "Alexander Graham Bell a déposé son brevet le même jour qu'Elisha Gray, qui travaillait sur la même idée."],
   ["television", "Télévision", "tech", "📺", "legendaire", 1926, "1926", "Royaume-Uni", "L'Écossais John Logie Baird a présenté au public la première télévision fonctionnelle en 1926."],
   ["smartphone", "Smartphone", "tech", "📱", "legendaire", 1994, "1994", "États-Unis", "L'IBM Simon, sorti en 1994, est souvent considéré comme le premier smartphone : il avait déjà un écran tactile."],
+  ["cle-usb", "Clé USB", "tech", "💾", "commun", 2000, "2000", "Israël et Singapour", "Les premières clés USB, vers 2000, ne contenaient que 8 Mo."],
+  ["walkman", "Walkman", "tech", "📼", "rare", 1979, "1979", "Japon", "Avec ce baladeur lancé par Sony en 1979, on pouvait pour la première fois écouter sa musique partout."],
+  ["console-odyssey", "Console de jeux", "tech", "🕹️", "rare", 1972, "1972", "États-Unis", "La première console de salon, la Magnavox Odyssey, n'affichait que des points : on collait des calques sur l'écran de télévision."],
+  ["gps", "GPS", "tech", "🛰️", "ultra-rare", 1978, "1978", "États-Unis", "Les premiers satellites GPS ont été lancés par l'armée américaine à partir de 1978."],
+  ["eniac", "Ordinateur (ENIAC)", "tech", "🖥️", "legendaire", 1946, "1946", "États-Unis", "L'ENIAC, l'un des premiers ordinateurs, pesait environ 30 tonnes et occupait toute une salle."],
 ];
 
 // [id, nom, emoji, condition, anecdote]
