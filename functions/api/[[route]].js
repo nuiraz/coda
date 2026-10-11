@@ -345,7 +345,7 @@ route("POST", "posts/(\\d+)/signaler", async ({ request, env, user, p }) => {
 route("GET", "classement", async ({ request, env }) => {
   const tri = { cartes: "cartes", secretes: "secretes", badges: "badges" }[new URL(request.url).searchParams.get("tri")] || "cartes";
   const r = await env.DB.prepare(`SELECT u.pseudo, u.admin, u.premium_jusqu > ? AS premium, s.cartes, s.secretes, s.badges FROM sauvegardes s JOIN users u ON u.id = s.user_id
-    WHERE u.banni = 0 ORDER BY s.${tri} DESC, s.maj ASC LIMIT 50`).bind(maintenant()).all();
+    WHERE u.banni = 0 AND u.admin = 0 ORDER BY s.${tri} DESC, s.maj ASC LIMIT 50`).bind(maintenant()).all();
   return json({ joueurs: r.results.map((x) => ({ ...x, admin: !!x.admin, premium: !!x.premium })) });
 });
 
@@ -652,7 +652,7 @@ const puissanceDeck = (d) => d.reduce((t, u) => t + COMBAT.puissance(u), 0);
 
 route("GET", "arene/moi", async ({ env, user }) => {
   const a = await ligneArene(env, user.id);
-  const rang = await env.DB.prepare("SELECT COUNT(*) + 1 AS r FROM arene WHERE deck IS NOT NULL AND trophees > ?").bind(a.trophees).first();
+  const rang = await env.DB.prepare("SELECT COUNT(*) + 1 AS r FROM arene a JOIN users u ON u.id = a.user_id WHERE a.deck IS NOT NULL AND u.banni = 0 AND u.admin = 0 AND a.trophees > ?").bind(a.trophees).first();
   return json({ trophees: a.trophees, palier: palierArene(a.trophees), saison: saisonCourante(), finSaison: finSaison(), victoires: a.victoires, defaites: a.defaites, deck: !!a.deck, rang: a.deck ? rang.r : null,
     limite: limiteArene(user), restants: Math.max(0, limiteArene(user) - combatsFaits(a)) });
 }, { connecte: true });
@@ -666,7 +666,7 @@ route("PUT", "arene/deck", async ({ request, env, user }) => {
 route("GET", "arene/adversaires", async ({ env, user }) => {
   const a = await ligneArene(env, user.id);
   const { results } = await env.DB.prepare(`SELECT u.pseudo, u.premium_jusqu, a.trophees, a.puissance, a.deck FROM arene a JOIN users u ON u.id = a.user_id
-    WHERE a.user_id != ? AND a.deck IS NOT NULL AND u.banni = 0 ORDER BY ABS(a.trophees - ?) LIMIT 12`).bind(user.id, a.trophees).all();
+    WHERE a.user_id != ? AND a.deck IS NOT NULL AND u.banni = 0 AND u.admin = 0 ORDER BY ABS(a.trophees - ?) LIMIT 12`).bind(user.id, a.trophees).all();
   const choix = results.sort(() => Math.random() - 0.5).slice(0, 4).sort((x, y) => y.trophees - x.trophees);
   return json({ adversaires: choix.map((x) => ({ pseudo: x.pseudo, premium: estPremium(x), trophees: x.trophees, puissance: x.puissance, cartes: JSON.parse(x.deck).map((u) => u.id) })) });
 }, { connecte: true });
@@ -710,7 +710,7 @@ route("POST", "arene/fin", async ({ request, env, user, ctx }) => {
 }, { connecte: true });
 route("GET", "arene/classement", async ({ env }) => {
   const { results } = await env.DB.prepare(`SELECT u.pseudo, u.admin, u.premium_jusqu, a.trophees, a.victoires, a.defaites FROM arene a JOIN users u ON u.id = a.user_id
-    WHERE a.deck IS NOT NULL AND u.banni = 0 ORDER BY a.trophees DESC, a.victoires DESC LIMIT 50`).all();
+    WHERE a.deck IS NOT NULL AND u.banni = 0 AND u.admin = 0 ORDER BY a.trophees DESC, a.victoires DESC LIMIT 50`).all();
   return json({ saison: saisonCourante(), finSaison: finSaison(), joueurs: results.map((x) => ({ pseudo: x.pseudo, admin: !!x.admin, premium: estPremium(x), trophees: x.trophees, palier: palierArene(x.trophees), victoires: x.victoires, defaites: x.defaites })) });
 });
 
@@ -940,7 +940,7 @@ async function ajouterPointsTournoi(env, user, points, victoire, arene) {
 route("GET", "tournois/actuel", async ({ env, user }) => {
   const sem = semaineCourante();
   const theme = THEMES_TOURNOI[Math.floor(new Date(sem).getTime() / (7 * JOUR)) % THEMES_TOURNOI.length];
-  const { results } = await env.DB.prepare(`SELECT t.pseudo, t.score, t.victoires FROM tournoi_scores t JOIN users u ON u.id = t.user_id WHERE t.semaine = ? AND u.banni = 0 ORDER BY t.score DESC, t.victoires DESC LIMIT 50`).bind(sem).all();
+  const { results } = await env.DB.prepare(`SELECT t.pseudo, t.score, t.victoires FROM tournoi_scores t JOIN users u ON u.id = t.user_id WHERE t.semaine = ? AND u.banni = 0 AND u.admin = 0 ORDER BY t.score DESC, t.victoires DESC LIMIT 50`).bind(sem).all();
   const moi = user ? await env.DB.prepare("SELECT score, victoires FROM tournoi_scores WHERE user_id = ? AND semaine = ?").bind(user.id, sem).first() : null;
   const fin = new Date(sem).getTime() + 7 * JOUR;
   return json({ semaine: sem, finLe: fin, theme, classement: results, monScore: moi || { score: 0, victoires: 0 }, recompenses: RECOMPENSES_TOURNOI.slice(0, 4) });
@@ -955,7 +955,7 @@ route("GET", "classement/semaine", async ({ env }) => {
   const sem = semaineCourante();
   const { results } = await env.DB.prepare(`SELECT u.pseudo, u.admin, u.premium_jusqu, h.cartes - h.cartes_debut AS cartes_gagnees, COALESCE(t.victoires, 0) AS victoires, COALESCE(t.score, 0) AS score
     FROM hebdo h JOIN users u ON u.id = h.user_id LEFT JOIN tournoi_scores t ON t.user_id = h.user_id AND t.semaine = h.semaine
-    WHERE h.semaine = ? AND u.banni = 0 ORDER BY cartes_gagnees DESC, victoires DESC LIMIT 50`).bind(sem).all();
+    WHERE h.semaine = ? AND u.banni = 0 AND u.admin = 0 ORDER BY cartes_gagnees DESC, victoires DESC LIMIT 50`).bind(sem).all();
   return json({ semaine: sem, finLe: new Date(sem).getTime() + 7 * JOUR, joueurs: results.map((x) => ({ pseudo: x.pseudo, admin: !!x.admin, premium: estPremium(x), cartesGagnees: Math.max(0, x.cartes_gagnees), victoires: x.victoires, score: x.score })) });
 });
 // Le lundi, le cron récompense le top 10 du tournoi de la semaine précédente
@@ -963,7 +963,7 @@ async function recompenserTournoi(env) {
   const precedente = semaineCourante(1);
   if ((await lireConfig(env, "tournoi_paye")) === precedente) return;
   await ecrireConfig(env, "tournoi_paye", precedente);
-  const { results } = await env.DB.prepare("SELECT user_id, score FROM tournoi_scores WHERE semaine = ? AND score > 0 ORDER BY score DESC, victoires DESC LIMIT 10").bind(precedente).all();
+  const { results } = await env.DB.prepare("SELECT t.user_id, t.score FROM tournoi_scores t JOIN users u ON u.id = t.user_id WHERE t.semaine = ? AND t.score > 0 AND u.banni = 0 AND u.admin = 0 ORDER BY t.score DESC, t.victoires DESC LIMIT 10").bind(precedente).all();
   for (const [i, x] of results.entries()) {
     const [pieces, boosters] = RECOMPENSES_TOURNOI[i];
     await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, ?, ?, ?, ?)").bind(x.user_id, pieces, boosters, `Tournoi de la semaine : ${i + 1}${i ? "e" : "er"} place !`, maintenant()).run();
@@ -1046,7 +1046,7 @@ async function finDeSaison(env) {
   if (!derniere) return ecrireConfig(env, "saison", saison);
   if (derniere === saison) return;
   await ecrireConfig(env, "saison", saison);
-  const { results } = await env.DB.prepare("SELECT user_id, trophees FROM arene WHERE deck IS NOT NULL AND (victoires + defaites) > 0").all();
+  const { results } = await env.DB.prepare("SELECT a.user_id, a.trophees FROM arene a JOIN users u ON u.id = a.user_id WHERE a.deck IS NOT NULL AND (a.victoires + a.defaites) > 0 AND u.banni = 0 AND u.admin = 0").all();
   for (const x of results) {
     const p = PALIERS.find(([min]) => x.trophees >= min);
     await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, ?, ?, ?, ?)").bind(x.user_id, p[3], p[4], `Fin de la saison d'arène ${derniere} : palier ${p[2]} !`, maintenant()).run();
