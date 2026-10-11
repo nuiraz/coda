@@ -4,7 +4,7 @@
 
 // À personnaliser : coordonnées affichées dans les mentions légales
 const EDITEUR = "nuiraz";
-const CONTACT = "[votre adresse e-mail de contact]";
+const CONTACT = "[skubisn@icloud.com]";
 const NOM_SITE = "WorldCards";
 // Vente du Premium : la loi impose d'indiquer l'identité réelle du vendeur et son adresse (ou son numéro SIRET)
 const ADRESSE = ""; // ex. : "Prénom Nom, 1 rue Exemple, 75000 Paris"
