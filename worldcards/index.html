@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>WorldCards — Collectionner le monde</title>
-<meta name="description" content="Collectionnez les 195 pays, des villes, des monuments, les merveilles du monde et les grands jeux vidéo, sous forme de cartes.">
+<meta name="description" content="Collectionnez les 195 pays, des villes, des monuments, les merveilles du monde, les grands jeux vidéo et les objets du quotidien, sous forme de cartes.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌐</text></svg>">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -12,8 +12,9 @@
 <header class="top">
   <div class="brand">🌐 <b><span>WorldCards</span></b></div>
   <div class="seg" id="univers">
-    <button data-u="monde">🌍 Monde</button>
-    <button data-u="gaming">🎮 Gaming</button>
+    <button data-u="monde" aria-label="Monde">🌍<span class="lbl"> Monde</span></button>
+    <button data-u="gaming" aria-label="Gaming">🎮<span class="lbl"> Gaming</span></button>
+    <button data-u="objets" aria-label="Objets">🧰<span class="lbl"> Objets</span></button>
   </div>
   <div class="coins" title="Pièces : gagnez-en au quiz, ouvrez des boosters">🪙 <span id="coins">0</span></div>
   <button class="iconbtn" id="settingsBtn" title="Réglages" aria-label="Réglages">⚙︎</button>
@@ -28,6 +29,7 @@
 <script src="data/carte.js"></script>
 <script src="data/monde.js"></script>
 <script src="data/gaming.js"></script>
+<script src="data/objets.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

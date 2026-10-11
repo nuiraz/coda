@@ -1,7 +1,7 @@
 :root {
   --bg: #f4f1ea; --panel: #ffffff; --panel2: #faf8f3; --text: #1f1d1a; --muted: #6f6a60; --border: #e3ddd0;
   --accent: #e0913a; --accent-2: #c46f1a; --ok: #2e9d6a; --bad: #c9473f;
-  --commun: #9aa0a6; --peu-commun: #3aa776; --rare: #3f7fe0; --epique: #9b51e0; --legendaire: #e8a917; --secrete: #e0458b;
+  --commun: #9aa0a6; --peu-commun: #3aa776; --rare: #3f7fe0; --epique: #9b51e0; --ultra-rare: #e2433b; --legendaire: #e8a917; --secrete: #e0458b;
   --shadow: 0 6px 20px rgba(40, 30, 10, .12);
 }
 @media (prefers-color-scheme: dark) {
@@ -65,6 +65,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 16px 16px 90px; }
 .pack { width: 170px; height: 240px; border-radius: 18px; position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; text-align: center; box-shadow: var(--shadow); border: 0; transition: transform .2s; }
 .pack:hover:not(:disabled) { transform: translateY(-4px) rotate(-1deg); }
 .pack.monde { background: radial-gradient(circle at 30% 20%, #ffcf7a, transparent 45%), linear-gradient(160deg, #e0913a, #c9473f 55%, #6b2f8f); }
+.pack.objets { background: radial-gradient(circle at 30% 20%, #ffe29a, transparent 45%), linear-gradient(160deg, #16a085, #2980b9 55%, #34495e); }
 .pack.gaming { background: radial-gradient(circle at 30% 20%, #8be9ff, transparent 45%), linear-gradient(160deg, #3f7fe0, #9b51e0 55%, #e0458b); }
 .pack .big { font-size: 64px; filter: drop-shadow(0 4px 10px rgba(0,0,0,.3)); }
 .pack b { font-size: 18px; margin-top: 8px; }
@@ -83,6 +84,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 16px 16px 90px; }
 .flip .back { border-radius: 14px; background: repeating-linear-gradient(45deg, #2a2340 0 10px, #241e38 10px 20px); border: 3px solid #4a3f6b; display: flex; align-items: center; justify-content: center; font-size: 46px; color: #fff; }
 .flip .back.glow-rare { box-shadow: 0 0 18px var(--rare); }
 .flip .back.glow-epique { box-shadow: 0 0 22px var(--epique); }
+.flip .back.glow-ultra-rare { box-shadow: 0 0 26px var(--ultra-rare); }
 .flip .back.glow-legendaire { box-shadow: 0 0 30px var(--legendaire); animation: pulse 1.2s infinite; }
 @keyframes pulse { 50% { box-shadow: 0 0 46px var(--legendaire); } }
 .tagnew, .tagdup { position: absolute; z-index: 3; top: -8px; left: 50%; transform: translateX(-50%); border-radius: 999px; padding: 1px 10px; font-size: 12px; font-weight: 800; white-space: nowrap; }
@@ -96,6 +98,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 16px 16px 90px; }
 .card[data-r="peu-commun"] { --r: var(--peu-commun); }
 .card[data-r="rare"] { --r: var(--rare); }
 .card[data-r="epique"] { --r: linear-gradient(135deg, #b47cf0, var(--epique), #6a2bb8); }
+.card[data-r="ultra-rare"] { --r: linear-gradient(135deg, #ff9a7a, var(--ultra-rare), #8e1b16, #ff6b4a); }
 .card[data-r="legendaire"] { --r: linear-gradient(135deg, #fff1a8, var(--legendaire), #b5790b, #ffe066); }
 .card[data-r="secrete"] { --r: conic-gradient(from 0deg, #e0458b, #e8a917, #3aa776, #3f7fe0, #9b51e0, #e0458b); }
 .card[data-r="perso"] { --r: linear-gradient(135deg, #e0913a, #e0458b); }
@@ -115,7 +118,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 16px 16px 90px; }
 .card .num { position: absolute; bottom: 5px; right: 8px; font-size: 6cqw; color: var(--muted); }
 .card .badge-count { position: absolute; z-index: 5; top: -6px; right: -6px; background: var(--text); color: var(--bg); border-radius: 999px; font-size: 12px; font-weight: 800; padding: 0 7px; }
 .card .badge-new { position: absolute; z-index: 5; top: -6px; left: -6px; background: var(--ok); color: #fff; border-radius: 999px; font-size: 11px; font-weight: 800; padding: 0 7px; }
-.card[data-r="legendaire"] .in::after, .card[data-r="secrete"] .in::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 6; background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.4) 48%, transparent 60%); background-size: 250% 100%; animation: holo 3s linear infinite; mix-blend-mode: overlay; }
+.card[data-r="ultra-rare"] .in::after, .card[data-r="legendaire"] .in::after, .card[data-r="secrete"] .in::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 6; background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.4) 48%, transparent 60%); background-size: 250% 100%; animation: holo 3s linear infinite; mix-blend-mode: overlay; }
 @keyframes holo { from { background-position: 150% 0; } to { background-position: -100% 0; } }
 /* Carte non possédée */
 .card.locked { --r: var(--border); box-shadow: none; }
@@ -208,6 +211,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 16px 16px 90px; }
 .detail dd { margin: 0; font-weight: 600; }
 .rbadge { display: inline-block; border-radius: 999px; padding: 1px 10px; font-size: 12px; font-weight: 800; color: #fff; background: var(--commun); }
 .rbadge[data-r="peu-commun"] { background: var(--peu-commun); } .rbadge[data-r="rare"] { background: var(--rare); } .rbadge[data-r="epique"] { background: var(--epique); }
+.rbadge[data-r="ultra-rare"] { background: var(--ultra-rare); }
 .rbadge[data-r="legendaire"] { background: var(--legendaire); color: #3a2a00; } .rbadge[data-r="secrete"] { background: var(--secrete); } .rbadge[data-r="perso"] { background: var(--accent); }
 
 .reveal { text-align: center; }
@@ -219,9 +223,11 @@ main { max-width: 1180px; margin: 0 auto; padding: 16px 16px 90px; }
 .toast { background: var(--text); color: var(--bg); border-radius: 14px; padding: 10px 14px; font-weight: 600; box-shadow: var(--shadow); animation: toast .3s; }
 @keyframes toast { from { opacity: 0; transform: translateY(-14px); } }
 
+@media (max-width: 520px) { .seg .lbl { display: none; } .seg button { font-size: 18px; padding: 4px 12px; } }
 @media (max-width: 760px) {
   .top { padding: 8px 12px; gap: 8px; }
   .brand b { display: none; }
+  .seg button { padding: 6px 10px; }
   #nav { position: fixed; z-index: 30; bottom: 0; left: 0; right: 0; max-width: none; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--border); justify-content: space-around; gap: 0; }
   #nav button { flex-direction: column; gap: 0; font-size: 11px; padding: 4px 6px; }
   #nav button .ic { font-size: 20px; }

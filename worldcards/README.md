@@ -4,10 +4,16 @@ Une application web de cartes à collectionner, en deux univers.
 
 ## 🌍 Monde
 - **195 pays** (les 193 membres de l'ONU, plus le Vatican et la Palestine) avec drapeau, silhouette, capitale et anecdote
-- **30 villes**, **35 monuments** rares et épiques, et les **14 merveilles** (7 modernes et 7 antiques), toutes légendaires
+- **30 villes**, **56 monuments** rares, épiques et ultra rares, et les **14 merveilles** (7 modernes et 7 antiques), toutes légendaires
 - **Badges par continent** : bronze (25 %), argent (50 %) et or (100 %), plus des badges spéciaux
 - **Atlas interactif** : la carte du monde se colore à mesure que vous collectionnez ; villes et monuments y sont épinglés
 - **Cartes secrètes** : terminez une collection pour les débloquer (Avalon, El Dorado, Shangri-La, l'Atlantide…)
+
+## 🧰 Objets du quotidien
+- **55 objets** de la vie courante (fourchette, crayon, jean, ampoule, smartphone…) en 6 catégories :
+  cuisine, maison, bureau & école, mode & soin, jeux & loisirs, technologie
+- Quatre raretés : **commune**, **rare**, **ultra rare** et **légendaire**, avec date d'apparition, origine et anecdote
+- 7 cartes secrètes : la pierre de Rosette, la lampe d'Aladin, le Disque d'or de Voyager…
 
 ## 🎮 Gaming — les cartes du gaming
 - Une **encyclopédie de 71 jeux vidéo** à collectionner, de Pong (1972) à Elden Ring (2022), rangés par époque
@@ -16,7 +22,7 @@ Une application web de cartes à collectionner, en deux univers.
   (dessins, captures, photos) et vos propres cartes
 
 ## Comment jouer
-- **Boosters** : 5 cartes par booster, dont au moins une rare. 3 boosters Monde et 2 boosters Gaming offerts au départ,
+- **Boosters** : 5 cartes par booster, dont au moins une rare. 3 boosters Monde, 2 Gaming et 2 Objets offerts au départ,
   puis un cadeau chaque jour. Les cartes que vous n'avez pas sortent plus souvent ; les doublons rapportent des pièces.
 - **Quiz** : capitales, drapeaux, lieux, années de sortie, studios, anecdotes… Chaque bonne réponse rapporte 20 🪙,
   avec un bonus toutes les 5 bonnes réponses d'affilée.

@@ -27,12 +27,13 @@ const RARETES = {
   "peu-commun": { nom: "Peu commune",  gems: "◆◆",   ordre: 1, poids: 24,  doublon: 10,  prix: 120 },
   "rare":       { nom: "Rare",         gems: "◆◆◆",  ordre: 2, poids: 10,  doublon: 25,  prix: 300 },
   "epique":     { nom: "Épique",       gems: "◆◆◆◆", ordre: 3, poids: 3.3, doublon: 60,  prix: 700 },
-  "legendaire": { nom: "Légendaire",   gems: "★",    ordre: 4, poids: 0.7, doublon: 150, prix: 1500 },
-  "secrete":    { nom: "Secrète",      gems: "✦",    ordre: 5 },
+  "ultra-rare": { nom: "Ultra rare",   gems: "✸✸",   ordre: 4, poids: 1.2, doublon: 100, prix: 1000 },
+  "legendaire": { nom: "Légendaire",   gems: "★",    ordre: 5, poids: 0.7, doublon: 150, prix: 1500 },
+  "secrete":    { nom: "Secrète",      gems: "✦",    ordre: 6 },
   "perso":      { nom: "Personnelle",  gems: "✎",    ordre: 0 },
 };
 const TYPES = {
-  pays: "Pays", ville: "Ville", monument: "Monument", merveille: "Merveille", secrete: "Secrète", jeu: "Jeu", perso: "Ma carte",
+  pays: "Pays", ville: "Ville", monument: "Monument", merveille: "Merveille", secrete: "Secrète", jeu: "Jeu", objet: "Objet", perso: "Ma carte",
 };
 const PRIX_BOOSTER = 120;
 const CARTES_PAR_BOOSTER = 5;
@@ -58,7 +59,19 @@ JEUX_BRUTS.forEach(([id, nom, annee, studio, epoque, emoji, rarete, anecdote], i
   add({ id: "jeu:" + id, univers: "gaming", type: "jeu", rarete, num: i + 1, nom, annee, studio, epoque, emoji, anecdote }));
 SECRETES_GAMING.forEach(([id, nom, emoji, condition, anecdote], i) =>
   add({ id: "gsecret:" + id, univers: "gaming", type: "secrete", rarete: "secrete", num: i + 1, nom, emoji, condition, anecdote }));
+OBJETS_BRUTS.forEach(([id, nom, categorie, emoji, rarete, annee, date, origine, anecdote], i) =>
+  add({ id: "obj:" + id, univers: "objets", type: "objet", rarete, num: i + 1, nom, categorie, emoji, annee, date, origine, anecdote }));
+SECRETES_OBJETS.forEach(([id, nom, emoji, condition, anecdote], i) =>
+  add({ id: "osecret:" + id, univers: "objets", type: "secrete", rarete: "secrete", num: i + 1, nom, emoji, condition, anecdote }));
 
+const UNIVERS = {
+  monde: { nom: "Monde", emoji: "🌍", dos: "🌐", titre: "Collectionner le monde",
+    intro: "Chaque carte est un pays, une ville, un monument ou une merveille du monde. Ouvrez des boosters, gagnez des badges par continent et complétez l'atlas." },
+  gaming: { nom: "Gaming", emoji: "🎮", dos: "🎮", titre: "Les cartes du gaming",
+    intro: "Une encyclopédie du jeu vidéo à collectionner, de Pong à Elden Ring. Et vos propres collections, avec vos illustrations." },
+  objets: { nom: "Objets", emoji: "🧰", dos: "🧰", titre: "Les objets du quotidien",
+    intro: "La fourchette, le crayon, le jean, le smartphone… Chaque objet de tous les jours a une histoire. Des cartes communes aux ultra rares et légendaires." },
+};
 const of = (u, type) => CARDS.filter((c) => c.univers === u && (!type || c.type === type));
 
 /* =====================================================================
@@ -67,12 +80,19 @@ const of = (u, type) => CARDS.filter((c) => c.univers === u && (!type || c.type 
 const SAVE_KEY = "worldcards:v1";
 const nouvelleSauvegarde = () => ({
   coins: 200, owned: {}, nouveaux: {}, recents: [], badges: {},
-  boosters: { monde: 3, gaming: 2 }, daily: {}, ouverts: 0,
-  quiz: { monde: { serie: 0, record: 0, bonnes: 0, total: 0 }, gaming: { serie: 0, record: 0, bonnes: 0, total: 0 } },
+  boosters: { monde: 3, gaming: 2, objets: 2 }, daily: {}, ouverts: 0,
+  quiz: Object.fromEntries(["monde", "gaming", "objets"].map((u) => [u, { serie: 0, record: 0, bonnes: 0, total: 0 }])),
   univers: "monde", vue: "accueil", theme: "",
 });
 function charger() {
-  try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && s.owned) return { ...nouvelleSauvegarde(), ...s }; } catch {}
+  try {
+    const s = JSON.parse(localStorage.getItem(SAVE_KEY));
+    if (s && s.owned) {
+      const d = nouvelleSauvegarde();
+      // Les sauvegardes d'avant l'univers Objets reçoivent ses boosters de départ
+      return { ...d, ...s, boosters: { ...d.boosters, ...s.boosters }, quiz: { ...d.quiz, ...s.quiz } };
+    }
+  } catch {}
   return nouvelleSauvegarde();
 }
 let S = charger();
@@ -138,6 +158,7 @@ const degrade = (col) => `linear-gradient(150deg, ${col}, ${assombrir(col)})`;
 function couleurCarte(c) {
   if (c.type === "secrete") return "#2a1840";
   if (c.univers === "gaming") return c.epoque ? EPOQUES[c.epoque].couleur : "#e0913a";
+  if (c.univers === "objets") return CATEGORIES[c.categorie]?.couleur || "#b9770e";
   return CONTINENTS[c.continent]?.couleur || "#888";
 }
 function sousTitre(c) {
@@ -146,6 +167,7 @@ function sousTitre(c) {
     case "ville": case "monument": return "📍 " + NOM_PAYS[c.pays];
     case "merveille": return c.groupe === "antiques" ? "🏺 Merveille antique" : "🌟 Merveille moderne";
     case "jeu": return `${c.annee} · ${c.studio}`;
+    case "objet": return "📅 " + c.date;
     case "secrete": return "Carte secrète";
     case "perso": return c.sous || "Ma collection";
   }
@@ -180,7 +202,7 @@ function cardHTML(c, opts = {}) {
   const tot = totalType(c);
   return `<div class="card" data-id="${esc(c.id)}" data-r="${r}" tabindex="0" role="button" aria-label="${esc(c.nom)}">
     ${opts.compte && n > 1 ? `<span class="badge-count">×${n}</span>` : ""}${opts.compte && S.nouveaux[c.id] ? `<span class="badge-new">NEW</span>` : ""}
-    <div class="in"><div class="head"><span>${TYPES[c.type]}${c.continent && c.type === "pays" ? " · " + CONTINENTS[c.continent].nom : ""}</span><span class="gems" title="${RARETES[r].nom}">${RARETES[r].gems}</span></div>
+    <div class="in"><div class="head"><span>${c.type === "objet" ? CATEGORIES[c.categorie].nom : TYPES[c.type]}${c.continent && c.type === "pays" ? " · " + CONTINENTS[c.continent].nom : ""}</span><span class="gems" title="${RARETES[r].nom}">${RARETES[r].gems}</span></div>
     <div class="art" style="--g:${degrade(col)}">${art}</div>
     <div class="name">${esc(c.nom)}</div><div class="sub">${esc(sousTitre(c))}</div>
     ${tot ? `<span class="num">${c.num}/${tot}</span>` : ""}</div></div>`;
@@ -196,6 +218,8 @@ function idsCondition(cond) {
   if (k === "tous-les-pays") return of("monde", "pays").map((c) => c.id);
   if (k === "epoque") return of("gaming", "jeu").filter((c) => c.epoque === v).map((c) => c.id);
   if (k === "tous-les-jeux") return of("gaming", "jeu").map((c) => c.id);
+  if (k === "categorie") return of("objets", "objet").filter((c) => c.categorie === v).map((c) => c.id);
+  if (k === "tous-les-objets") return of("objets", "objet").map((c) => c.id);
   return [];
 }
 function libelleCondition(cond) {
@@ -205,6 +229,8 @@ function libelleCondition(cond) {
   if (k === "tous-les-pays") return "Collectionnez les 195 pays";
   if (k === "epoque") return `Collectionnez tous les jeux de l'époque « ${EPOQUES[v].court} »`;
   if (k === "tous-les-jeux") return "Collectionnez toute l'encyclopédie du jeu vidéo";
+  if (k === "categorie") return `Collectionnez tous les objets « ${CATEGORIES[v].nom} »`;
+  if (k === "tous-les-objets") return "Collectionnez tous les objets du quotidien";
   return "";
 }
 
@@ -225,6 +251,16 @@ function badgesDe(u) {
     list.push({ id: "collec-100", nom: "Collectionneur", emoji: "📚", niveau: "argent", desc: "100 cartes différentes", prog: () => [Math.min(100, count(of("monde").map((c) => c.id))), 100], seuil: 1 });
     list.push({ id: "secret-1", nom: "Chasseur de secrets", emoji: "🔮", niveau: "bronze", desc: "Débloquer une carte secrète", prog: () => [Math.min(1, count(of("monde", "secrete").map((c) => c.id))), 1], seuil: 1 });
     list.push({ id: "maitre", nom: "Maître du monde", emoji: "👑", niveau: "or", desc: "Les 195 pays", prog: () => frac(idsCondition("tous-les-pays")), seuil: 1 });
+  } else if (u === "objets") {
+    for (const [k, cat] of Object.entries(CATEGORIES)) {
+      const ids = idsCondition("categorie:" + k);
+      [["argent", 0.5], ["or", 1]].forEach(([niv, s]) =>
+        list.push({ id: `cat-${k}-${niv}`, nom: `${cat.nom} — ${niv}`, emoji: cat.emoji, niveau: niv, desc: `${Math.round(s * 100)} % des objets « ${cat.nom} »`, prog: () => frac(ids), seuil: s }));
+    }
+    list.push({ id: "obj-ultra", nom: "Chasseur d'ultra rares", emoji: "✸", niveau: "or", desc: "Tous les objets ultra rares", prog: () => frac(of("objets", "objet").filter((c) => c.rarete === "ultra-rare").map((c) => c.id)), seuil: 1 });
+    list.push({ id: "obj-leg", nom: "Grands inventeurs", emoji: "💡", niveau: "or", desc: "Tous les objets légendaires", prog: () => frac(of("objets", "objet").filter((c) => c.rarete === "legendaire").map((c) => c.id)), seuil: 1 });
+    list.push({ id: "osecret-1", nom: "Trésor caché", emoji: "🗝️", niveau: "bronze", desc: "Débloquer une carte secrète", prog: () => [Math.min(1, count(of("objets", "secrete").map((c) => c.id))), 1], seuil: 1 });
+    list.push({ id: "musee", nom: "Musée complet", emoji: "🏛️", niveau: "or", desc: "Tous les objets du quotidien", prog: () => frac(idsCondition("tous-les-objets")), seuil: 1 });
   } else {
     for (const [k, ep] of Object.entries(EPOQUES)) {
       const ids = idsCondition("epoque:" + k);
@@ -252,7 +288,7 @@ function verifierProgression() {
     }
   }
   const obtenus = [];
-  for (const u of ["monde", "gaming"]) for (const b of badgesDe(u)) {
+  for (const u of Object.keys(UNIVERS)) for (const b of badgesDe(u)) {
     if (b.ok && !S.badges[b.id]) { S.badges[b.id] = today(); S.coins += RECOMPENSE[b.niveau]; obtenus.push(b); changed = true; }
   }
   const gain = obtenus.reduce((t, b) => t + RECOMPENSE[b.niveau], 0);
@@ -317,6 +353,7 @@ const dailyDispo = (u) => S.daily[u] !== today();
 const NAV = {
   monde: [["accueil", "🏠", "Accueil"], ["boosters", "🎁", "Boosters"], ["album", "📚", "Album"], ["atlas", "🗺️", "Atlas"], ["badges", "🏅", "Badges"], ["quiz", "❓", "Quiz"]],
   gaming: [["accueil", "🏠", "Accueil"], ["boosters", "🎁", "Boosters"], ["album", "📚", "Encyclopédie"], ["collections", "🎨", "Mes collections"], ["badges", "🏅", "Badges"], ["quiz", "❓", "Quiz"]],
+  objets: [["accueil", "🏠", "Accueil"], ["boosters", "🎁", "Boosters"], ["album", "📚", "Collection"], ["badges", "🏅", "Badges"], ["quiz", "❓", "Quiz"]],
 };
 function renderNav() {
   $$("#univers button").forEach((b) => b.classList.toggle("on", b.dataset.u === S.univers));
@@ -356,6 +393,7 @@ function ficheCarte(c) {
   if (["ville", "monument", "merveille"].includes(c.type)) rows.push(["Pays", NOM_PAYS[c.pays]], ["Continent", CONTINENTS[c.continent].nom], ["Coordonnées", `${Math.abs(c.lat).toFixed(2)}° ${c.lat >= 0 ? "N" : "S"}, ${Math.abs(c.lon).toFixed(2)}° ${c.lon >= 0 ? "E" : "O"}`]);
   if (c.type === "merveille") rows.push(["Liste", c.groupe === "antiques" ? "Sept merveilles du monde antique" : "Sept nouvelles merveilles du monde (2007)"]);
   if (c.type === "jeu") rows.push(["Sortie", c.annee], ["Studio", c.studio], ["Époque", EPOQUES[c.epoque].nom]);
+  if (c.type === "objet") rows.push(["Catégorie", CATEGORIES[c.categorie].nom], ["Apparition", c.date], ["Origine", c.origine]);
   if (c.type === "secrete" && !owned) rows.push(["Pour la débloquer", libelleCondition(c.condition)]);
   const secretVerrou = c.type === "secrete" && !owned;
   const ids = secretVerrou ? idsCondition(c.condition) : [];
@@ -404,18 +442,20 @@ function vueAccueil(v) {
   const groupes = u === "monde"
     ? Object.entries(CONTINENTS).map(([k, ct]) => [ct.emoji + " " + ct.nom, of("monde", "pays").filter((c) => c.continent === k)])
       .concat([["🏙️ Villes", of("monde", "ville")], ["🏛️ Monuments", of("monde", "monument")], ["🌟 Merveilles", of("monde", "merveille")]])
+    : u === "objets" ? Object.entries(CATEGORIES).map(([k, cat]) => [cat.emoji + " " + cat.nom, of("objets", "objet").filter((c) => c.categorie === k)])
     : Object.entries(EPOQUES).map(([k, ep]) => [ep.emoji + " " + ep.court, of("gaming", "jeu").filter((c) => c.epoque === k)]);
+  const principal = { monde: ["pays", "pays"], gaming: ["jeu", "jeux"], objets: ["objet", "objets"] }[u];
   const recents = S.recents.map((id) => BY_ID[id]).filter((c) => c && c.univers === u).slice(0, 6);
   v.innerHTML = `
     <div class="hero">
       <div class="panel">
-        <h1>${u === "monde" ? "Collectionner le monde" : "Les cartes du gaming"}</h1>
-        <p class="muted" style="margin:0">${u === "monde"
-          ? "Chaque carte est un pays, une ville, un monument ou une merveille du monde. Ouvrez des boosters, gagnez des badges par continent et complétez l'atlas."
-          : "Une encyclopédie du jeu vidéo à collectionner, de Pong à Elden Ring. Et vos propres collections, avec vos illustrations."}</p>
+        <h1>${UNIVERS[u].titre}</h1>
+        <p class="muted" style="margin:0">${UNIVERS[u].intro}</p>
         <div class="statgrid">
-          ${u === "monde" ? `<div class="stat"><b>${count(of("monde", "pays").map((c) => c.id))}/195</b><span>pays</span></div>` : `<div class="stat"><b>${count(of("gaming", "jeu").map((c) => c.id))}/${of("gaming", "jeu").length}</b><span>jeux</span></div>`}
-          <div class="stat"><b>${count(all.map((c) => c.id))}/${all.length}</b><span>cartes</span></div>
+          <div class="stat"><b>${count(of(u, principal[0]).map((c) => c.id))}/${of(u, principal[0]).length}</b><span>${principal[1]}</span></div>
+          ${u === "objets"
+            ? (() => { const top = all.filter((c) => c.rarete === "ultra-rare" || c.rarete === "legendaire"); return `<div class="stat"><b>${count(top.map((c) => c.id))}/${top.length}</b><span>ultra rares & légendaires</span></div>`; })()
+            : `<div class="stat"><b>${count(all.map((c) => c.id))}/${all.length}</b><span>cartes</span></div>`}
           <div class="stat"><b>${count(secrets.map((c) => c.id))}/${secrets.length}</b><span>cartes secrètes</span></div>
           <div class="stat"><b>${badges.filter((b) => S.badges[b.id]).length}/${badges.length}</b><span>badges</span></div>
         </div>
@@ -448,7 +488,7 @@ function cadeauDuJour(u) {
    ===================================================================== */
 function vueBoosters(v) {
   const u = S.univers;
-  const nom = u === "monde" ? "Booster Monde" : "Booster Gaming";
+  const nom = "Booster " + UNIVERS[u].nom;
   v.innerHTML = `
     <div class="panel" style="text-align:center">
       <h2 style="margin-top:0">${nom}</h2>
@@ -456,7 +496,7 @@ function vueBoosters(v) {
       <div class="packs">
         <button class="pack ${u}" id="open" ${S.boosters[u] ? "" : "disabled"}>
           ${S.boosters[u] ? `<span class="count">×${S.boosters[u]}</span>` : ""}
-          <span class="big">${u === "monde" ? "🌍" : "🎮"}</span><b>${nom}</b><small>${S.boosters[u] ? "Cliquez pour ouvrir" : "Aucun booster"}</small>
+          <span class="big">${UNIVERS[u].emoji}</span><b>${nom}</b><small>${S.boosters[u] ? "Cliquez pour ouvrir" : "Aucun booster"}</small>
         </button>
       </div>
       <div class="row" style="justify-content:center">
@@ -495,11 +535,11 @@ function ouvrirBooster(u) {
   const cartes = tirerBooster(u);
   const res = cartes.map((c) => { const neuf = gagner(c.id); const bonus = neuf ? 0 : RARETES[c.rarete].doublon; S.coins += bonus; return { c, neuf, bonus }; });
   sauver(); majCoins();
-  ouvrirModal(`<h2 style="margin-top:0;text-align:center">${u === "monde" ? "🌍" : "🎮"} Votre booster</h2>
+  ouvrirModal(`<h2 style="margin-top:0;text-align:center">${UNIVERS[u].emoji} Votre booster</h2>
     <p class="muted" style="text-align:center;margin-top:0">Touchez les cartes pour les retourner</p>
     <div class="opening">${res.map(({ c, neuf, bonus }, i) => `
       <div class="flip" data-i="${i}">
-        <div class="face back ${RARETES[c.rarete].ordre >= 2 ? "glow-" + c.rarete : ""}">${u === "monde" ? "🌐" : "🎮"}</div>
+        <div class="face back ${RARETES[c.rarete].ordre >= 2 ? "glow-" + c.rarete : ""}">${UNIVERS[u].dos}</div>
         <div class="face front">${neuf ? `<span class="tagnew">NOUVELLE</span>` : `<span class="tagdup">Doublon · +${bonus} 🪙</span>`}${cardHTML(c, { locked: false })}</div>
       </div>`).join("")}</div>
     <div class="row" style="justify-content:center;margin-top:10px">
@@ -524,14 +564,15 @@ function ouvrirBooster(u) {
 /* =====================================================================
    Album / Encyclopédie
    ===================================================================== */
-const filtres = { monde: { type: "tout", cont: "tout", possedees: false, q: "" }, gaming: { epoque: "tout", possedees: false, q: "" } };
+const filtres = { monde: { type: "tout", cont: "tout", possedees: false, q: "" }, gaming: { epoque: "tout", possedees: false, q: "" }, objets: { cat: "tout", possedees: false, q: "" } };
 const sansAccents = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 function vueAlbum(v) {
   const u = S.univers, f = filtres[u];
   const chips = u === "monde"
     ? [["tout", "Tout"], ["pays", "Pays"], ["ville", "Villes"], ["monument", "Monuments"], ["merveille", "Merveilles"], ["secrete", "Secrètes"]]
+    : u === "objets" ? [["tout", "Tous les objets"], ...Object.entries(CATEGORIES).map(([k, c]) => [k, c.emoji + " " + c.nom]), ["secrete", "✦ Secrètes"]]
     : [["tout", "Toutes les époques"], ...Object.entries(EPOQUES).map(([k, e]) => [k, e.emoji + " " + e.court]), ["secrete", "✦ Secrètes"]];
-  const key = u === "monde" ? "type" : "epoque";
+  const key = { monde: "type", gaming: "epoque", objets: "cat" }[u];
   v.innerHTML = `<div class="toolbar">
       ${chips.map(([k, l]) => `<button class="chip ${f[key] === k ? "on" : ""}" data-k="${k}">${l}</button>`).join("")}
       <input class="search" id="q" type="search" placeholder="Rechercher…" value="${esc(f.q)}">
@@ -548,7 +589,7 @@ function vueAlbum(v) {
 function dessinerSections() {
   const u = S.univers, f = filtres[u];
   const q = sansAccents(f.q.trim());
-  const ok = (c) => (!f.possedees || has(c.id)) && (!q || sansAccents(c.nom + " " + (c.capitale || "") + " " + (NOM_PAYS[c.pays] || "") + " " + (c.studio || "")).includes(q) && (c.type !== "secrete" || has(c.id)));
+  const ok = (c) => (!f.possedees || has(c.id)) && (!q || sansAccents(c.nom + " " + (c.capitale || "") + " " + (NOM_PAYS[c.pays] || "") + " " + (c.studio || "") + " " + (c.origine || "")).includes(q) && (c.type !== "secrete" || has(c.id)));
   const sections = [];
   if (u === "monde") {
     const T = f.type;
@@ -562,6 +603,9 @@ function dessinerSections() {
     if (T === "tout" || T === "monument") sections.push(["🏛️ Monuments", of("monde", "monument")]);
     if (T === "tout" || T === "merveille") sections.push(["🌟 Merveilles du monde moderne", of("monde", "merveille").filter((c) => c.groupe === "modernes")], ["🏺 Merveilles du monde antique", of("monde", "merveille").filter((c) => c.groupe === "antiques")]);
     if (T === "tout" || T === "secrete") sections.push(["✦ Cartes secrètes", of("monde", "secrete")]);
+  } else if (u === "objets") {
+    for (const [k, cat] of Object.entries(CATEGORIES)) if (f.cat === "tout" || f.cat === k) sections.push([`${cat.emoji} ${cat.nom}`, of("objets", "objet").filter((c) => c.categorie === k)]);
+    if (f.cat === "tout" || f.cat === "secrete") sections.push(["✦ Cartes secrètes", of("objets", "secrete")]);
   } else {
     for (const [k, ep] of Object.entries(EPOQUES)) if (f.epoque === "tout" || f.epoque === k) sections.push([`${ep.emoji} ${ep.nom}`, of("gaming", "jeu").filter((c) => c.epoque === k).sort((a, b) => a.annee - b.annee)]);
     if (f.epoque === "tout" || f.epoque === "secrete") sections.push(["✦ Cartes secrètes", of("gaming", "secrete")]);
@@ -715,9 +759,30 @@ function questionGaming() {
   const titre = new RegExp(c.nom.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
   return { q: "De quel jeu parle cette anecdote ?", media: `<p class="anec">« ${esc(c.anecdote.replace(titre, "ce jeu"))} »</p>`, bonne: c.nom, choix: options(c.nom, jeux.filter((x) => x.epoque === c.epoque).map((x) => x.nom)), carte: c };
 }
+function questionObjets() {
+  const objets = of("objets", "objet");
+  const type = pick(["anecdote", "anecdote", "ancien", "origine"]);
+  if (type === "ancien") {
+    // Quatre objets aux dates bien distinctes : lequel est apparu en premier ?
+    const dates = shuffle(objets.filter((c) => c.annee !== null));
+    const choix = [];
+    for (const c of dates) if (choix.every((x) => Math.abs(x.annee - c.annee) >= 40)) { choix.push(c); if (choix.length === 4) break; }
+    const bonne = choix.reduce((a, b) => (b.annee < a.annee ? b : a));
+    return { q: "Lequel de ces objets est apparu en premier ?", bonne: bonne.nom, choix: shuffle(choix.map((c) => c.nom)), carte: bonne };
+  }
+  if (type === "origine") {
+    const simples = objets.filter((c) => !/ et |, |Monde/.test(c.origine));
+    const c = pick(simples);
+    return { q: `D'où vient cet objet : ${c.nom} ?`, media: `<div class="qemoji">${c.emoji}</div>`, bonne: c.origine, choix: options(c.origine, simples.map((x) => x.origine)), carte: c };
+  }
+  const c = pick(objets);
+  const nom = new RegExp(c.nom.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+  return { q: "De quel objet parle cette anecdote ?", media: `<p class="anec">« ${esc(c.anecdote.replace(nom, "cet objet"))} »</p>`, bonne: c.nom,
+    choix: options(c.nom, objets.filter((x) => x.categorie === c.categorie).map((x) => x.nom)), carte: c };
+}
 function vueQuiz(v) {
   const u = S.univers, st = S.quiz[u];
-  const Q = u === "monde" ? questionMonde() : questionGaming();
+  const Q = { monde: questionMonde, gaming: questionGaming, objets: questionObjets }[u]();
   v.innerHTML = `<div class="quiz panel">
     <div class="row" style="justify-content:space-between"><span>Série : <span class="streak">${st.serie} 🔥</span></span><span class="muted">Record : ${st.record} · ${st.bonnes}/${st.total} bonnes réponses</span></div>
     <div class="q">${esc(Q.q)}</div>${Q.media || ""}
@@ -951,8 +1016,8 @@ async function demarrer() {
   verifierProgression();
   if (!S.ouverts && !count(CARDS.map((c) => c.id))) {
     ouvrirModal(`<div style="text-align:center"><div style="font-size:56px">🌐</div><h2>Bienvenue dans WorldCards !</h2>
-      <p>Collectionnez le monde : <b>195 pays</b>, des villes, des monuments, les <b>merveilles</b> du monde… et les grands <b>jeux vidéo</b>.</p>
-      <p class="muted">Vous recevez <b>3 boosters Monde</b>, <b>2 boosters Gaming</b> et <b>200 🪙</b> pour commencer. Gagnez des pièces au quiz, débloquez des badges, et terminez une collection pour révéler une <b>carte secrète</b>.</p>
+      <p>Collectionnez le monde : <b>195 pays</b>, des villes, des monuments, les <b>merveilles</b> du monde, les grands <b>jeux vidéo</b> et les <b>objets du quotidien</b>.</p>
+      <p class="muted">Vous recevez <b>3 boosters Monde</b>, <b>2 boosters Gaming</b>, <b>2 boosters Objets</b> et <b>200 🪙</b> pour commencer. Gagnez des pièces au quiz, débloquez des badges, et terminez une collection pour révéler une <b>carte secrète</b>.</p>
       <button class="btn primary" id="go">Ouvrir mon premier booster</button></div>`);
     $("#go").onclick = () => { const m = $("#modal"); m._onClose = null; fermerModal(); S.univers = "monde"; aller("boosters"); ouvrirBooster("monde"); };
   }
