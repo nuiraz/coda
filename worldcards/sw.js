@@ -1,8 +1,8 @@
 "use strict";
 // Service worker de WorldCards : le jeu fonctionne hors ligne et se charge instantanément.
 // Changez VERSION à chaque mise en ligne pour forcer la mise à jour du cache.
-const VERSION = "wc-2026-10-11-4";
-const COEUR = ["./","index.html","style.css","app.js","compte.js","manifest.webmanifest","data/carte.js","data/gaming.js","data/monde.js","data/objets.js","data/photos.js","vendor/d3.min.js","vendor/topojson-client.min.js","icons/apple-touch-icon.png","icons/favicon-32.png","icons/icon-192.png","icons/icon-512.png","icons/icon-maskable-512.png","icons/icon.svg"];
+const VERSION = "wc-2026-10-11-5";
+const COEUR = ["./","index.html","style.css","app.js","compte.js","manifest.webmanifest", "apple-touch-icon.png","data/carte.js","data/gaming.js","data/monde.js","data/objets.js","data/photos.js","vendor/d3.min.js","vendor/topojson-client.min.js","icons/apple-touch-icon.png","icons/favicon-32.png","icons/icon-192.png","icons/icon-512.png","icons/icon-maskable-512.png","icons/icon.svg"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => Promise.allSettled(COEUR.map((f) => c.add(f)))).then(() => self.skipWaiting()));
