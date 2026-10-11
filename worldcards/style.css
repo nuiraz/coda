@@ -310,3 +310,44 @@ table.classement tr.banni td { opacity: .55; }
 .form { align-content: start; }
 .panel a { color: inherit; }
 .pied .liens { line-height: 2; }
+
+/* ---------- Ouverture des boosters, carte par carte ---------- */
+#modal.plein .box { width: min(560px, 100%); min-height: min(700px, calc(100vh - 32px)); display: flex; flex-direction: column;
+  background: radial-gradient(circle at 50% 38%, #3a2d6b, #120e24 70%); color: #fff; border-color: #3a3160; }
+#modal.plein .close { color: rgba(255,255,255,.7); }
+.poke { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.poke-top { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-right: 34px; font-weight: 700; }
+.poke-top .btn { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.2); color: #fff; }
+.poke-scene { flex: 1; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; perspective: 1400px; user-select: none; -webkit-tap-highlight-color: transparent; outline: none; }
+.poke-indice { margin: 0; color: rgba(255,255,255,.75); text-align: center; min-height: 22px; }
+.pack.grand { width: min(230px, 62vw); height: auto; aspect-ratio: 170 / 240; animation: flotte 2.4s ease-in-out infinite; }
+.pack.grand .big { font-size: 84px; }
+.pack.dechire { animation: dechire .65s forwards; }
+@keyframes flotte { 50% { transform: translateY(-8px) rotate(-1deg); } }
+@keyframes dechire { 0% { transform: scale(1); } 25% { transform: rotate(-5deg) scale(1.04); } 50% { transform: rotate(5deg) scale(1.08); } 100% { transform: scale(1.4); opacity: 0; filter: brightness(2); } }
+.pk-carte { position: relative; animation: arrive .35s cubic-bezier(.2,.8,.2,1); }
+.pk-carte.sort { animation: part .26s forwards; }
+@keyframes arrive { from { transform: translateY(50px) scale(.85); opacity: 0; } }
+@keyframes part { to { transform: translateX(-130%) rotate(-14deg); opacity: 0; } }
+.poke .flip.grand { width: min(250px, 68vw); height: auto; aspect-ratio: 170 / 250; animation: none; cursor: inherit; }
+.poke .flip.grand .back { font-size: 64px; }
+.flip.suspense { animation: suspense .12s linear infinite; }
+@keyframes suspense { 0%, 100% { transform: translateX(0) rotate(0); } 25% { transform: translateX(-4px) rotate(-1.5deg); } 75% { transform: translateX(4px) rotate(1.5deg); } }
+.pk-carte.eclat::before { content: ""; position: absolute; inset: -40%; z-index: -1; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(from 0deg, transparent 0 10%, rgba(255,230,140,.55) 12%, transparent 14% 30%, rgba(255,230,140,.55) 32%, transparent 34% 50%, rgba(255,230,140,.55) 52%, transparent 54% 70%, rgba(255,230,140,.55) 72%, transparent 74% 90%, rgba(255,230,140,.55) 92%, transparent 94%);
+  -webkit-mask: radial-gradient(circle, #000 20%, transparent 70%); mask: radial-gradient(circle, #000 20%, transparent 70%); animation: rayons 6s linear infinite, apparait .5s; }
+@keyframes rayons { to { transform: rotate(360deg); } }
+@keyframes apparait { from { opacity: 0; transform: scale(.4); } }
+.pk-rarete { margin-top: 16px; min-height: 30px; font-weight: 900; font-size: 22px; letter-spacing: 1px; text-transform: uppercase; text-align: center; animation: apparait .4s; }
+.pk-rarete:empty { animation: none; }
+.pk-rarete[data-r="commun"] { color: #c9ced3; } .pk-rarete[data-r="peu-commun"] { color: #6ee0a6; } .pk-rarete[data-r="rare"] { color: #8fb8ff; }
+.pk-rarete[data-r="epique"] { color: #d1a2ff; } .pk-rarete[data-r="ultra-rare"] { color: #ff8a7a; text-shadow: 0 0 16px #e2433b; }
+.pk-rarete[data-r="legendaire"] { color: #ffd34d; text-shadow: 0 0 18px #e8a917; font-size: 26px; }
+.poke .opening { padding: 0; }
+.poke .opening .flip { width: 120px; height: 176px; animation: none; cursor: default; }
+@media (prefers-reduced-motion: reduce) {
+  .poke *, .poke *::before { animation-duration: .01s !important; animation-iteration-count: 1 !important; transition-duration: .01s !important; }
+}
+@media (max-width: 760px) { .poke .opening .flip { width: 100px; height: 147px; } }
+.card .in { color: var(--text); }
+.poke .btn:not(.primary) { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.25); color: #fff; }

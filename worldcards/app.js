@@ -426,7 +426,7 @@ function ouvrirModal(html, onClose) {
 function fermerModal() {
   const m = $("#modal");
   if (m.classList.contains("hidden")) return;
-  m.classList.add("hidden"); m.innerHTML = "";
+  m.classList.add("hidden"); m.classList.remove("plein"); m.innerHTML = "";
   document.body.style.overflow = "";
   const cb = m._onClose; m._onClose = null;
   if (cb) cb();
@@ -466,7 +466,7 @@ $$("#univers button").forEach((b) => b.onclick = () => { S.univers = b.dataset.u
 // Clic sur n'importe quelle carte : fiche détaillée
 document.addEventListener("click", (e) => {
   const el = e.target.closest(".card[data-id]");
-  if (!el || el.closest(".opening") || el.closest(".detail") || el.closest(".reveal") || el.closest("[data-noclick]")) return;
+  if (!el || el.closest(".opening") || el.closest(".poke") || el.closest(".detail") || el.closest(".reveal") || el.closest("[data-noclick]")) return;
   const id = el.dataset.id;
   if (id.startsWith("perso:")) return ouvrirCartePerso(id);
   if (BY_ID[id]) ficheCarte(BY_ID[id]);
@@ -634,30 +634,85 @@ function ouvrirBooster(u) {
   const cartes = tirerBooster(u);
   const res = cartes.map((c) => { const neuf = gagner(c.id); const bonus = neuf ? 0 : RARETES[c.rarete].doublon; S.coins += bonus; return { c, neuf, bonus }; });
   sauver(); majCoins();
-  ouvrirModal(`<h2 style="margin-top:0;text-align:center">${UNIVERS[u].emoji} Votre booster</h2>
-    <p class="muted" style="text-align:center;margin-top:0">Touchez les cartes pour les retourner</p>
-    <div class="opening">${res.map(({ c, neuf, bonus }, i) => `
-      <div class="flip" data-i="${i}">
-        <div class="face back ${RARETES[c.rarete].ordre >= 2 ? "glow-" + c.rarete : ""}">${UNIVERS[u].dos}</div>
-        <div class="face front">${neuf ? `<span class="tagnew">NOUVELLE</span>` : `<span class="tagdup">Doublon · +${bonus} 🪙</span>`}${cardHTML(c, { locked: false })}</div>
-      </div>`).join("")}</div>
-    <div class="row" style="justify-content:center;margin-top:10px">
-      <button class="btn" id="flipAll">Tout retourner</button>
-      <button class="btn primary hidden" id="again">Ouvrir un autre booster (${S.boosters[u]})</button>
-      <button class="btn hidden" id="finish" data-close>Terminer</button>
+  // Comme dans les jeux de cartes : la plus rare est révélée en dernier
+  const ordre = res.slice().sort((a, b) => RARETES[a.c.rarete].ordre - RARETES[b.c.rarete].ordre);
+  ouvrirModal(`<div class="poke">
+      <div class="poke-top"><span id="pkCompte">${UNIVERS[u].emoji} Booster ${UNIVERS[u].nom}</span><button class="btn small" id="pkPasser">Tout voir ⏭</button></div>
+      <div class="poke-scene" id="pkScene" role="button" tabindex="0"></div>
+      <p class="poke-indice" id="pkIndice"></p>
     </div>`, () => { verifierProgression(); aller(S.vue); });
-  const fin = () => {
-    if ($$(".flip:not(.done)").length) return;
-    $("#flipAll").classList.add("hidden"); $("#finish").classList.remove("hidden");
-    if (S.boosters[u]) $("#again").classList.remove("hidden");
-  };
-  $$(".flip").forEach((f) => f.addEventListener("click", () => { f.classList.add("done"); fin(); }));
-  $("#flipAll").onclick = () => { $$(".flip").forEach((f, i) => setTimeout(() => { f.classList.add("done"); fin(); }, i * 140)); };
-  $("#again").onclick = () => {
-    const m = $("#modal"); m._onClose = null; fermerModal();
-    verifierProgression(); aller(S.vue);
-    if ($("#modal").classList.contains("hidden")) ouvrirBooster(u); // sinon une carte secrète est en train d'être révélée
-  };
+  $("#modal").classList.add("plein");
+  let etape = "paquet", i = 0, occupe = false;
+  const scene = $("#pkScene"), indice = (t) => { $("#pkIndice").textContent = t; };
+  const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  scene.innerHTML = `<div class="pack ${u} grand" id="pkPaquet"><span class="big">${UNIVERS[u].emoji}</span><b>Booster ${UNIVERS[u].nom}</b><small>${CARTES_PAR_BOOSTER} cartes</small></div>`;
+  indice("Touchez le booster pour l'ouvrir");
+
+  function montrer() {
+    const { c, neuf, bonus } = ordre[i];
+    const rare = RARETES[c.rarete].ordre >= 2;
+    etape = "carte";
+    $("#pkCompte").textContent = `Carte ${i + 1} / ${ordre.length}`;
+    scene.innerHTML = `<div class="pk-carte">
+        <div class="flip grand">
+          <div class="face back ${rare ? "glow-" + c.rarete : ""}">${UNIVERS[u].dos}</div>
+          <div class="face front">${neuf ? `<span class="tagnew">NOUVELLE</span>` : `<span class="tagdup">Doublon · +${bonus} 🪙</span>`}${cardHTML(c, { locked: false })}</div>
+        </div></div>
+      <div class="pk-rarete"></div>`;
+    indice(rare ? "Ça brille… Touchez pour retourner !" : "Touchez pour retourner la carte");
+  }
+  async function retourner() {
+    const { c } = ordre[i];
+    const r = RARETES[c.rarete].ordre;
+    const flip = scene.querySelector(".flip");
+    if (r >= 2) { flip.classList.add("suspense"); await attendre(r >= 4 ? 1100 : 700); flip.classList.remove("suspense"); }
+    flip.classList.add("done");
+    await attendre(450);
+    const lab = scene.querySelector(".pk-rarete");
+    lab.dataset.r = c.rarete;
+    lab.textContent = r >= 4 ? `${RARETES[c.rarete].gems} ${RARETES[c.rarete].nom} ! ${RARETES[c.rarete].gems}` : RARETES[c.rarete].nom;
+    if (r >= 2) scene.querySelector(".pk-carte").classList.add("eclat");
+    etape = "retournee";
+    indice(i < ordre.length - 1 ? "Touchez pour la carte suivante" : "Touchez pour voir votre booster");
+  }
+  async function suivante() {
+    scene.querySelector(".pk-carte")?.classList.add("sort");
+    await attendre(260);
+    i++;
+    if (i < ordre.length) montrer(); else resume();
+  }
+  function resume() {
+    etape = "resume";
+    $("#pkPasser").classList.add("hidden");
+    $("#pkCompte").textContent = `${UNIVERS[u].emoji} Votre booster`;
+    const neuves = res.filter((x) => x.neuf).length, pieces = res.reduce((t, x) => t + x.bonus, 0);
+    indice(`${neuves} nouvelle${neuves > 1 ? "s" : ""} carte${neuves > 1 ? "s" : ""}${pieces ? ` · +${pieces} 🪙 de doublons` : ""}`);
+    scene.innerHTML = `<div class="opening">${res.map(({ c, neuf, bonus }) => `<div class="flip done"><div class="face back"></div>
+        <div class="face front">${neuf ? `<span class="tagnew">NOUVELLE</span>` : `<span class="tagdup">+${bonus} 🪙</span>`}${cardHTML(c, { locked: false })}</div></div>`).join("")}</div>
+      <div class="row" style="justify-content:center;margin-top:14px">
+        ${S.boosters[u] ? `<button class="btn primary" id="again">Ouvrir un autre booster (${S.boosters[u]})</button>` : ""}
+        <button class="btn" data-close>Terminer</button></div>`;
+    $("#again")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const m = $("#modal"); m._onClose = null; fermerModal();
+      verifierProgression(); aller(S.vue);
+      if ($("#modal").classList.contains("hidden")) ouvrirBooster(u); // sinon une carte secrète est en train d'être révélée
+    });
+  }
+  async function toucher() {
+    if (occupe || etape === "resume") return;
+    occupe = true;
+    try {
+      if (etape === "paquet") { $("#pkPaquet").classList.add("dechire"); await attendre(650); montrer(); }
+      else if (etape === "carte") await retourner();
+      else if (etape === "retournee") await suivante();
+    } finally { occupe = false; }
+  }
+  scene.addEventListener("click", toucher);
+  scene.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toucher(); } });
+  $("#pkPasser").onclick = () => { if (!occupe) resume(); };
+  scene.focus();
 }
 
 /* =====================================================================
