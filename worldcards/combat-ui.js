@@ -3,10 +3,93 @@
    Le moteur (combat.js) est partagé avec le serveur, qui rejoue chaque combat d'arène pour vérifier le résultat. */
 
 const DIFFICULTES = {
-  facile: { nom: "Facile", emoji: "🌱", force: 0.88, gain: 15 },
-  normal: { nom: "Normal", emoji: "⚔️", force: 1, gain: 30 },
-  difficile: { nom: "Difficile", emoji: "🔥", force: 1.1, gain: 50 },
+  facile: { nom: "Facile", emoji: "🌱", force: 0.9, gain: 15, ia: 1 },
+  normal: { nom: "Normal", emoji: "⚔️", force: 1, gain: 30, ia: 2 },
+  difficile: { nom: "Difficile", emoji: "🔥", force: 1.08, gain: 50, ia: 3 },
 };
+
+/* ---------- Mode Solo : l'aventure autour du monde ---------- */
+const CHAPITRES = ["EU", "AF", "AS", "NA", "SA", "OC"];
+const ETAPES = 5; // la 5e étape de chaque continent est un boss
+const NOMS_ETAPES = ["Éclaireur", "Gardien", "Champion", "Maître", "Boss"];
+const cleEtape = (ch, n) => `${CHAPITRES[ch]}-${n}`;
+const etoiles = (ch, n) => (S.solo || {})[cleEtape(ch, n)] || 0;
+const indexEtape = (ch, n) => ch * ETAPES + n;
+const etapeOuverte = (ch, n) => indexEtape(ch, n) === 0 || (n > 0 ? etoiles(ch, n - 1) : etoiles(ch - 1, ETAPES - 1)) > 0;
+function reglagesEtape(ch, n) {
+  const g = indexEtape(ch, n), boss = n === ETAPES - 1;
+  return {
+    force: 0.7 + g * 0.018 + (boss ? 0.06 : 0),               // de 0,70 (très facile) à 1,28 (dernier boss)
+    ia: Math.min(3, (g < 8 ? 1 : g < 20 ? 2 : 3) + (boss && g < 20 ? 1 : 0)),
+    gain: 30 + g * 6 + (boss ? 60 : 0),
+    booster: boss ? (ch < 2 ? "monde" : ch < 4 ? "argent" : "or") : null,
+  };
+}
+// Deck de l'étape : des cartes du continent, toujours le même pour une étape donnée
+function deckEtape(ch, n) {
+  const { force } = reglagesEtape(ch, n);
+  const r = COMBAT.rng(9000 + indexEtape(ch, n) * 31);
+  const pool = CARDS.filter((c) => c.continent === CHAPITRES[ch] && c.type !== "secrete");
+  const choix = [];
+  let budget = COMBAT.BUDGET;
+  if (n === ETAPES - 1) {
+    // Le boss a la carte la plus prestigieuse du continent
+    const top = pool.filter((c) => coutDe(c) <= 6).sort((a, b) => coutDe(b) - coutDe(a) || COMBAT.hash(a.id) - COMBAT.hash(b.id))[0];
+    if (top) { choix.push(top); budget -= coutDe(top); }
+  }
+  while (choix.length < 3) {
+    const restant = 2 - choix.length;
+    const cands = pool.filter((c) => !choix.includes(c) && coutDe(c) <= budget - restant);
+    const c = (cands.length ? cands : pool)[Math.floor(r() * (cands.length || pool.length))];
+    choix.push(c); budget -= coutDe(c);
+  }
+  return choix.map((c) => {
+    const st = COMBAT.stats(c.id, c.type, c.rarete, [0, 0, 0], 1, false);
+    return { id: c.id, type: c.type, nom: c.nom, shiny: false, atk: Math.round(st.atk * force), def: Math.round(st.def * force), pv: Math.round(st.pv * force), niveau: 1, talent: st.talent };
+  });
+}
+function blocSolo(el, complet) {
+  const total = CHAPITRES.length * ETAPES;
+  const faites = CHAPITRES.reduce((t, _, ch) => t + [...Array(ETAPES).keys()].filter((n) => etoiles(ch, n)).length, 0);
+  const nbEtoiles = CHAPITRES.reduce((t, _, ch) => t + [...Array(ETAPES).keys()].reduce((u, n) => u + etoiles(ch, n), 0), 0);
+  el.innerHTML = `<div class="row" style="justify-content:space-between"><h3 style="margin:0">🗺️ Mode Solo : le tour du monde</h3><span class="muted">${faites}/${total} étapes · ⭐ ${nbEtoiles}/${total * 3}</span></div>
+    <p class="muted" style="margin:6px 0 12px">Battez les gardiens de chaque continent, de plus en plus forts et rusés. Le boss de chaque continent offre un booster. 3 étoiles si aucune de vos cartes n'est K.O.</p>
+    <div class="chapitres">${CHAPITRES.map((cont, ch) => `<div class="chapitre" style="--c:${CONTINENTS[cont].couleur}">
+      <b>${CONTINENTS[cont].emoji} ${CONTINENTS[cont].nom}</b>
+      <div class="etapes">${[...Array(ETAPES).keys()].map((n) => {
+        const ouverte = etapeOuverte(ch, n), et = etoiles(ch, n);
+        return `<button class="etape ${n === ETAPES - 1 ? "boss" : ""} ${et ? "faite" : ""}" data-etape="${ch}-${n}" ${ouverte && complet ? "" : "disabled"} title="${NOMS_ETAPES[n]}">
+          <span>${ouverte ? (n === ETAPES - 1 ? "👑" : n + 1) : "🔒"}</span><small>${"★".repeat(et)}${"☆".repeat(3 - et)}</small></button>`;
+      }).join("")}</div></div>`).join("")}</div>
+    ${complet ? "" : `<p class="muted">Composez d'abord votre deck de 3 cartes ci-dessus.</p>`}`;
+  $$("[data-etape]", el).forEach((b) => b.onclick = () => { const [ch, n] = b.dataset.etape.split("-").map(Number); lancerEtape(ch, n); });
+}
+function lancerEtape(ch, n) {
+  const reg = reglagesEtape(ch, n), cont = CONTINENTS[CHAPITRES[ch]];
+  const nom = `${NOMS_ETAPES[n]} ${n === ETAPES - 1 ? "d'" : "d'"}${cont.nom}`;
+  lancerCombat({
+    titre: `${cont.emoji} ${cont.nom} · étape ${n + 1}/${ETAPES}`, adversaire: nom, ia: reg.ia,
+    moi: S.deck.map((id) => uniteDe(BY_ID[id])), lui: deckEtape(ch, n), graine: (Math.random() * 2 ** 32) >>> 0,
+    fin: async (etat) => {
+      const gagne = etat.gagnant === 0;
+      if (gagne) S.combat.victoires++; else S.combat.defaites++;
+      if (!gagne) { sauver(); return "Retentez votre chance : changez de deck ou utilisez mieux les types !"; }
+      const intactes = etat.equipes[0].filter((u) => u.pv > 0).length;
+      const et = intactes === 3 ? 3 : intactes === 2 ? 2 : 1;
+      const premiere = !etoiles(ch, n);
+      S.solo = { ...(S.solo || {}), [cleEtape(ch, n)]: Math.max(et, etoiles(ch, n)) };
+      let txt = `${"⭐".repeat(et)}`;
+      if (premiere) {
+        S.coins += reg.gain; txt += ` · +${reg.gain} 🪙`;
+        if (reg.booster) { S.boosters[reg.booster] = (S.boosters[reg.booster] || 0) + 1; txt += ` · 🎁 booster ${PACKS[reg.booster].nom} !`; }
+      } else if (recompensesFaites() < limiteRecompenses()) {
+        S.coins += 10; txt += " · +10 🪙"; S.combat = { ...S.combat, jour: today(), recompenses: recompensesFaites() + 1 };
+      }
+      sauver(); majCoins();
+      return txt;
+    },
+  });
+}
 const limiteRecompenses = () => (premium() ? 30 : 15);
 const recompensesFaites = () => (S.combat.jour === today() ? S.combat.recompenses : 0);
 const coutDeck = (ids) => ids.reduce((s, id) => s + coutDe(BY_ID[id]), 0);
@@ -45,10 +128,11 @@ function vueCombat(v) {
         : `<button class="slot" data-slot="${i}">＋<small>Choisir une carte</small></button>`).join("")}</div>
       <p class="muted" style="margin-bottom:0;font-size:13.5px">3 cartes, ${COMBAT.BUDGET} points de coût au maximum : commune 1, peu commune 2, rare 3, épique 4, ultra rare 5, légendaire et secrète 6. Les cartes combattent dans l'ordre. Touchez une carte pour la changer.</p>
     </div>
+    <div class="panel" id="soloBloc" style="margin-top:16px"></div>
     <div class="grid2" style="margin-top:16px">
       <div class="panel">
-        <h3 style="margin-top:0">🤖 Entraînement</h3>
-        <p class="muted" style="margin-top:0">Contre l'ordinateur, avec un deck de même puissance. Récompenses : ${recompensesFaites()}/${limiteRecompenses()} combats récompensés aujourd'hui.</p>
+        <h3 style="margin-top:0">🤖 Combat rapide</h3>
+        <p class="muted" style="margin-top:0">Contre l'ordinateur, avec un deck de puissance proche du vôtre. Plus c'est difficile, plus il joue malin. Récompenses : ${recompensesFaites()}/${limiteRecompenses()} combats récompensés aujourd'hui.</p>
         <div class="row">${Object.entries(DIFFICULTES).map(([k, d]) => `<button class="btn ${k === "normal" ? "primary" : ""}" data-diff="${k}" ${complet ? "" : "disabled"}>${d.emoji} ${d.nom} · +${d.gain} 🪙</button>`).join("")}</div>
         <p class="muted" style="font-size:13px;margin-bottom:0">Victoires : ${S.combat.victoires} · Défaites : ${S.combat.defaites}</p>
       </div>
@@ -59,6 +143,7 @@ function vueCombat(v) {
       <ul class="regles">
         <li><b>⚔️ Attaque</b> : dégâts selon votre attaque et la défense adverse.</li>
         <li><b>✨ Spécial</b> : 1,7 fois plus de dégâts, une seule fois par carte.</li>
+        <li><b>🔄 Changer</b> : touchez une carte de votre banc pour la faire entrer (utilise votre tour). Idéal pour profiter des types.</li>
         <li><b>🛡️ Garde</b> : vous ne subissez que 40 % des dégâts ce tour-ci et regagnez 8 % de vos points de vie.</li>
         <li><b>Types</b> : ${COMBAT.CYCLE.map((t) => EMOJI_TYPE[t] + " " + TYPES[t]).join(" bat ")} qui bat ${TYPES.ville} (+12 % de dégâts). Merveilles et secrètes sont neutres.</li>
         <li><b>Talents</b> : chaque carte a un pouvoir, visible en haut à droite de son image. ${Object.values(COMBAT.TALENTS).map((t) => `${t.emoji} <b>${t.nom}</b> : ${t.desc.toLowerCase()}`).join(" · ")}</li>
@@ -73,6 +158,7 @@ function vueCombat(v) {
   };
   $$("[data-diff]", v).forEach((b) => b.onclick = () => entrainement(b.dataset.diff));
   if (!complet) $$("[data-diff]", v).forEach((b) => b.title = "Complétez votre deck de 3 cartes");
+  blocSolo($("#soloBloc"), complet);
   blocArene($("#areneBloc"), complet);
 }
 
@@ -125,7 +211,7 @@ function entrainement(diff) {
   if (S.deck.length < 3) return;
   const d = DIFFICULTES[diff];
   lancerCombat({
-    titre: `🤖 Entraînement ${d.nom}`, adversaire: "L'ordinateur",
+    titre: `🤖 Combat rapide ${d.nom}`, adversaire: "L'ordinateur", ia: d.ia,
     moi: S.deck.map((id) => uniteDe(BY_ID[id])), lui: deckOrdinateur(d.force), graine: (Math.random() * 2 ** 32) >>> 0,
     fin: async (etat) => {
       const gagne = etat.gagnant === 0;
@@ -142,9 +228,9 @@ function entrainement(diff) {
 }
 
 /* ---------- Écran de combat ---------- */
-function lancerCombat({ titre, adversaire, moi, lui, graine, fin }) {
+function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia }) {
   arreterCombat();
-  const etat = COMBAT.creer(moi, lui, graine);
+  const etat = COMBAT.creer(moi, lui, graine, { ia });
   let occupe = false, auto = false;
   ouvrirModal(`<div class="arene">
       <div class="arene-top"><span>${esc(titre)}</span><span class="muted">Tour <b id="cbTour">1</b></span></div>
@@ -163,7 +249,10 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin }) {
   m.querySelector(".close").classList.add("hidden");
   const ligne = (u, cote) => {
     const c = BY_ID[u.id];
-    const banc = etat.equipes[cote].map((x, i) => `<span class="mini ${x.pv <= 0 ? "ko" : i === etat.actifs[cote] ? "on" : ""}" title="${esc(x.nom)}">${esc(c && BY_ID[x.id]?.emoji || "🃏")}</span>`).join("");
+    const banc = etat.equipes[cote].map((x, i) => {
+      const peut = cote === 0 && x.pv > 0 && i !== etat.actifs[0] && !etat.fini;
+      return `<${peut ? "button" : "span"} class="mini ${x.pv <= 0 ? "ko" : i === etat.actifs[cote] ? "on" : ""} ${peut ? "changeable" : ""}" ${peut ? `data-changer="${i}"` : ""} title="${esc(x.nom)} · ❤️ ${x.pv}/${x.pvMax}${peut ? " — toucher pour la faire entrer" : ""}">${esc(BY_ID[x.id]?.emoji || "🃏")}<i style="width:${(x.pv / x.pvMax) * 100}%"></i></${peut ? "button" : "span"}>`;
+    }).join("");
     return `<div class="banc">${banc}</div>
       <div class="combattant" data-cote="${cote}">
         <div class="cb-carte">${c ? cardHTML(c, { locked: false, shiny: u.shiny, stats: u }) : ""}</div>
@@ -178,6 +267,7 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin }) {
     $("#cbTour").textContent = etat.tour + 1;
     const sp = $("[data-a=special]");
     if (sp) sp.disabled = !COMBAT.actif(etat, 0).special;
+    $$("#cbMoi [data-changer]").forEach((b) => b.onclick = () => tour("changer:" + b.dataset.changer));
   };
   dessiner();
   const nomDe = (cote) => (cote === 0 ? "Votre carte" : "L'adversaire");
@@ -187,6 +277,7 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin }) {
       if (e.esquive) return `💨 ${nomDe(1 - e.cote)} esquive ${e.t === "special" ? "l'attaque spéciale" : "l'attaque"} !`;
       return `${e.t === "special" ? "✨ Attaque spéciale" : "⚔️ Attaque"} ${e.cote === 0 ? "de votre carte" : "adverse"} : ${e.degats} dégâts${e.critique ? " (critique !)" : ""}${e.avantage ? " (avantage de type)" : ""}.`;
     }
+    if (e.t === "changer") return `🔄 ${e.cote === 0 ? "Vous faites" : "L'adversaire fait"} entrer ${BY_ID[e.id]?.nom || "une carte"}.`;
     if (e.t === "talent") return e.talent === "vampire" ? `🧛 ${nomDe(e.cote)} récupère ${e.valeur} ❤️ (Vampire).` : `↩️ Riposte : ${e.valeur} dégâts renvoyés !`;
     if (e.t === "ko") return `💥 ${BY_ID[e.id]?.nom || "Une carte"} est K.O. !`;
     if (e.t === "entree") return `➡️ ${BY_ID[e.id]?.nom || "Une carte"} entre en jeu.`;
@@ -209,6 +300,7 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin }) {
       }
       await attendre(auto ? 260 : 650);
       if (e.t !== "garde") dessiner();
+      if (e.t === "changer") $$("#cbMoi [data-changer]").forEach((b) => b.disabled = true);
     }
     dessiner();
     occupe = false;

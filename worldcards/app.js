@@ -126,7 +126,7 @@ const nouvelleSauvegarde = () => ({
   coins: 200, owned: {}, shiny: {}, holo: {}, qualite: {}, nouveaux: {}, recents: [], badges: {},
   boosters: { monde: 3, argent: 0, or: 0, prestige: 0 }, gratuitLe: 0, premiumJour: "", prestigeSemaine: "", ouverts: 0,
   quiz: { monde: { serie: 0, record: 0, bonnes: 0, total: 0 } }, quizJour: { d: "", n: 0 },
-  deck: [], combat: { victoires: 0, defaites: 0, jour: "", recompenses: 0 },
+  deck: [], combat: { victoires: 0, defaites: 0, jour: "", recompenses: 0 }, solo: {},
   univers: "monde", vue: "accueil", theme: "", photos: true,
 });
 // Anciennes sauvegardes : Gaming et Objets ont disparu, leurs cartes sont échangées contre des pièces
@@ -660,8 +660,9 @@ function vueAccueil(v) {
           ${attente === 0 ? `<button class="btn primary" id="gratuit">🎁 Booster gratuit disponible !</button>` : `<button class="btn" disabled>🎁 Booster gratuit dans ${duree(attente)}</button>`}
           ${bonusPremiumDispo() ? `<button class="btn primary premium" id="bonusPremium">💎 Bonus Premium : +2 boosters</button>` : ""}
           <button class="btn" id="goBooster">🛍️ ${boostersEnStock() ? `Ouvrir mes boosters (${boostersEnStock()})` : "Boutique"}</button>
-          <button class="btn" id="goCombat">⚔️ Combattre</button>
+          <button class="btn" id="goCombat">⚔️ Mode Solo & combats</button>
           <button class="btn" id="goQuiz">❓ Quiz (${quizRestant()} restantes)</button>
+          ${typeof PWA !== "undefined" && !PWA.installee ? `<button class="btn" id="goInstall">📲 Installer l'app</button>` : ""}
         </div>
         ${premium() ? "" : `<p class="muted" style="margin:12px 0 0;font-size:13.5px">💎 <a href="#" id="voirPremium">Passez Premium</a> : 2 boosters de plus chaque jour, boosters Prestige, Shiny ×2, 20 questions de quiz…</p>`}
       </div>
@@ -679,6 +680,7 @@ function vueAccueil(v) {
   $("#goBooster").onclick = () => aller("boosters");
   $("#goCombat").onclick = () => aller("combat");
   $("#goQuiz").onclick = () => aller("quiz");
+  $("#goInstall")?.addEventListener("click", () => guideInstallation());
   $("#voirPremium")?.addEventListener("click", (e) => { e.preventDefault(); aller("premium"); });
 }
 function recupererGratuit() {

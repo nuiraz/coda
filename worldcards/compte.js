@@ -28,12 +28,24 @@ let SYNC = { etat: "", timer: 0, enCours: false, encore: false };
 /* =====================================================================
    Appels au serveur
    ===================================================================== */
+// Session gardée aussi dans l'appareil : on reste connecté même si le navigateur efface ses cookies
+const JETON_KEY = "worldcards:jeton";
+const lireJeton = () => { try { return localStorage.getItem(JETON_KEY) || ""; } catch { return ""; } };
+function garderSession(r) {
+  try {
+    if (r?.jeton) localStorage.setItem(JETON_KEY, r.jeton);
+    if (r?.pseudo) localStorage.setItem("worldcards:compte", JSON.stringify({ pseudo: r.pseudo, admin: !!r.admin, creeLe: r.creeLe }));
+  } catch {}
+}
+function oublierSession() { try { localStorage.removeItem(JETON_KEY); localStorage.removeItem("worldcards:compte"); } catch {} }
 async function api(chemin, { methode = "GET", corps, keepalive = false } = {}) {
   let r;
   try {
+    const entetes = corps !== undefined ? { "content-type": "application/json" } : {};
+    if (lireJeton()) entetes["x-wc-session"] = lireJeton();
     r = await fetch("/api/" + chemin, {
       method: methode, credentials: "same-origin", keepalive,
-      headers: corps !== undefined ? { "content-type": "application/json" } : {},
+      headers: entetes,
       body: corps !== undefined ? JSON.stringify(corps) : undefined,
     });
   } catch {
@@ -54,14 +66,18 @@ const connecte = () => COMPTE.etat === "connecte";
    ===================================================================== */
 async function initCompte() {
   installerPWA();
+  majBoutonInstall();
   majBoutonCompte();
   if (location.protocol === "file:") { COMPTE.etat = "indispo"; majBoutonCompte(); return; }
+  // Affiche tout de suite le dernier compte connecté sur cet appareil, avant la réponse du serveur
+  try { const c = JSON.parse(localStorage.getItem("worldcards:compte") || "null"); if (c && lireJeton()) { Object.assign(COMPTE, c); COMPTE.etat = "connecte"; majBoutonCompte(); } } catch {}
   try {
     const moi = await api("moi");
-    if (moi.connecte) { Object.assign(COMPTE, { etat: "connecte", pseudo: moi.pseudo, admin: moi.admin, creeLe: moi.creeLe }); majPremium(moi.premiumJusqu); await apresConnexion(false); }
-    else { COMPTE.etat = "anonyme"; majPremium(0); }
+    if (moi.connecte) { garderSession(moi); Object.assign(COMPTE, { etat: "connecte", pseudo: moi.pseudo, admin: moi.admin, creeLe: moi.creeLe }); majPremium(moi.premiumJusqu); await apresConnexion(false); }
+    else { COMPTE.etat = "anonyme"; majPremium(0); oublierSession(); }
   } catch (e) {
-    COMPTE.etat = e.status === 0 ? "hors-ligne" : "indispo";
+    // Hors ligne : on garde le compte de l'appareil, la synchronisation reprendra plus tard
+    if (!(e.status === 0 && COMPTE.etat === "connecte")) COMPTE.etat = e.status === 0 ? "hors-ligne" : "indispo";
   }
   majBoutonCompte();
   if (["compte", "hub", "admin", "premium", "combat"].includes(S.vue) && $("#modal").classList.contains("hidden")) aller(S.vue);
@@ -100,7 +116,7 @@ async function envoyerSauvegarde() {
     SYNC.etat = "ok";
   } catch (e) {
     SYNC.etat = "erreur";
-    if (e.status === 401) { COMPTE.etat = "anonyme"; toast("Votre session a expiré : reconnectez-vous pour sauvegarder dans le cloud."); }
+    if (e.status === 401) { COMPTE.etat = "anonyme"; oublierSession(); toast("Votre session a expiré : reconnectez-vous pour sauvegarder dans le cloud."); }
     else if (e.status === 413) toast("⚠ " + e.message, 6000);
   } finally {
     SYNC.enCours = false; majBoutonCompte();
@@ -238,19 +254,20 @@ function vueCompte(v) {
       <h3 style="margin-top:0">Application et réglages</h3>
       <div class="row">
         <button class="btn" id="ouvrirReglages">⚙︎ Réglages du jeu</button>
-        ${PWA.prompt ? `<button class="btn primary" id="installer">📲 Installer l'app</button>` : PWA.installee ? `<span class="muted">✓ Application installée</span>` : `<span class="muted">📲 Pour installer l'app : menu du navigateur → « Installer » ou « Sur l'écran d'accueil ».</span>`}
+        ${PWA.installee ? `<span class="muted">✓ Application installée</span>` : `<button class="btn primary" id="installer">📲 Installer l'app sur l'écran d'accueil</button>`}
       </div>
       <p class="muted" style="margin-bottom:0;font-size:13.5px">${lienLegal("mentions", "Mentions légales")} · ${lienLegal("cgu", "Conditions d'utilisation")} · ${lienLegal("confidentialite", "Confidentialité")}</p>
     </div>`;
   brancherLiens(v);
   $("#ouvrirReglages").onclick = () => $("#settingsBtn").click();
   $("#notifBtn")?.addEventListener("click", () => (NOTIF.active ? desactiverNotifications() : activerNotifications()));
-  $("#installer")?.addEventListener("click", installer);
+  $("#installer")?.addEventListener("click", guideInstallation);
   // Connexion
   $("#fConnexion")?.addEventListener("submit", async (e) => {
     e.preventDefault(); $("#cErr").textContent = "";
     try {
       const r = await api("connexion", { methode: "POST", corps: { pseudo: $("#cPseudo").value.trim(), motdepasse: $("#cMdp").value } });
+      garderSession(r);
       Object.assign(COMPTE, { etat: "connecte", pseudo: r.pseudo, admin: r.admin, creeLe: r.creeLe }); majPremium(r.premiumJusqu);
       majBoutonCompte(); toast(`👋 Bon retour, <b>${esc(r.pseudo)}</b> !`);
       await apresConnexion(true); aller("compte");
@@ -263,6 +280,7 @@ function vueCompte(v) {
     if ($("#iMdp").value !== $("#iMdp2").value) { $("#iErr").textContent = "Les deux mots de passe ne sont pas identiques."; return; }
     try {
       const r = await api("inscription", { methode: "POST", corps: { pseudo: $("#iPseudo").value.trim(), motdepasse: $("#iMdp").value, cgu: $("#iCgu").checked, age: $("#iAge").checked, codeAdmin: $("#iCode").value || undefined } });
+      garderSession(r);
       Object.assign(COMPTE, { etat: "connecte", pseudo: r.pseudo, admin: r.admin, creeLe: r.creeLe });
       S.compte = r.pseudo; await envoyerSauvegarde();
       majBoutonCompte(); aller("compte");
@@ -273,6 +291,7 @@ function vueCompte(v) {
   $("#deco")?.addEventListener("click", async () => {
     await envoyerSauvegarde();
     try { await api("deconnexion", { methode: "POST", corps: {} }); } catch {}
+    oublierSession();
     Object.assign(COMPTE, { etat: "anonyme", pseudo: null, admin: false }); SYNC.etat = ""; majPremium(0);
     majBoutonCompte(); aller("compte"); toast("Vous êtes déconnecté. Votre progression reste aussi sur cet appareil.");
   });
@@ -283,7 +302,7 @@ function vueCompte(v) {
   }, (S.vitrine || [])[Number(el.dataset.slot)] ? () => { S.vitrine.splice(Number(el.dataset.slot), 1); sauver(); aller("compte"); } : null)));
   $("#fMdp")?.addEventListener("submit", async (e) => {
     e.preventDefault(); $("#mErr").textContent = "";
-    try { await api("motdepasse", { methode: "POST", corps: { ancien: $("#mAncien").value, nouveau: $("#mNouveau").value } }); toast("🔒 Mot de passe changé."); aller("compte"); }
+    try { garderSession(await api("motdepasse", { methode: "POST", corps: { ancien: $("#mAncien").value, nouveau: $("#mNouveau").value } })); toast("🔒 Mot de passe changé."); aller("compte"); }
     catch (err) { $("#mErr").textContent = err.message; }
   });
   $("#exportCompte")?.addEventListener("click", async () => {
@@ -304,6 +323,7 @@ function vueCompte(v) {
       e.preventDefault();
       try {
         await api("compte", { methode: "DELETE", corps: { motdepasse: $("#sMdp").value } });
+        oublierSession();
         Object.assign(COMPTE, { etat: "anonyme", pseudo: null, admin: false }); delete S.compte; sauver();
         fermerModal(); majBoutonCompte(); aller("compte"); toast("Votre compte a été supprimé.");
       } catch (err) { $("#sErr").textContent = err.message; }
@@ -767,13 +787,30 @@ function installerPWA() {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
 }
+// Sur iPhone et iPad, pas de bouton d'installation automatique : on explique comment faire
+const estIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+function guideInstallation() {
+  const ios = estIOS(), safari = ios && !/CriOS|FxiOS|EdgiOS/.test(navigator.userAgent);
+  ouvrirModal(`<h2 style="margin-top:0">📲 Installer WorldCards</h2>
+    ${PWA.installee ? `<p>✅ Vous utilisez déjà l'application installée.</p>` : ios ? `
+      <ol class="regles">
+        ${safari ? "" : `<li>Ouvrez d'abord <b>wrd.play2f1.com</b> dans <b>Safari</b> (sur iPhone, l'icône s'installe le mieux depuis Safari).</li>`}
+        <li>Si vous aviez déjà ajouté WorldCards à l'écran d'accueil, <b>supprimez l'ancienne icône</b> (appui long → Supprimer l'app → Supprimer de l'écran d'accueil) : iPhone ne met jamais à jour une icône existante.</li>
+        <li>Touchez le bouton <b>Partager</b> <span style="font-size:20px">⎋</span> (le carré avec une flèche vers le haut, en bas de Safari).</li>
+        <li>Faites défiler et touchez <b>« Sur l'écran d'accueil »</b>, vérifiez que « Ouvrir en tant qu'app web » est activé, puis <b>Ajouter</b>.</li>
+        <li>Ouvrez WorldCards depuis la nouvelle icône 🌐 : connectez-vous une fois, le compte reste ensuite enregistré.</li>
+      </ol>` : PWA.prompt ? `<p>Touchez le bouton ci-dessous.</p><button class="btn primary" id="gInstaller">📲 Installer</button>`
+      : `<p>Ouvrez le menu du navigateur (⋮) puis <b>« Installer l'application »</b> ou <b>« Ajouter à l'écran d'accueil »</b>.</p>`}
+    <div style="text-align:center;margin-top:12px"><img src="apple-touch-icon.png" alt="Icône WorldCards" width="90" height="90" style="border-radius:20px;box-shadow:var(--shadow)"></div>`);
+  $("#gInstaller")?.addEventListener("click", () => { fermerModal(); installer(); });
+}
 function majBoutonInstall() {
   const b = $("#installBtn");
-  if (b) b.classList.toggle("hidden", !PWA.prompt);
+  if (b) b.classList.toggle("hidden", PWA.installee);
   if (S.vue === "compte") aller("compte");
 }
 async function installer() {
-  if (!PWA.prompt) return;
+  if (!PWA.prompt) return guideInstallation();
   PWA.prompt.prompt();
   await PWA.prompt.userChoice.catch(() => {});
   PWA.prompt = null; majBoutonInstall();

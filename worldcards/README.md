@@ -5,7 +5,7 @@ Une application web de cartes à collectionner sur le monde, avec un mode combat
 ## 🌍 Les cartes
 - **195 pays** (les 193 membres de l'ONU, plus le Vatican et la Palestine) avec drapeau, silhouette, capitale,
   anecdote et la **photo d'un lieu emblématique** (souvent la capitale)
-- **210 villes**, **203 monuments et sites naturels** (peu communs à ultra rares) et les **14 merveilles**
+- **340 villes** (tous les pays en ont au moins une), **323 monuments**, **110 sites naturels**, **100 animaux**, **100 plats** et les **14 merveilles**
   (7 modernes et 7 antiques), toutes légendaires, avec de vraies photos de Wikipédia
 - **Cartes Shiny** (environ 1 sur 45) avec effet holographique
 - **Badges**, **atlas interactif**, **cartes secrètes** (Avalon, El Dorado, l'Atlantide…)
@@ -15,7 +15,9 @@ Une application web de cartes à collectionner sur le monde, avec un mode combat
   Deux exemplaires d'une même carte diffèrent (de -8 % à +8 % par statistique).
 - Les **doublons** font monter la carte de niveau (+2 % par niveau, niveau 5 à 16 exemplaires) et peuvent améliorer ses statistiques.
 - **Deck de 3 cartes** avec un budget de 12 points (une légendaire coûte 6, une commune 1) : les decks restent équilibrés.
-- Triangle des types : Ville > Monument > Pays > Ville. Actions : attaque, spécial (une fois par carte), garde.
+- Cycle des types : Ville › Monument › Nature › Animal › Plat › Pays › Ville. Actions : attaque, spécial, garde, changer de carte.
+- **10 talents** (Bouclier, Rage, Vampire, Riposte…), un par carte, équilibrés par simulation.
+- **Mode Solo** : le tour du monde en 30 étapes (6 continents, un boss chacun), 3 niveaux d'ordinateur. Cartes **Holo** 🌈 (1 sur 10).
 - **Entraînement** contre l'ordinateur (3 difficultés) et **arène en ligne** contre les decks des autres joueurs,
   avec trophées et classement. Le serveur rejoue chaque combat (`combat.js`, partagé) pour vérifier le résultat.
 

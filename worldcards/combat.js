@@ -113,13 +113,14 @@
 
   /* ---------- Combat ---------- */
   // Une unité : { id, nom, type, atk, def, pv }
-  function creer(equipeA, equipeB, graine) {
+  // options.ia : niveau de l'ordinateur, 1 (débutant) à 3 (expert) ; 2 par défaut (arène)
+  function creer(equipeA, equipeB, graine, options = {}) {
     const prep = (eq) => eq.map((u) => {
       const talent = TALENTS[u.talent] || u.talent === "aucun" ? u.talent : talentDe(u.id, u.type);
       const pv = talent === "colosse" ? Math.round(u.pv * 1.12) : u.pv;
       return { ...u, talent, pvMax: pv, pv, special: true, garde: false };
     });
-    return { equipes: [prep(equipeA), prep(equipeB)], actifs: [0, 0], tour: 0, graine: graine >>> 0, r: rng(graine), fini: false, gagnant: null, journal: [] };
+    return { equipes: [prep(equipeA), prep(equipeB)], actifs: [0, 0], tour: 0, graine: graine >>> 0, r: rng(graine), fini: false, gagnant: null, journal: [], ia: options.ia || 2 };
   }
   const actif = (etat, cote) => etat.equipes[cote][etat.actifs[cote]];
   const vivants = (etat, cote) => etat.equipes[cote].filter((u) => u.pv > 0).length;
@@ -127,10 +128,29 @@
   // Choix de l'ordinateur (et de l'adversaire en ligne)
   function choixIA(etat, cote) {
     const moi = actif(etat, cote), lui = actif(etat, 1 - cote), r = etat.r();
+    const niveauIA = etat.ia || 2;
+    if (niveauIA <= 1) {
+      if (moi.special && r < 0.15) return "special";
+      if (r > 0.88) return "garde";
+      return "attaque";
+    }
+    if (niveauIA >= 3) {
+      // Expert : change de carte quand il est en désavantage de type et qu'une meilleure carte attend sur le banc
+      if (AVANTAGE[lui.type] === moi.type && moi.pv / moi.pvMax > 0.3 && etat.tour - (moi.change || -9) > 2) {
+        const banc = etat.equipes[cote].map((u, i) => [u, i]).filter(([u, i]) => u.pv > 0 && i !== etat.actifs[cote] && AVANTAGE[lui.type] !== u.type);
+        const mieux = banc.find(([u]) => AVANTAGE[u.type] === lui.type) || banc[0];
+        if (mieux && r < 0.75) return "changer:" + mieux[1];
+      }
+      if (moi.special && (lui.pv / lui.pvMax > 0.5 || AVANTAGE[moi.type] === lui.type)) return "special";
+      if (moi.pv / moi.pvMax < 0.35 && lui.special && r < 0.5) return "garde";
+      if (moi.special && moi.pv / moi.pvMax < 0.3) return "special";
+      return "attaque";
+    }
     if (moi.special && (lui.pv / lui.pvMax > 0.45 || moi.pv / moi.pvMax < 0.35) && r < 0.45) return "special";
     if (moi.pv / moi.pvMax < 0.4 && r < 0.3) return "garde";
     return "attaque";
   }
+  const actionValide = (a) => ["attaque", "special", "garde"].includes(a) || /^changer:[0-9]$/.test(a);
 
   function degats(etat, att, def, action) {
     let d = att.atk * 600 / (600 + def.def * (att.talent === "perforant" ? 0.78 : 1));
@@ -152,7 +172,15 @@
     if (etat.fini) return [];
     const ev = [];
     etat.tour++;
-    const actions = [["attaque", "special", "garde"].includes(actionJoueur) ? actionJoueur : "attaque", choixIA(etat, 1)];
+    const actions = [actionValide(actionJoueur) ? actionJoueur : "attaque", choixIA(etat, 1)];
+    // Changer de carte : la nouvelle entre tout de suite, mais le tour est utilisé
+    for (const c of [0, 1]) {
+      if (!actions[c].startsWith("changer:")) continue;
+      const i = Number(actions[c].slice(8)), u = etat.equipes[c][i];
+      if (!u || u.pv <= 0 || i === etat.actifs[c]) { actions[c] = "attaque"; continue; }
+      etat.actifs[c] = i; u.change = etat.tour; actions[c] = "changer";
+      ev.push({ t: "changer", cote: c, id: u.id });
+    }
     for (const c of [0, 1]) {
       const u = actif(etat, c);
       if (actions[c] === "special" && !u.special) actions[c] = "attaque";
@@ -168,7 +196,7 @@
     const vA = vitesse(actif(etat, 0)) * (0.8 + etat.r() * 0.4), vB = vitesse(actif(etat, 1)) * (0.8 + etat.r() * 0.4);
     const ordre = vA >= vB ? [0, 1] : [1, 0];
     for (const c of ordre) {
-      if (actions[c] === "garde") continue;
+      if (actions[c] === "garde" || actions[c] === "changer") continue;
       const att = actif(etat, c), cible = actif(etat, 1 - c);
       if (att.pv <= 0 || cible.pv <= 0) continue;
       if (actions[c] === "special") att.special = false;
@@ -182,7 +210,10 @@
     for (const c of [0, 1]) actif(etat, c).garde = false;
     // Les cartes K.O. laissent la place à la suivante
     for (const c of [0, 1]) {
-      if (actif(etat, c).pv <= 0 && etat.actifs[c] < etat.equipes[c].length - 1) { etat.actifs[c]++; ev.push({ t: "entree", cote: c, id: actif(etat, c).id }); }
+      if (actif(etat, c).pv <= 0) {
+        const suivant = etat.equipes[c].findIndex((u) => u.pv > 0);
+        if (suivant >= 0) { etat.actifs[c] = suivant; ev.push({ t: "entree", cote: c, id: actif(etat, c).id }); }
+      }
     }
     const fin = [vivants(etat, 0), vivants(etat, 1)];
     if (!fin[0] || !fin[1] || etat.tour >= TOURS_MAX) {
@@ -196,13 +227,13 @@
       }
       ev.push({ t: "fin", gagnant: etat.gagnant });
     }
-    etat.journal.push(actions[0]);
+    etat.journal.push(actionJoueur && actionValide(actionJoueur) ? actionJoueur : "attaque");
     return ev;
   }
 
   // Rejoue un combat entier (serveur) : même graine + mêmes actions = même résultat
-  function rejouer(equipeA, equipeB, graine, actions) {
-    const etat = creer(equipeA, equipeB, graine);
+  function rejouer(equipeA, equipeB, graine, actions, options) {
+    const etat = creer(equipeA, equipeB, graine, options);
     for (const a of actions.slice(0, TOURS_MAX)) { if (etat.fini) break; jouer(etat, a); }
     while (!etat.fini) jouer(etat, "attaque");
     return etat;

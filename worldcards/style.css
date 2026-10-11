@@ -480,3 +480,18 @@ table.classement tr.banni td { opacity: .55; }
   background-size: 300% 300%; mix-blend-mode: color-dodge; animation: holoBouge 6s ease-in-out infinite alternate; }
 @keyframes holoBouge { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
 .holotag { background: linear-gradient(90deg, #ff4fa3, #ffcf3a, #3ad6a8, #3a9bff, #b94bff) !important; color: #fff !important; }
+
+/* ===== Mode Solo ===== */
+.chapitres { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.chapitre { border-radius: 14px; padding: 10px 12px; background: color-mix(in srgb, var(--c) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--c) 40%, var(--border)); }
+.etapes { display: flex; gap: 6px; margin-top: 8px; }
+.etape { flex: 1; border: 1px solid var(--border); background: var(--panel); border-radius: 10px; padding: 6px 0; display: flex; flex-direction: column; align-items: center; font-weight: 800; }
+.etape small { font-size: 10px; color: var(--legendaire); letter-spacing: -1px; }
+.etape.boss { background: color-mix(in srgb, var(--c) 30%, var(--panel)); }
+.etape.faite { border-color: var(--c); }
+.etape:disabled { opacity: .45; }
+.etape:not(:disabled):hover { transform: translateY(-2px); }
+.arene .banc .mini { position: relative; overflow: hidden; border: 0; color: inherit; }
+.arene .banc .mini i { position: absolute; left: 0; bottom: 0; height: 3px; background: #6bd38e; }
+.arene .banc .mini.changeable { cursor: pointer; outline: 1px dashed rgba(255,255,255,.5); }
+.arene .banc .mini.changeable:hover { background: rgba(255,255,255,.25); }

@@ -13,7 +13,7 @@ import ANIMAUX from "../../worldcards/data/animaux.js";
 import PLATS from "../../worldcards/data/plats.js";
 
 const JOUR = 864e5;
-const SESSION_JOURS = 30;
+const SESSION_JOURS = 365; // on reste connecté un an (la session est prolongée à chaque visite)
 const ITERATIONS = 10000; // limité par le temps de calcul des Workers gratuits
 const TAILLE_MAX_SAUVEGARDE = 1_500_000;
 
@@ -91,16 +91,21 @@ function lireCookie(request, nom) {
   return m ? m[1] : null;
 }
 const cookieSession = (token, maxAge) => `wc_session=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+// La session est envoyée dans un cookie et aussi renvoyée au jeu, qui la garde en mémoire :
+// l'app installée sur iPhone perd parfois ses cookies, le jeu peut alors la renvoyer dans l'en-tête X-WC-Session.
 async function ouvrirSession(env, userId) {
   const token = b64(aleatoire(32)).replace(/[+/=]/g, (c) => ({ "+": "-", "/": "_", "=": "" }[c]));
   await env.DB.prepare("INSERT INTO sessions (token_hash, user_id, expire) VALUES (?, ?, ?)").bind(await sha256(token), userId, maintenant() + SESSION_JOURS * JOUR).run();
-  return cookieSession(token, SESSION_JOURS * 86400);
+  return { cookie: cookieSession(token, SESSION_JOURS * 86400), token };
 }
+const jetonRequete = (request) => lireCookie(request, "wc_session") || (/^[A-Za-z0-9_-]{20,64}$/.test(request.headers.get("x-wc-session") || "") ? request.headers.get("x-wc-session") : null);
 async function utilisateurCourant(request, env) {
-  const token = lireCookie(request, "wc_session");
+  const token = jetonRequete(request);
   if (!token) return null;
-  return env.DB.prepare(`SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+  const u = await env.DB.prepare(`SELECT u.*, s.expire AS session_expire FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ? AND s.expire > ? AND u.banni = 0`).bind(await sha256(token), maintenant()).first();
+  if (u) u.jeton = token;
+  return u;
 }
 const profilPublic = (u) => ({ pseudo: u.pseudo, admin: !!u.admin, creeLe: u.cree_le, premiumJusqu: u.premium_jusqu || 0 });
 const PREMIUM_VIE = 4102444800000;
@@ -143,8 +148,8 @@ route("POST", "inscription", async ({ request, env }) => {
   try {
     const r = await env.DB.prepare("INSERT INTO users (pseudo, hash, sel, admin, cree_le, derniere_co, cgu_le) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .bind(pseudo, hash, sel, admin ? 1 : 0, maintenant(), maintenant(), maintenant()).run();
-    const cookie = await ouvrirSession(env, r.meta.last_row_id);
-    return json({ pseudo, admin, creeLe: maintenant() }, 201, { "set-cookie": cookie });
+    const session = await ouvrirSession(env, r.meta.last_row_id);
+    return json({ pseudo, admin, creeLe: maintenant(), jeton: session.token }, 201, { "set-cookie": session.cookie });
   } catch (e) {
     if (String(e.message).includes("UNIQUE")) return erreur("Ce pseudo est déjà pris.", 409);
     throw e;
@@ -164,16 +169,26 @@ route("POST", "connexion", async ({ request, env }) => {
   }
   if (u.banni) return erreur("Ce compte a été suspendu par l'administrateur.", 403);
   await env.DB.prepare("UPDATE users SET echecs = 0, derniere_co = ? WHERE id = ?").bind(maintenant(), u.id).run();
-  return json(profilPublic(u), 200, { "set-cookie": await ouvrirSession(env, u.id) });
+  const session = await ouvrirSession(env, u.id);
+  return json({ ...profilPublic(u), jeton: session.token }, 200, { "set-cookie": session.cookie });
 });
 
 route("POST", "deconnexion", async ({ request, env }) => {
-  const token = lireCookie(request, "wc_session");
+  const token = jetonRequete(request);
   if (token) await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(await sha256(token)).run();
   return json({ ok: true }, 200, { "set-cookie": cookieSession("", 0) });
 });
 
-route("GET", "moi", async ({ user }) => json(user ? { connecte: true, ...profilPublic(user) } : { connecte: false }));
+// À chaque visite, la session est prolongée d'un an et le cookie renouvelé
+route("GET", "moi", async ({ env, user }) => {
+  if (!user) return json({ connecte: false });
+  const expire = maintenant() + SESSION_JOURS * JOUR;
+  if (user.session_expire - maintenant() < (SESSION_JOURS - 1) * JOUR) {
+    await env.DB.prepare("UPDATE sessions SET expire = ? WHERE token_hash = ?").bind(expire, await sha256(user.jeton)).run();
+  }
+  await env.DB.prepare("UPDATE users SET derniere_co = ? WHERE id = ?").bind(maintenant(), user.id).run();
+  return json({ connecte: true, ...profilPublic(user) }, 200, { "set-cookie": cookieSession(user.jeton, SESSION_JOURS * 86400) });
+});
 
 route("POST", "motdepasse", async ({ request, env, user }) => {
   const b = await corps(request);
@@ -185,7 +200,8 @@ route("POST", "motdepasse", async ({ request, env, user }) => {
     env.DB.prepare("UPDATE users SET hash = ?, sel = ? WHERE id = ?").bind(await hacherMotDePasse(nouveau, sel), sel, user.id),
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id),
   ]);
-  return json({ ok: true }, 200, { "set-cookie": await ouvrirSession(env, user.id) });
+  const session = await ouvrirSession(env, user.id);
+  return json({ ok: true, jeton: session.token }, 200, { "set-cookie": session.cookie });
 }, { connecte: true });
 
 async function supprimerUtilisateur(env, id) {
