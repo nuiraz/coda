@@ -146,6 +146,23 @@ if (typeof NATURE_NOUVELLE !== "undefined") {
     RECHERCHE_PHOTO["nat:" + id] = nom;
   });
 }
+// Cartes supplémentaires par pays (tous les types), sans doublon de nom
+const PREFIXES = { ville: "ville:", monument: "monu:", nature: "nat:", animal: "ani:", plat: "plat:", culture: "cult:" };
+for (const liste of ["CARTES_PAYS_AF", "CARTES_PAYS_EUAS", "CARTES_PAYS_AMOC", "CARTES_PAYS_MOYENS"]) {
+  for (const [type, id, nom, pays, lat, lon, emoji, rarete, anecdote, wiki] of extra(liste)) {
+    if (!PREFIXES[type] || !RARETES[rarete] || BY_ID[PREFIXES[type] + id] || doublon(nom)) continue;
+    const cid = PREFIXES[type] + id;
+    add({ id: cid, univers: "monde", type, rarete: type === "ville" ? "peu-commun" : rarete, num: CARDS.filter((c) => c.type === type).length + 1, nom, pays, emoji, anecdote, continent: CONT_PAYS[pays],
+      ...(lat != null && lon != null ? { lat, lon } : {}) });
+    if (wiki) PHOTOS_WIKI[cid] = wiki;
+    RECHERCHE_PHOTO[cid] = `${nom} ${NOM_PAYS[pays] || ""}`;
+  }
+}
+// Événements supplémentaires : nouvelles cartes d'Halloween et de Noël, et nouveaux événements
+if (typeof EVENEMENTS_SAISONNIERS !== "undefined") for (const [cle, ev] of Object.entries(extra("EVENEMENTS_EXTRA") || {})) {
+  if (EVENEMENTS_SAISONNIERS[cle]) EVENEMENTS_SAISONNIERS[cle].cartes.push(...(ev.cartes || []));
+  else if (ev.nom && ev.cartes?.length) EVENEMENTS_SAISONNIERS[cle] = ev;
+}
 if (typeof EVENEMENTS_SAISONNIERS !== "undefined") {
   for (const [evKey, ev] of Object.entries(EVENEMENTS_SAISONNIERS)) {
     ev.cartes.forEach(([id, nom, pays, emoji, rarete, anecdote, wiki], i) => {

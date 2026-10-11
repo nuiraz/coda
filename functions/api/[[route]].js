@@ -17,6 +17,11 @@ import ANIMAUX2 from "../../worldcards/data/animaux2.js";
 import PLATS2 from "../../worldcards/data/plats2.js";
 import CULTURE from "../../worldcards/data/culture.js";
 import EXTENSIONS from "../../worldcards/data/extensions.js";
+import PAYS_AF from "../../worldcards/data/pays-af.js";
+import PAYS_EUAS from "../../worldcards/data/pays-euas.js";
+import PAYS_AMOC from "../../worldcards/data/pays-amoc.js";
+import PAYS_MOYENS from "../../worldcards/data/pays-moyens.js";
+import EVENEMENTS_DATA from "../../worldcards/data/evenements.js";
 
 const JOUR = 864e5;
 const SESSION_JOURS = 365; // on reste connecté un an (la session est prolongée à chaque visite)
@@ -592,7 +597,10 @@ const CATALOGUE = (() => {
   for (const x of EXTENSIONS.VILLES_NOUVELLES) ajouter("ville:" + x[0], { type: "ville", rarete: "peu-commun", nom: x[1] });
   for (const x of EXTENSIONS.MONUMENTS_NOUVEAUX) ajouter("monu:" + x[0], { type: "monument", rarete: x[6], nom: x[1] });
   for (const x of EXTENSIONS.NATURE_NOUVELLE) ajouter("nat:" + x[0], { type: "nature", rarete: x[6], nom: x[1] });
-  for (const ev of Object.values(EXTENSIONS.EVENEMENTS_SAISONNIERS)) for (const x of ev.cartes) ajouter("event:" + x[0], { type: "monument", rarete: x[4], nom: x[1] });
+  for (const ev of [...Object.values(EXTENSIONS.EVENEMENTS_SAISONNIERS), ...Object.values(EVENEMENTS_DATA.EVENEMENTS_EXTRA)]) for (const x of ev.cartes || []) ajouter("event:" + x[0], { type: "monument", rarete: x[4], nom: x[1] });
+  const prefixes = { ville: "ville:", monument: "monu:", nature: "nat:", animal: "ani:", plat: "plat:", culture: "cult:" };
+  for (const liste of [PAYS_AF.CARTES_PAYS_AF, PAYS_EUAS.CARTES_PAYS_EUAS, PAYS_AMOC.CARTES_PAYS_AMOC, PAYS_MOYENS.CARTES_PAYS_MOYENS])
+    for (const x of liste) if (prefixes[x[0]]) ajouter(prefixes[x[0]] + x[1], { type: x[0], rarete: x[0] === "ville" ? "peu-commun" : x[7], nom: x[2] });
   for (const x of MONDE.MERVEILLES_BRUTES) ajouter("merv:" + x[0], { type: "merveille", rarete: "legendaire", nom: x[1] });
   for (const x of MONDE.SECRETES_MONDE) ajouter("secret:" + x[0], { type: "secrete", rarete: "secrete", nom: x[1] });
   return m;
@@ -946,7 +954,8 @@ async function recompenserTournoi(env) {
 /* =====================================================================
    Événements saisonniers (activés par l'administrateur)
    ===================================================================== */
-const EVENEMENTS = ["halloween", "noel"];
+const EVENEMENTS = [...new Set([...Object.keys(EXTENSIONS.EVENEMENTS_SAISONNIERS), ...Object.keys(EVENEMENTS_DATA.EVENEMENTS_EXTRA)])];
+const NOM_EVENEMENT = (cle) => EVENEMENTS_DATA.EVENEMENTS_EXTRA[cle]?.nom || EXTENSIONS.EVENEMENTS_SAISONNIERS[cle]?.nom || cle;
 route("GET", "evenement", async ({ env }) => {
   const e = await lireConfig(env, "evenement");
   return json({ evenement: e && e.fin > maintenant() ? e : null });
@@ -960,7 +969,7 @@ route("POST", "admin/evenement", async ({ request, env, ctx }) => {
   await ecrireConfig(env, "evenement", ev);
   if (b.prevenir) enArrierePlan(ctx, (async () => {
     const { results } = await env.DB.prepare("SELECT DISTINCT user_id FROM abonnements LIMIT 1000").all();
-    for (const { user_id } of results) await envoyerPush(env, user_id, { titre: b.cle === "halloween" ? "🎃 L'événement Halloween commence !" : "🎄 L'événement de Noël commence !", texte: "Cartes exclusives à collectionner pendant une durée limitée.", url: "./#boosters" });
+    for (const { user_id } of results) await envoyerPush(env, user_id, { titre: `🎉 Événement : ${NOM_EVENEMENT(b.cle)} !`, texte: "Cartes exclusives à collectionner pendant une durée limitée.", url: "./#boosters" });
   })());
   return json({ ok: true, evenement: ev });
 }, { admin: true });
