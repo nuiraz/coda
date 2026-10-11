@@ -1,0 +1,15 @@
+# Configuration du Worker « worldcarte » (WorldCards).
+# Le nom doit être identique à celui du Worker dans Cloudflare.
+name = "worldcarte"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# Fichiers du jeu
+[assets]
+directory = "./worldcards"
+binding = "ASSETS"
+
+# Base de données des comptes : créée automatiquement au premier déploiement.
+[[d1_databases]]
+binding = "DB"
+database_name = "worldcards"
