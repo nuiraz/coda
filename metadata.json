@@ -1,0 +1,7 @@
+{
+  "name": "WorldCards",
+  "description": "Collectionnez les 195 pays, des centaines de villes et de monuments et les merveilles du monde sous forme de cartes, puis affrontez les autres joueurs dans l'arène.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

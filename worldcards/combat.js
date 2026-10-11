@@ -25,12 +25,12 @@
   const CYCLE = ["ville", "monument", "nature", "animal", "plat", "culture", "pays"];
   // Attaque spéciale propre à chaque type (une fois par carte)
   const SPECIAUX = {
-    pays: { nom: "Union nationale", mult: 1.6, desc: "×1,6 et soigne 15 % de la vie" },
+    pays: { nom: "Union nationale", mult: 1.75, desc: "×1,75 et soigne 15 % de la vie" },
     ville: { nom: "Heure de pointe", mult: 1.6, desc: "×1,6 de dégâts" },
     monument: { nom: "Rempart", mult: 1.55, desc: "×1,55 et divise par deux les dégâts subis jusqu'au tour suivant" },
     nature: { nom: "Tempête", mult: 1.45, desc: "×1,45 et 30 % des dégâts sur tout le banc adverse" },
     animal: { nom: "Double morsure", mult: 0.7, desc: "Deux attaques à ×0,7" },
-    plat: { nom: "Festin", mult: 1.3, desc: "×1,3 et soigne 18 % de la vie" },
+    plat: { nom: "Festin", mult: 1.45, desc: "×1,45 et soigne 20 % de la vie" },
     culture: { nom: "Fête populaire", mult: 1.25, desc: "×1,25 et baisse l'attaque adverse de 15 %" },
     merveille: { nom: "Merveille du monde", mult: 1.9, desc: "×1,9 de dégâts" },
     secrete: { nom: "Mystère", mult: 1.8, desc: "×1,8 et ignore la moitié de la défense" },
@@ -65,6 +65,7 @@
   const BONUS_NIVEAU = 2;   // +2 % par niveau au-delà du premier
   const NIVEAU_MAX = 5;
   const BONUS_SHINY = 5;    // une Shiny est 5 % plus forte
+  const BONUS_DOREE = 15;   // une Dorée est 15 % plus forte
   const MULT_PV = 2.2;
   // Coût d'une carte dans un deck : le total est plafonné pour que les decks restent équilibrés
   const COUT = { "commun": 1, "peu-commun": 2, "rare": 3, "epique": 4, "ultra-rare": 5, "legendaire": 6, "secrete": 6, "perso": 1 };
@@ -111,45 +112,63 @@
   const borne = (q) => [0, 1, 2].map((i) => Math.max(-VARIATION, Math.min(VARIATION, Math.round(Number(q?.[i]) || 0))));
   const noteQualite = (q) => Math.round(((borne(q).reduce((s, x) => s + x, 0) / 3) + VARIATION) / (2 * VARIATION) * 100);
 
-  // Statistiques finales d'un exemplaire
-  function stats(id, type, rarete, qualite, exemplaires, shiny) {
+  // Statistiques finales d'un exemplaire (prend en compte Shiny et Dorée)
+  function stats(id, type, rarete, qualite, exemplaires, shiny, doree) {
     const b = base(id, type, rarete), q = borne(qualite);
-    const mult = 1 + (BONUS_NIVEAU * (niveau(exemplaires || 1) - 1) + (shiny ? BONUS_SHINY : 0)) / 100;
+    const mult = 1 + (BONUS_NIVEAU * (niveau(exemplaires || 1) - 1) + (shiny ? BONUS_SHINY : 0) + (doree ? BONUS_DOREE : 0)) / 100;
     return {
       atk: arrondi(b.atk * (1 + q[0] / 100) * mult),
       def: arrondi(b.def * (1 + q[1] / 100) * mult),
       pv: arrondi(b.pv * (1 + q[2] / 100) * mult),
       niveau: niveau(exemplaires || 1),
       talent: talentDe(id, type),
+      doree: !!doree,
     };
   }
   const puissance = (s) => Math.round(s.atk + s.def + s.pv / MULT_PV);
 
   /* ---------- Combat ---------- */
-  // Une unité : { id, nom, type, atk, def, pv }
-  // options.ia : niveau de l'ordinateur, 1 (débutant) à 3 (expert) ; 2 par défaut (arène)
+  const METEOS = {
+    soleil: { nom: "☀️ Soleil radieux", bonus: "nature,plat", desc: "+15 % de dégâts pour Nature et Gastronomie" },
+    megalopole: { nom: "🏙️ Mégalopole animée", bonus: "ville,monument", desc: "+15 % de défense pour Villes et Monuments" },
+    tempete: { nom: "🌪️ Tempête mondiale", bonus: "tous", desc: "+10 % de coups critiques et d'esquive pour tous" },
+    nuit: { nom: "✨ Nuit étoilée", bonus: "merveille,secrete", desc: "+20 % de puissance pour Merveilles et Secrètes" },
+  };
+
   function creer(equipeA, equipeB, graine, options = {}) {
     const prep = (eq) => eq.map((u) => {
       const talent = TALENTS[u.talent] || u.talent === "aucun" ? u.talent : talentDe(u.id, u.type);
       const pv = talent === "colosse" ? Math.round(u.pv * 1.12) : u.pv;
-      return { ...u, talent, pvMax: pv, pv, special: true, garde: false };
+      return { ...u, talent, pvMax: pv, pv, special: true, garde: false, energie: 0, doree: !!u.doree };
     });
-    return { equipes: [prep(equipeA), prep(equipeB)], actifs: [0, 0], tour: 0, graine: graine >>> 0, r: rng(graine), fini: false, gagnant: null, journal: [], ia: options.ia || 2 };
+    const meteosKeys = Object.keys(METEOS);
+    const meteoKey = meteosKeys[(graine >>> 4) % meteosKeys.length];
+    return {
+      equipes: [prep(equipeA), prep(equipeB)],
+      actifs: [0, 0],
+      tour: 0,
+      graine: graine >>> 0,
+      r: rng(graine),
+      fini: false,
+      gagnant: null,
+      journal: [],
+      ia: options.ia || 2,
+      meteo: options.meteo || meteoKey,
+    };
   }
   const actif = (etat, cote) => etat.equipes[cote][etat.actifs[cote]];
   const vivants = (etat, cote) => etat.equipes[cote].filter((u) => u.pv > 0).length;
 
-  // Choix de l'ordinateur (et de l'adversaire en ligne)
   function choixIA(etat, cote) {
     const moi = actif(etat, cote), lui = actif(etat, 1 - cote), r = etat.r();
     const niveauIA = etat.ia || 2;
+    if (moi.energie >= 100 && r < 0.7) return "supreme";
     if (niveauIA <= 1) {
       if (moi.special && r < 0.15) return "special";
       if (r > 0.88) return "garde";
       return "attaque";
     }
     if (niveauIA >= 3) {
-      // Expert : change de carte quand il est en désavantage de type et qu'une meilleure carte attend sur le banc
       if (AVANTAGE[lui.type] === moi.type && moi.pv / moi.pvMax > 0.3 && etat.tour - (moi.change || -9) > 2) {
         const banc = etat.equipes[cote].map((u, i) => [u, i]).filter(([u, i]) => u.pv > 0 && i !== etat.actifs[cote] && AVANTAGE[lui.type] !== u.type);
         const mieux = banc.find(([u]) => AVANTAGE[u.type] === lui.type) || banc[0];
@@ -164,24 +183,34 @@
     if (moi.pv / moi.pvMax < 0.4 && r < 0.3) return "garde";
     return "attaque";
   }
-  const actionValide = (a) => ["attaque", "special", "garde"].includes(a) || /^changer:[0-9]$/.test(a);
+  const actionValide = (a) => ["attaque", "special", "supreme", "garde"].includes(a) || /^changer:[0-9]$/.test(a);
 
   function degats(etat, att, def, action) {
     const sp = action === "special" ? (SPECIAUX[att.type] || SPECIAUX.ville) : null;
-    let d = att.atk * (att.affaibli ? 0.85 : 1) * 600 / (600 + def.def * (att.talent === "perforant" ? 0.78 : 1) * (sp && att.type === "secrete" ? 0.5 : 1));
+    const supreme = action === "supreme";
+    let d = att.atk * (att.affaibli ? 0.85 : 1) * 600 / (600 + def.def * (supreme ? 0.6 : 1) * (att.talent === "perforant" ? 0.78 : 1) * (sp && att.type === "secrete" ? 0.5 : 1));
     if (AVANTAGE[att.type] === def.type) d *= BONUS_AVANTAGE;
     if (sp) d *= sp.mult;
+    if (supreme) d *= 1.8;
+    if (att.doree) d *= 1.15; // +15% frappe dorée
     if (att.talent === "rage" && att.pv / att.pvMax < 0.5) d *= 1.32;
     if (att.talent === "vitesse") d *= 1.04;
+
+    // Effet météo
+    const met = METEOS[etat.meteo];
+    if (met && met.bonus.includes(att.type)) d *= 1.15;
+    if (met && met.bonus.includes(def.type) && def.garde) d *= 0.85;
+
     d *= 0.6 + etat.r() * 0.8;
-    const esquive = etat.r() < (def.talent === "agilite" ? 0.22 : 0.12);
-    const critique = !esquive && etat.r() < (att.talent === "precision" ? 0.33 : 0.15);
+    const esquive = !supreme && etat.r() < (def.talent === "agilite" ? 0.22 : 0.12);
+    const chanceCritique = (att.talent === "precision" ? 0.33 : 0.15) + (att.doree ? 0.1 : 0);
+    const critique = !esquive && etat.r() < chanceCritique;
     if (critique) d *= 1.8;
-    if (esquive) return { d: 0, critique: false, esquive: true };
-    if (def.garde) d *= def.talent === "endurance" ? 0.22 : 0.4;
+    if (esquive) return { d: 0, critique: false, esquive: true, supreme };
+    if (def.garde && !supreme) d *= def.talent === "endurance" ? 0.22 : 0.4;
     if (def.talent === "bouclier") d *= 0.89;
     if (def.rempart >= etat.tour) d *= 0.5;
-    return { d: Math.max(1, Math.round(d)), critique, esquive: false };
+    return { d: Math.max(1, Math.round(d)), critique, esquive: false, supreme };
   }
 
   // Joue un tour : action du joueur (côté 0), l'adversaire (côté 1) joue selon l'IA
@@ -201,6 +230,7 @@
     for (const c of [0, 1]) {
       const u = actif(etat, c);
       if (actions[c] === "special" && !u.special) actions[c] = "attaque";
+      if (actions[c] === "supreme" && (u.energie || 0) < 100) actions[c] = "attaque"; // la jauge doit être pleine
       u.garde = actions[c] === "garde";
       if (u.garde) {
         const soin = Math.round(u.pvMax * (u.talent === "endurance" ? 0.3 : 0.08));
@@ -217,18 +247,33 @@
       const att = actif(etat, c), cible = actif(etat, 1 - c);
       if (att.pv <= 0 || cible.pv <= 0) continue;
       const special = actions[c] === "special";
+      const supreme = actions[c] === "supreme";
       if (special) att.special = false;
+      if (supreme) att.energie = 0;
+      else att.energie = Math.min(100, (att.energie || 0) + 20);
+      cible.energie = Math.min(100, (cible.energie || 0) + 15);
+
       const coups = special && att.type === "animal" ? 2 : 1;
       let d = 0, critique = false, esquive = false;
       for (let k = 0; k < coups && cible.pv > 0; k++) {
         const x = degats(etat, att, cible, actions[c]);
         cible.pv = Math.max(0, cible.pv - x.d);
         d += x.d; critique ||= x.critique; esquive = x.esquive && (k === 0 || esquive);
-        ev.push({ t: actions[c], cote: c, degats: x.d, critique: x.critique, esquive: x.esquive, avantage: AVANTAGE[att.type] === cible.type, nomSpecial: special ? (SPECIAUX[att.type] || SPECIAUX.ville).nom : null });
+        ev.push({
+          t: actions[c],
+          cote: c,
+          degats: x.d,
+          critique: x.critique,
+          esquive: x.esquive,
+          avantage: AVANTAGE[att.type] === cible.type,
+          nomSpecial: special ? (SPECIAUX[att.type] || SPECIAUX.ville).nom : null,
+          supreme,
+          doree: !!att.doree,
+        });
       }
       if (special) {
         // Effets des attaques spéciales selon le type
-        if (att.type === "pays" || att.type === "plat") { const soin = Math.round(att.pvMax * (att.type === "pays" ? 0.15 : 0.18)); att.pv = Math.min(att.pvMax, att.pv + soin); ev.push({ t: "effet", cote: c, effet: "soin", valeur: soin }); }
+        if (att.type === "pays" || att.type === "plat") { const soin = Math.round(att.pvMax * (att.type === "pays" ? 0.15 : 0.2)); att.pv = Math.min(att.pvMax, att.pv + soin); ev.push({ t: "effet", cote: c, effet: "soin", valeur: soin }); }
         if (att.type === "monument") { att.rempart = etat.tour + 1; ev.push({ t: "effet", cote: c, effet: "rempart" }); }
         if (att.type === "culture" && !cible.affaibli && cible.pv > 0) { cible.affaibli = true; ev.push({ t: "effet", cote: c, effet: "affaibli" }); }
         if (att.type === "nature" && d > 0) {
@@ -273,6 +318,6 @@
     return etat;
   }
 
-  return { SPECIAUX, TALENTS, TALENTS_TYPE, CYCLE, talentDe, COUT, BUDGET, TAILLE_DECK, PUISSANCE, PROFILS, AVANTAGE, VARIATION, NIVEAU_MAX, BONUS_SHINY, TOURS_MAX,
+  return { SPECIAUX, TALENTS, TALENTS_TYPE, CYCLE, talentDe, COUT, BUDGET, TAILLE_DECK, PUISSANCE, PROFILS, AVANTAGE, VARIATION, NIVEAU_MAX, BONUS_SHINY, BONUS_DOREE, TOURS_MAX, METEOS,
     hash, rng, base, niveau, tirerQualite, borne, noteQualite, stats, puissance, creer, jouer, rejouer, actif, vivants };
 });

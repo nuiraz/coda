@@ -616,3 +616,326 @@ table.classement tr.banni td { opacity: .55; }
 .carte3d.dos::after { display: none; }
 .offres { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
 .offres .offre-premium { padding-top: 22px; }
+/* =====================================================================
+   NOUVEAUTÉS : Joueurs en ligne, Alerte Admin, Cartes Dorées, Échanges, Tournois
+   ===================================================================== */
+
+/* Indicateur Joueurs en direct */
+.online-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid rgba(46, 213, 115, 0.35);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #2ed573;
+  box-shadow: 0 2px 8px rgba(46, 213, 115, 0.15);
+  cursor: pointer;
+  transition: transform .2s, border-color .2s;
+}
+.online-pill:hover { transform: scale(1.04); border-color: #2ed573; }
+.dot-live {
+  width: 8px;
+  height: 8px;
+  background: #2ed573;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #2ed573;
+  animation: pulseDot 1.8s infinite ease-in-out;
+}
+@keyframes pulseDot {
+  0%, 100% { transform: scale(1); opacity: 1; box-shadow: 0 0 6px #2ed573; }
+  50% { transform: scale(1.35); opacity: .65; box-shadow: 0 0 12px #2ed573; }
+}
+
+/* Bandeau Alerte Sécurité Admin */
+.admin-sec-banner {
+  background: linear-gradient(90deg, #d32f2f, #b71c1c);
+  color: #fff;
+  padding: 10px 16px;
+  font-size: 13.5px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 4px 14px rgba(211, 47, 47, 0.4);
+  position: relative;
+  z-index: 99;
+  animation: slideDown .3s ease-out;
+}
+.admin-sec-banner.hidden { display: none; }
+.admin-sec-banner a { color: #fff; text-decoration: underline; margin-left: 8px; cursor: pointer; }
+.admin-sec-banner .close-sec { background: transparent; border: 0; color: #fff; font-size: 18px; cursor: pointer; padding: 0 4px; }
+@keyframes slideDown { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+
+/* =====================================================================
+   STYLE DES CARTES : Vraie carte de jeu TCG & Version Dorée scintillante
+   ===================================================================== */
+.card:not(.locked) {
+  transition: transform .22s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow .22s;
+  cursor: pointer;
+}
+.card:not(.locked):hover {
+  transform: translateY(-5px) scale(1.02);
+  box-shadow: 0 14px 28px rgba(0,0,0,.35);
+}
+
+/* Version Dorée (Golden) */
+.card.doree {
+  --r: linear-gradient(135deg, #fff3b0 0%, #ffd700 25%, #ff9800 50%, #fff9c4 75%, #ffd700 100%);
+  background: var(--r) !important;
+  background-size: 250% 250% !important;
+  animation: doreeBling 3.5s ease infinite alternate !important;
+  box-shadow: 0 8px 24px rgba(255, 193, 7, 0.45), 0 0 16px rgba(255, 215, 0, 0.35) !important;
+}
+@keyframes doreeBling {
+  0% { background-position: 0% 50%; box-shadow: 0 8px 22px rgba(255,193,7,.45), 0 0 14px rgba(255,215,0,.3); }
+  100% { background-position: 100% 50%; box-shadow: 0 10px 28px rgba(255,152,0,.6), 0 0 22px rgba(255,235,59,.55); }
+}
+.card.doree .in {
+  background: linear-gradient(160deg, #1f1a14, #120e09) !important;
+  border: 1px solid rgba(255, 215, 0, 0.4);
+}
+.card.doree .name {
+  color: #fff3b0 !important;
+  text-shadow: 0 1px 4px rgba(255, 179, 0, 0.6);
+}
+.card.doree .in::before {
+  content: "👑 DORÉE";
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 7;
+  font-size: 8.5px;
+  font-weight: 900;
+  color: #120e09;
+  background: linear-gradient(135deg, #fff9c4, #ffd700);
+  padding: 1px 6px;
+  border-radius: 999px;
+  letter-spacing: .4px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.4);
+}
+.card.doree .in::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 235, 59, 0.3) 48%, transparent 65%);
+  background-size: 250% 100%;
+  animation: holo 2.6s linear infinite;
+  mix-blend-mode: color-dodge;
+}
+
+/* Cartes Saisonnières */
+.card[data-saisonnier="halloween"] {
+  --r: linear-gradient(135deg, #ff7043, #e65100, #311b92, #ff9800);
+  box-shadow: 0 8px 20px rgba(230, 81, 0, 0.35);
+}
+.card[data-saisonnier="noel"] {
+  --r: linear-gradient(135deg, #2e7d32, #c62828, #ffd700, #1b5e20);
+  box-shadow: 0 8px 20px rgba(46, 125, 50, 0.35);
+}
+
+/* =====================================================================
+   JAUGE DE CHANCE (Pity System) & TAUX DE DROP
+   ===================================================================== */
+.pity-box {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px 18px;
+  margin: 12px 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pity-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.pity-track {
+  height: 10px;
+  background: var(--panel2);
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.pity-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4f7bd9, #b47cf0, #ffd700);
+  border-radius: 999px;
+  transition: width .4s ease-out;
+}
+
+/* Boosters Saisonniers */
+.pack.pack-hallow {
+  background: radial-gradient(circle at 30% 20%, #ffab91, transparent 45%), linear-gradient(160deg, #ff7043, #e65100 45%, #212121);
+  border: 2px solid #ff7043;
+}
+.pack.pack-noel {
+  background: radial-gradient(circle at 30% 20%, #fff9c4, transparent 45%), linear-gradient(160deg, #2e7d32, #c62828 50%, #ffd700);
+  border: 2px solid #ffd700;
+}
+
+/* =====================================================================
+   BOURSE D'ÉCHANGES (Trading Market)
+   ===================================================================== */
+.echanges-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+.echange-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: transform .2s, border-color .2s;
+}
+.echange-card:hover { transform: translateY(-2px); border-color: var(--accent); }
+.echange-entete {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+.echange-corps {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--panel2);
+  padding: 10px;
+  border-radius: 12px;
+}
+.echange-side {
+  flex: 1;
+  text-align: center;
+}
+.echange-side small { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+.echange-side b { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.echange-fleche { font-size: 20px; color: var(--accent); }
+
+/* =====================================================================
+   TOURNOIS DE LA SEMAINE (Weekly Tournament)
+   ===================================================================== */
+.tournoi-hero {
+  background: linear-gradient(135deg, rgba(224, 145, 58, 0.15), rgba(224, 69, 139, 0.15));
+  border: 2px solid var(--accent);
+  border-radius: 20px;
+  padding: 18px 22px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tournoi-ladder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 16px 0;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.tournoi-step {
+  flex: 1;
+  min-width: 80px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 8px;
+  text-align: center;
+  font-size: 12px;
+  position: relative;
+}
+.tournoi-step.fini { background: var(--panel2); border-color: var(--ok); color: var(--ok); }
+.tournoi-step.actuel { border-color: var(--accent); box-shadow: 0 0 12px rgba(224,145,58,.4); font-weight: 800; }
+.tournoi-step.boss { border-color: var(--legendaire); }
+
+/* =====================================================================
+   COMBAT AVANCÉ : Jauge Adrénaline & Attaque Suprême
+   ===================================================================== */
+.jauge-energie {
+  margin-top: 6px;
+  height: 6px;
+  background: rgba(0,0,0,.35);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.jauge-energie .fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff9800, #ffeb3b);
+  border-radius: 999px;
+  transition: width .3s ease;
+}
+.btn-supreme {
+  background: linear-gradient(135deg, #ff9800, #e91e63, #9c27b0) !important;
+  color: #fff !important;
+  font-weight: 900 !important;
+  box-shadow: 0 0 16px rgba(233, 30, 99, 0.6) !important;
+  animation: pulseSupreme 1.4s infinite !important;
+}
+@keyframes pulseSupreme {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.05); filter: brightness(1.25); }
+}
+.meteo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+  margin: 6px 0;
+}
+
+/* =====================================================================
+   TEMPS DE JEU SUR LE PROFIL
+   ===================================================================== */
+.time-stat-badge {
+  background: var(--panel2);
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+}
+.time-stat-badge .icon { font-size: 28px; }
+.time-stat-badge b { font-size: 16px; }
+.time-stat-badge span { font-size: 12px; color: var(--muted); }
+
+.barres7 { display: flex; align-items: flex-end; gap: 6px; height: 140px; }
+.barres7 > div { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 2px; font-size: 11px; }
+.barres7 i { width: 100%; max-width: 34px; background: linear-gradient(180deg, var(--accent), #e0458b); border-radius: 6px 6px 0 0; min-height: 2px; }
+.barres7 span { color: var(--muted); }
+.bandeau-evenement { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; background: linear-gradient(120deg, color-mix(in srgb, var(--ec) 30%, var(--panel)), var(--panel)); border-color: var(--ec); flex-wrap: wrap; }
+.bandeau-evenement .big { font-size: 40px; }
+.bandeau-evenement > div { flex: 1; min-width: 180px; }
+/* En-tête mobile compact : rien ne déborde */
+html, body { overflow-x: hidden; }
+@media (max-width: 560px) {
+  .top { gap: 5px; padding: 8px 10px; }
+  .online-pill .lbl, #feedbackBtn, .nivjoueur { display: none !important; }
+  .online-pill { padding: 4px 8px; font-size: 12px; }
+  .iconbtn { padding: 6px 7px; font-size: 15px; }
+  .iconbtn.compte { max-width: 64px; overflow: hidden; }
+  .iconbtn.compte .sync { display: none; }
+  .coins { margin-left: auto; }
+}

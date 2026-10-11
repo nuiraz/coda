@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v15"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v16"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -117,6 +117,45 @@ MERVEILLES_BRUTES.forEach(([id, nom, pays, lat, lon, emoji, groupe, anecdote], i
 SECRETES_MONDE.forEach(([id, nom, emoji, condition, anecdote], i) =>
   add({ id: "secret:" + id, univers: "monde", type: "secrete", rarete: "secrete", num: i + 1, nom, emoji, condition, anecdote }));
 
+// Enregistrement des extensions de cartes (Nouvelles Villes, Monuments, Nature, Événements)
+// Une carte qui existe déjà sous un autre identifiant (même nom) n'est pas ajoutée en double
+const normNom = (t) => String(t).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/^(le|la|les|l')\s*/, "").replace(/[^a-z0-9]/g, "");
+const NOMS_EXISTANTS = new Set(CARDS.map((c) => normNom(c.nom)));
+const doublon = (nom) => { const k = normNom(nom); if (NOMS_EXISTANTS.has(k)) return true; NOMS_EXISTANTS.add(k); return false; };
+if (typeof VILLES_NOUVELLES !== "undefined") {
+  VILLES_NOUVELLES.forEach(([id, nom, pays, lat, lon, emoji, anecdote, wiki], i) => {
+    if (doublon(nom)) return;
+    add({ id: "ville:" + id, univers: "monde", type: "ville", rarete: "peu-commun", num: CARDS.filter((c) => c.type === "ville").length + 1, nom, pays, lat, lon, emoji, anecdote, continent: CONT_PAYS[pays] });
+    if (wiki) PHOTOS_WIKI["ville:" + id] = wiki;
+    RECHERCHE_PHOTO["ville:" + id] = `${nom} ${NOM_PAYS[pays] || ""}`;
+  });
+}
+if (typeof MONUMENTS_NOUVEAUX !== "undefined") {
+  MONUMENTS_NOUVEAUX.forEach(([id, nom, pays, lat, lon, emoji, rarete, anecdote, wiki], i) => {
+    if (doublon(nom) || doublon(wiki || nom)) return;
+    add({ id: "monu:" + id, univers: "monde", type: "monument", rarete, num: CARDS.filter((c) => c.type === "monument").length + 1, nom, pays, lat, lon, emoji, anecdote, continent: CONT_PAYS[pays] });
+    if (wiki) PHOTOS_WIKI["monu:" + id] = wiki;
+    RECHERCHE_PHOTO["monu:" + id] = nom;
+  });
+}
+if (typeof NATURE_NOUVELLE !== "undefined") {
+  NATURE_NOUVELLE.forEach(([id, nom, pays, lat, lon, emoji, rarete, anecdote, wiki], i) => {
+    if (doublon(nom) || doublon(wiki || nom)) return;
+    add({ id: "nat:" + id, univers: "monde", type: "nature", rarete, num: CARDS.filter((c) => c.type === "nature").length + 1, nom, pays, lat, lon, emoji, anecdote, continent: CONT_PAYS[pays] });
+    if (wiki) PHOTOS_WIKI["nat:" + id] = wiki;
+    RECHERCHE_PHOTO["nat:" + id] = nom;
+  });
+}
+if (typeof EVENEMENTS_SAISONNIERS !== "undefined") {
+  for (const [evKey, ev] of Object.entries(EVENEMENTS_SAISONNIERS)) {
+    ev.cartes.forEach(([id, nom, pays, emoji, rarete, anecdote, wiki], i) => {
+      add({ id: "event:" + id, univers: "monde", type: "monument", rarete, saisonnier: evKey, num: i + 1, nom, pays, emoji, anecdote, continent: CONT_PAYS[pays] || "EU" });
+      if (wiki) PHOTOS_WIKI["event:" + id] = wiki;
+      RECHERCHE_PHOTO["event:" + id] = nom;
+    });
+  }
+}
+
 // Un seul univers : le monde (gardé sous cette forme pour compte.js)
 const UNIVERS = {
   monde: { nom: "Monde", emoji: "🌍", dos: "🌐", titre: "Collectionner le monde",
@@ -128,6 +167,17 @@ const of = (u, type) => CARDS.filter((c) => c.univers === u && (!type || c.type 
 PACKS.mega = { nom: "Méga", emoji: "📦", prix: 1000, cartes: 10, garanties: [2, 2, 3], shiny: 1.5,
   poids: { "commun": 40, "peu-commun": 33, "rare": 17, "epique": 6.5, "ultra-rare": 2.4, "legendaire": 1.1 },
   desc: "10 cartes d'un coup ! Deux rares et une épique ou mieux garanties." };
+
+// Boosters d'événement : disponibles seulement quand l'administrateur active l'événement.
+// Ils contiennent 2 cartes de l'événement et 3 cartes normales ; les cartes d'événement ne sortent nulle part ailleurs.
+let EVENEMENT = (() => { try { const e = JSON.parse(localStorage.getItem("worldcards:evenement")); return e && e.fin > Date.now() ? e : null; } catch { return null; } })();
+const evenementActif = (cle) => !!EVENEMENT && EVENEMENT.cle === cle && EVENEMENT.fin > Date.now();
+if (typeof EVENEMENTS_SAISONNIERS !== "undefined") for (const [cle, ev] of Object.entries(EVENEMENTS_SAISONNIERS)) {
+  PACKS[cle] = { nom: ev.nom, emoji: ev.emoji, prix: 350, cartes: 5, garanties: [2], shiny: 2, evenement: cle, couleur: ev.couleur,
+    poids: { "commun": 20, "peu-commun": 35, "rare": 25, "epique": 14, "ultra-rare": 4, "legendaire": 2 },
+    desc: `Événement limité : 2 cartes exclusives « ${ev.theme} » par booster, Shiny ×2.` };
+}
+
 for (const t of ["ville", "monument", "nature", "animal", "plat", "culture"]) {
   if (!of("monde", t).length) continue;
   PACKS["theme-" + t] = { nom: PLURIEL[t], emoji: EMOJI_TYPE[t], prix: 260, cartes: 5, garanties: [2], shiny: 1, theme: true,
@@ -139,7 +189,7 @@ for (const [k, ct] of Object.entries(CONTINENTS)) {
 }
 const PACKS_PRINCIPAUX = ["monde", "argent", "or", "mega", "prestige"];
 // Offre du jour : un booster à -40 %, une fois par jour
-const offreDuJour = () => { const cles = Object.keys(PACKS).filter((k) => k !== "monde" && k !== "prestige"); return cles[COMBAT.hash(today()) % cles.length]; };
+const offreDuJour = () => { const cles = Object.keys(PACKS).filter((k) => k !== "monde" && k !== "prestige" && !PACKS[k].evenement); return cles[COMBAT.hash(today()) % cles.length]; };
 const prixOffre = (k) => Math.round(PACKS[k].prix * 0.6 / 10) * 10;
 
 /* =====================================================================
@@ -147,8 +197,9 @@ const prixOffre = (k) => Math.round(PACKS[k].prix * 0.6 / 10) * 10;
    ===================================================================== */
 const SAVE_KEY = "worldcards:v1";
 const nouvelleSauvegarde = () => ({
-  coins: 200, owned: {}, shiny: {}, holo: {}, qualite: {}, nouveaux: {}, recents: [], badges: {},
-  boosters: { monde: 3, argent: 0, or: 0, prestige: 0 }, gratuitLe: 0, xp: 0, defisFaits: 0, son: true, premiumJour: "", prestigeSemaine: "", ouverts: 0,
+  coins: 200, owned: {}, shiny: {}, holo: {}, doree: {}, qualite: {}, nouveaux: {}, recents: [], badges: {},
+  boosters: { monde: 3, argent: 0, or: 0, prestige: 0, halloween: 1, noel: 1 }, gratuitLe: 0, xp: 0, defisFaits: 0, son: true, premiumJour: "", prestigeSemaine: "", ouverts: 0,
+  pity: 0, tempsJeuTotal: 0, nbSessions: 1, premierJour: new Date().toISOString(),
   quiz: { monde: { serie: 0, record: 0, bonnes: 0, total: 0 } }, quizJour: { d: "", n: 0 },
   deck: [], combat: { victoires: 0, defaites: 0, jour: "", recompenses: 0 }, solo: {},
   univers: "monde", vue: "accueil", theme: "", photos: true,
@@ -158,6 +209,11 @@ function migrer(s) {
   const d = nouvelleSauvegarde();
   s = { ...d, ...s, boosters: { ...d.boosters, ...s.boosters }, quiz: { ...d.quiz, ...s.quiz }, combat: { ...d.combat, ...s.combat }, quizJour: { ...d.quizJour, ...s.quizJour } };
   s.univers = "monde";
+  s.doree ||= {};
+  s.pity = s.pity || 0;
+  s.tempsJeuTotal = s.tempsJeuTotal || 0;
+  s.nbSessions = (s.nbSessions || 0) + 1;
+  s.premierJour = s.premierJour || new Date().toISOString();
   if (!s.migreMonde) {
     let pieces = 0;
     for (const id of Object.keys(s.owned)) {
@@ -201,8 +257,8 @@ const count = (ids) => ids.filter(has).length;
 /* =====================================================================
    Statistiques de combat
    ===================================================================== */
-function statsDe(c, qualite = S.qualite[c.id], exemplaires = S.owned[c.id] || 1, shiny = !!S.shiny?.[c.id]) {
-  return COMBAT.stats(c.id, c.type, c.rarete, qualite, exemplaires, shiny);
+function statsDe(c, qualite = S.qualite[c.id], exemplaires = S.owned[c.id] || 1, shiny = !!S.shiny?.[c.id], doree = !!S.doree?.[c.id]) {
+  return COMBAT.stats(c.id, c.type, c.rarete, qualite, exemplaires, shiny, doree);
 }
 const puissanceDe = (c) => COMBAT.puissance(statsDe(c));
 const coutDe = (c) => COMBAT.COUT[c.rarete] || 1;
@@ -366,13 +422,14 @@ function cardHTML(c, opts = {}) {
   else art = `<span class="emoji">${esc(c.emoji || "🃏")}</span>`;
   art = photoHTML(c, false) + art;
   const n = S.owned[c.id] || 0;
-  const shiny = opts.shiny ?? !!S.shiny?.[c.id];
-  const holo = !shiny && (opts.holo ?? !!S.holo?.[c.id]);
-  const st = opts.stats ?? (n ? statsDe(c, S.qualite[c.id], n, shiny) : statsDe(c, [0, 0, 0], 1, shiny));
+  const doree = opts.doree ?? !!S.doree?.[c.id];
+  const shiny = !doree && (opts.shiny ?? !!S.shiny?.[c.id]);
+  const holo = !doree && !shiny && (opts.holo ?? !!S.holo?.[c.id]);
+  const st = opts.stats ?? (n ? statsDe(c, S.qualite[c.id], n, shiny, doree) : statsDe(c, [0, 0, 0], 1, shiny, doree));
   const tal = COMBAT.TALENTS[st.talent || COMBAT.talentDe(c.id, c.type)];
-  return `<div class="card${shiny ? " shiny" : ""}${holo ? " holo" : ""}" data-id="${esc(c.id)}" data-r="${r}" tabindex="0" role="button" aria-label="${esc(c.nom)}">
+  return `<div class="card${doree ? " doree" : ""}${shiny ? " shiny" : ""}${holo ? " holo" : ""}" data-id="${esc(c.id)}" data-r="${r}" ${c.saisonnier ? `data-saisonnier="${c.saisonnier}"` : ""} tabindex="0" role="button" aria-label="${esc(c.nom)}">
     ${opts.compte && n > 1 ? `<span class="badge-count">×${n}</span>` : ""}${opts.compte && S.nouveaux[c.id] ? `<span class="badge-new">NEW</span>` : ""}
-    <div class="in"><div class="head"><span>${TYPES[c.type]}${c.continent && c.type === "pays" ? " · " + CONTINENTS[c.continent].nom : ""}</span><span class="gems" title="${RARETES[r].nom}${shiny ? " · Shiny" : holo ? " · Holo" : ""}">${shiny ? "✨" : holo ? "🌈" : ""}${RARETES[r].gems}</span></div>
+    <div class="in"><div class="head"><span>${TYPES[c.type]}${c.continent && c.type === "pays" ? " · " + CONTINENTS[c.continent].nom : ""}${c.saisonnier ? ` · ${c.saisonnier === "halloween" ? "🎃" : "🎄"}` : ""}</span><span class="gems" title="${RARETES[r].nom}${doree ? " · Version Dorée" : shiny ? " · Shiny" : holo ? " · Holo" : ""}">${doree ? "👑 " : shiny ? "✨ " : holo ? "🌈 " : ""}${RARETES[r].gems}</span></div>
     <div class="art" style="--g:${degrade(col)}">${art}${st.niveau > 1 ? `<span class="niv">Niv. ${st.niveau}</span>` : ""}${tal ? `<span class="talent" title="Talent : ${tal.nom} — ${esc(tal.desc)}">${tal.emoji}</span>` : ""}</div>
     <div class="name">${esc(c.nom)}</div><div class="sub">${esc(sousTitre(c))}</div>
     <div class="cstats" title="Attaque · Défense · Points de vie"><span>⚔️${st.atk}</span><span>🛡️${st.def}</span><span>❤️${st.pv}</span></div></div></div>`;
@@ -652,6 +709,14 @@ function renderNav() {
 }
 function aller(vue, opts) {
   if (typeof arreterCombat === "function") arreterCombat();
+  if (vue === "tournoi" || vue === "tournois") {
+    if (typeof hubEtat !== "undefined") hubEtat.onglet = "tournois";
+    vue = "hub";
+  }
+  if (vue === "echanges" || vue === "echange") {
+    if (typeof hubEtat !== "undefined") hubEtat.onglet = "echanges";
+    vue = "hub";
+  }
   S.vue = vue; renderNav(); vue = S.vue; sauver(); // renderNav remplace une vue inconnue par l'accueil
   const v = $("#view"); v.innerHTML = "";
   ({ accueil: vueAccueil, boosters: vueBoosters, album: vueAlbum, atlas: vueAtlas, badges: vueBadges, quiz: vueQuiz, combat: vueCombat,
@@ -739,10 +804,13 @@ function ficheCarte(c) {
           : owned ? `<div class="anecdote"><b>💡 Le saviez-vous ?</b>${esc(c.anecdote)}</div>`
           : `<div class="anecdote"><b>🔒 Anecdote cachée</b>Collectionnez cette carte pour découvrir son anecdote.</div>`}
         ${owned ? blocStats(c) : ""}
-        <div class="row">
+        <div class="row" style="flex-wrap:wrap;gap:8px">
           ${!owned && !secretVerrou && prix ? `<button class="btn primary" id="craft" ${S.coins < prix ? "disabled" : ""}>Obtenir pour ${fmt(prix)} 🪙</button>` : ""}
           ${owned ? `<button class="btn primary" id="voir3d">🧊 Voir en 3D</button>` : ""}
           ${owned ? `<button class="btn" id="deckBtn">${dansDeck ? "Retirer du deck" : "⚔️ Ajouter au deck"}</button>` : ""}
+          ${owned && (S.owned[c.id] || 0) >= 3 && !S.doree?.[c.id] ? `<button class="btn primary" id="evolveBtn" style="background:linear-gradient(135deg, #ffd700, #ff9800);color:#1a1409;font-weight:800">👑 Forger en Version Dorée ✨ (2 doublons)</button>` : ""}
+          ${owned && S.doree?.[c.id] ? `<span class="rbadge" style="background:linear-gradient(135deg, #fff3b0, #ffd700);color:#1a1409;font-weight:800">👑 Version Dorée Débloquée (+15 % stats)</span>` : ""}
+          ${owned && (S.owned[c.id] || 0) >= 2 ? `<button class="btn" id="echangeBtn">🤝 Échanger un doublon</button>` : ""}
           ${owned && lieu ? `<button class="btn" id="voirAtlas">🗺️ Voir sur l'atlas</button>` : ""}
         </div>
         ${!owned && !secretVerrou && prix && S.coins < prix ? `<p class="muted" style="font-size:13px">Il vous manque ${fmt(prix - S.coins)} 🪙. Gagnez-en au quiz et en combat !</p>` : ""}
@@ -756,6 +824,20 @@ function ficheCarte(c) {
     fermerModal(); verifierProgression(); aller(S.vue);
   });
   $("#voir3d")?.addEventListener("click", () => voir3D(c));
+  $("#evolveBtn")?.addEventListener("click", () => {
+    if ((S.owned[c.id] || 0) < 3) return toast("⚠ Il vous faut au moins 3 exemplaires pour forger la version dorée.");
+    S.owned[c.id] -= 2;
+    S.doree[c.id] = true;
+    sauver();
+    if (typeof son === "function") son("badge");
+    toast(`👑 <b>${esc(c.nom)}</b> a évolué en Version Dorée ✨ (+15 % en combat) !`, 4000);
+    fermerModal();
+    ficheCarte(c);
+  });
+  $("#echangeBtn")?.addEventListener("click", () => {
+    fermerModal();
+    ouvrirModalCreerEchange(c.id);
+  });
   $("#deckBtn")?.addEventListener("click", () => { basculerDeck(c.id); fermerModal(); if (S.vue === "combat") aller("combat"); });
   $("#voirAtlas")?.addEventListener("click", () => { fermerModal(); aller("atlas", { focus: c }); });
 }
@@ -857,6 +939,9 @@ function vueAccueil(v) {
   const attente = gratuitDans();
   v.innerHTML = `
     ${S.messageMigration ? `<div class="panel annonce">🌍 <b>WorldCards se concentre sur le monde !</b> Les univers Gaming et Objets ont été retirés. Vos anciennes cartes ont été échangées contre <b>${fmt(S.messageMigration.pieces)} 🪙</b>${S.messageMigration.boosters ? ` et vos boosters en <b>${S.messageMigration.boosters} boosters Classiques</b>` : ""}. <button class="btn small" id="okMigration">OK</button></div>` : ""}
+    ${EVENEMENT && EVENEMENTS_SAISONNIERS?.[EVENEMENT.cle] ? `<div class="panel bandeau-evenement" style="--ec:${EVENEMENTS_SAISONNIERS[EVENEMENT.cle].couleur}">
+      <span class="big">${EVENEMENTS_SAISONNIERS[EVENEMENT.cle].emoji}</span><div><b>Événement ${esc(EVENEMENTS_SAISONNIERS[EVENEMENT.cle].nom)} !</b><br><span>${CARDS.filter((c) => c.saisonnier === EVENEMENT.cle).length} cartes exclusives à collectionner jusqu'au ${new Date(EVENEMENT.fin).toLocaleDateString("fr-FR")}.</span></div>
+      <button class="btn primary" data-aller-boutique>Voir le booster</button></div>` : ""}
     <div class="hero">
       <div class="panel">
         <div class="hero-titre"><h1>${UNIVERS.monde.titre}</h1>${(() => { const n = niveauJoueur(); return `<span class="nivbloc">🎓 Niveau <b>${n.niveau}</b><span class="bar"><i style="width:${(n.xp / n.besoin) * 100}%"></i></span><small>${n.xp}/${n.besoin} XP</small></span>`; })()}</div>
@@ -889,6 +974,7 @@ function vueAccueil(v) {
     <div class="sectiontitle"><h3>✦ Cartes secrètes</h3><span class="muted">Terminez une collection entière pour les débloquer</span></div>
     <div class="cards">${secrets.map((c) => cardHTML(c)).join("")}</div>`;
   $$("[data-defi-recu]", v).forEach((b) => b.onclick = () => recupererDefi(Number(b.dataset.defiRecu)));
+  $("[data-aller-boutique]", v)?.addEventListener("click", () => aller("boosters"));
   $("#okMigration")?.addEventListener("click", () => { delete S.messageMigration; aller("accueil"); });
   $("#gratuit")?.addEventListener("click", recupererGratuit);
   $("#bonusPremium")?.addEventListener("click", recupererBonusPremium);
@@ -948,6 +1034,18 @@ function vueBoosters(v) {
       <p class="muted" style="margin:0 0 8px">${PACKS[offre].desc}</p>
       ${offreDispo ? `<button class="btn primary" id="acheterOffre" ${S.coins < prixOffre(offre) ? "disabled" : ""}><s>${fmt(PACKS[offre].prix)}</s> ${fmt(prixOffre(offre))} 🪙</button>` : `<span class="muted">✓ Déjà profité aujourd'hui. Nouvelle offre demain !</span>`}</div>
     </div>
+    <div class="panel pity-box" style="margin-top:16px">
+      <div class="pity-head">
+        <span>🍀 Jauge de Chance & Pity System : <b>${Math.min(100, S.pity || 0)} %</b></span>
+        <span class="muted">${(S.pity || 0) >= 100 ? "✨ Prochain booster : Épique+ GARANTIE !" : "Plus vous ouvrez de boosters, plus vos chances de raretés légendaires augmentent"}</span>
+      </div>
+      <div class="pity-track">
+        <div class="pity-fill" style="width:${Math.min(100, S.pity || 0)}%"></div>
+      </div>
+      <p class="muted" style="margin:4px 0 0;font-size:12.5px">La jauge augmente à chaque booster ouvert. À 100 %, votre prochain booster déclenche un tirage d'or garanti (Épique ou Légendaire) !</p>
+    </div>
+    ${EVENEMENT && PACKS[EVENEMENT.cle] ? `<div class="sectiontitle"><h3>${PACKS[EVENEMENT.cle].emoji} Événement : ${esc(EVENEMENTS_SAISONNIERS[EVENEMENT.cle].nom)}</h3><span class="muted">Jusqu'au ${new Date(EVENEMENT.fin).toLocaleDateString("fr-FR")} · cartes exclusives</span></div>
+      <div class="boutique evenement">${carteOffre(EVENEMENT.cle, PACKS[EVENEMENT.cle])}</div>` : ""}
     <div class="sectiontitle"><h3>🛍️ Boutique</h3><span class="muted">Plus le booster est cher, plus les cartes sont rares</span></div>
     <div class="boutique">${PACKS_PRINCIPAUX.map((k) => carteOffre(k, PACKS[k])).join("")}</div>
     <div class="sectiontitle"><h3>🎯 Boosters thématiques</h3><span class="muted">Ciblez la catégorie ou le continent qui vous manque</span></div>
@@ -956,7 +1054,7 @@ function vueBoosters(v) {
     <div class="panel" style="margin-top:16px">
       <h3 style="margin-top:0">Chances par carte (booster Classique)</h3>
       <div class="row">${Object.entries(RARETES).filter(([r]) => r !== "secrete").map(([r, x]) => `<span class="rbadge" data-r="${r}">${x.nom} · ${x.poids} %</span>`).join(" ")}</div>
-      <p class="muted" style="margin-bottom:0;font-size:13.5px">Les cartes que vous n'avez pas encore sortent quatre fois plus souvent que vos doublons. Environ une carte sur 10 sort en 🌈 Holo et une sur 45 en ✨ Shiny (deux fois plus en Premium). Un doublon rapporte des pièces, fait monter la carte de niveau et peut améliorer ses statistiques.</p>
+      <p class="muted" style="margin-bottom:0;font-size:13.5px">Système de tirage : Les cartes non découvertes sortent avec un bonus de découverte, et les doublons permettent de monter de niveau ou de forger la prestigieuse <b>Version Dorée 👑 (+15 % de puissance)</b>. Environ 1 carte sur 10 sort en 🌈 Holo et 1 sur 45 en ✨ Shiny (doublé en Premium).</p>
     </div>`;
   $$("[data-ouvrir]", v).forEach((b) => b.onclick = () => ouvrirBooster(b.dataset.ouvrir));
   $$("[data-acheter]", v).forEach((b) => b.onclick = () => {
@@ -995,18 +1093,35 @@ function toutOuvrir() {
 }
 function tirerBooster(type) {
   const p = PACKS[type];
-  const pool = of("monde").filter((c) => c.type !== "secrete" && (!p.filtre || p.filtre(c)));
+  const pool = of("monde").filter((c) => c.type !== "secrete" && !c.saisonnier && (!p.filtre || p.filtre(c)));
+  const poolEvenement = p.evenement ? CARDS.filter((c) => c.saisonnier === p.evenement) : [];
   const poids = (r) => (p.poids ? p.poids[r] : RARETES[r].poids) || 0;
   const rars = Object.keys(RARETES).filter((r) => pool.some((c) => c.rarete === r) && poids(r) > 0);
   const out = [];
+
+  // Pity system : chaque booster augmente la chance (+10 %)
+  S.pity = (S.pity || 0) + 10;
+  const pityDeclenchee = S.pity >= 100;
+
   for (let i = 0; i < p.cartes; i++) {
     // Les dernières cartes du booster ont une rareté minimale garantie
-    const g = p.garanties[i - (p.cartes - p.garanties.length)];
+    let g = p.garanties[i - (p.cartes - p.garanties.length)];
+    if (pityDeclenchee && i === p.cartes - 1) {
+      g = Math.max(g || 0, 3); // au moins Épique
+      S.pity = 0; // réinitialisation du compteur pity
+    }
     const opts = g !== undefined ? rars.filter((r) => RARETES[r].ordre >= g) : rars;
     const r = weighted(opts, poids);
+    if (RARETES[r].ordre >= 3) S.pity = 0; // une épique ou mieux réinitialise le pity
     let cands = pool.filter((c) => c.rarete === r && !out.includes(c));
     if (!cands.length) cands = pool.filter((c) => !out.includes(c));
-    out.push(weighted(cands, (c) => (has(c.id) ? 1 : 4)));
+    // Les doublons tombent naturellement pour permettre la fusion / évolution dorée et les échanges
+    out.push(weighted(cands, (c) => (has(c.id) ? 2 : 3.5)));
+  }
+  // Booster d'événement : les deux premières cartes sont des cartes exclusives de l'événement
+  for (let i = 0; i < Math.min(2, poolEvenement.length); i++) {
+    const libres = poolEvenement.filter((c) => !out.includes(c));
+    out[i] = weighted(libres, (c) => (RARETES[c.rarete].poids || 1) * (has(c.id) ? 1 : 3));
   }
   return out;
 }

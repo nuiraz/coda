@@ -95,7 +95,7 @@ function lancerEtape(ch, n) {
 const limiteRecompenses = () => (premium() ? 30 : 15);
 const recompensesFaites = () => (S.combat.jour === today() ? S.combat.recompenses : 0);
 const coutDeck = (ids) => ids.reduce((s, id) => s + coutDe(BY_ID[id]), 0);
-const uniteDe = (c) => ({ id: c.id, type: c.type, nom: c.nom, shiny: !!S.shiny?.[c.id], ...statsDe(c) });
+const uniteDe = (c) => ({ id: c.id, type: c.type, nom: c.nom, shiny: !!S.shiny?.[c.id], doree: !!S.doree?.[c.id], ...statsDe(c) });
 let combatTimers = [];
 function arreterCombat() { combatTimers.forEach(clearTimeout); combatTimers = []; }
 
@@ -237,18 +237,20 @@ function entrainement(diff) {
 }
 
 /* ---------- Écran de combat ---------- */
-function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia }) {
+function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: estArene = false }) {
   arreterCombat();
   const etat = COMBAT.creer(moi, lui, graine, { ia });
+  const met = COMBAT.METEOS?.[etat.meteo] || { nom: "☀️ Climat Équilibré", desc: "Arène standard" };
   let occupe = false, auto = false;
   ouvrirModal(`<div class="arene">
-      <div class="arene-top"><span>${esc(titre)}</span><span class="muted">Tour <b id="cbTour">1</b></span></div>
+      <div class="arene-top"><span>${esc(titre)}</span><span class="meteo-badge" title="${esc(met.desc)}">${esc(met.nom)}</span><span class="muted">Tour <b id="cbTour">1</b></span></div>
       <div class="cote adv" id="cbAdv"></div>
-      <div class="cbLog" id="cbLog">Le combat commence contre ${esc(adversaire)} !</div>
+      <div class="cbLog" id="cbLog">Le combat commence contre ${esc(adversaire)} ! (${esc(met.desc)})</div>
       <div class="cote moi" id="cbMoi"></div>
       <div class="actions" id="cbActions">
         <button class="btn primary" data-a="attaque">⚔️ Attaque</button>
         <button class="btn" data-a="special">✨ Spécial</button>
+        <button class="btn" data-a="supreme" id="btnSupreme" disabled>⚡ Suprême (0%)</button>
         <button class="btn" data-a="garde">🛡️ Garde</button>
         <button class="btn small" id="cbAuto">⏩ Auto</button>
       </div>
@@ -264,27 +266,39 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia }) {
     }).join("");
     return `<div class="banc">${banc}</div>
       <div class="combattant" data-cote="${cote}">
-        <div class="cb-carte">${c ? cardHTML(c, { locked: false, shiny: u.shiny, stats: u }) : ""}</div>
-        <div class="cb-infos"><b>${esc(u.nom)}</b><span class="muted">${TYPES[u.type] || ""} · ${COMBAT.TALENTS[u.talent]?.emoji || ""} ${COMBAT.TALENTS[u.talent]?.nom || ""}${u.special ? " · ✨ spécial prêt" : ""}</span>
+        <div class="cb-carte">${c ? cardHTML(c, { locked: false, shiny: u.shiny, doree: u.doree, stats: u }) : ""}</div>
+        <div class="cb-infos"><b>${esc(u.nom)}${u.doree ? " 👑" : ""}</b><span class="muted">${TYPES[u.type] || ""} · ${COMBAT.TALENTS[u.talent]?.emoji || ""} ${COMBAT.TALENTS[u.talent]?.nom || ""}${u.special ? " · ✨ prêt" : ""}</span>
           <div class="pvbar"><i style="width:${(u.pv / u.pvMax) * 100}%" class="${u.pv / u.pvMax < 0.3 ? "bas" : ""}"></i></div>
-          <span class="pvtxt">❤️ ${u.pv} / ${u.pvMax}</span></div>
+          <span class="pvtxt">❤️ ${u.pv} / ${u.pvMax}</span>
+          <div class="jauge-energie" title="Adrénaline : ${u.energie || 0}% / 100%"><i class="fill" style="width:${u.energie || 0}%"></i></div>
+        </div>
       </div>`;
   };
   const dessiner = () => {
     $("#cbAdv").innerHTML = ligne(COMBAT.actif(etat, 1), 1);
     $("#cbMoi").innerHTML = ligne(COMBAT.actif(etat, 0), 0);
     $("#cbTour").textContent = etat.tour + 1;
+    const a = COMBAT.actif(etat, 0);
     const sp = $("[data-a=special]");
-    if (sp) { const a = COMBAT.actif(etat, 0); sp.disabled = !a.special; sp.innerHTML = `✨ ${(COMBAT.SPECIAUX[a.type] || COMBAT.SPECIAUX.ville).nom}`; sp.title = (COMBAT.SPECIAUX[a.type] || COMBAT.SPECIAUX.ville).desc; }
+    if (sp) { sp.disabled = !a.special; sp.innerHTML = `✨ ${(COMBAT.SPECIAUX[a.type] || COMBAT.SPECIAUX.ville).nom}`; sp.title = (COMBAT.SPECIAUX[a.type] || COMBAT.SPECIAUX.ville).desc; }
+    const sup = $("#btnSupreme");
+    if (sup) {
+      sup.disabled = (a.energie || 0) < 100;
+      sup.className = `btn ${(a.energie || 0) >= 100 ? "btn-supreme" : ""}`;
+      sup.innerHTML = (a.energie || 0) >= 100 ? "⚡ ATTAQUE SUPRÊME !" : `⚡ Suprême (${a.energie || 0}%)`;
+    }
     $$("#cbMoi [data-changer]").forEach((b) => b.onclick = () => tour("changer:" + b.dataset.changer));
   };
   dessiner();
   const nomDe = (cote) => (cote === 0 ? "Votre carte" : "L'adversaire");
   const texte = (e) => {
     if (e.t === "garde") return `🛡️ ${nomDe(e.cote)} se met en garde (+${e.soin} ❤️).`;
+    if (e.t === "supreme") {
+      return `⚡ ATTAQUE SUPRÊME ${e.cote === 0 ? "dévastatrice de votre carte" : "de l'adversaire"} : ${e.degats} dégâts titanesques${e.critique ? " (coup critique d'or !)" : ""} !`;
+    }
     if (e.t === "attaque" || e.t === "special") {
       if (e.esquive) return `💨 ${nomDe(1 - e.cote)} esquive ${e.t === "special" ? "l'attaque spéciale" : "l'attaque"} !`;
-      return `${e.t === "special" ? `✨ ${e.nomSpecial || "Attaque spéciale"}` : "⚔️ Attaque"} ${e.cote === 0 ? "de votre carte" : "adverse"} : ${e.degats} dégâts${e.critique ? " (critique !)" : ""}${e.avantage ? " (avantage de type)" : ""}.`;
+      return `${e.t === "special" ? `✨ ${e.nomSpecial || "Attaque spéciale"}` : "⚔️ Attaque"} ${e.cote === 0 ? "de votre carte" : "adverse"}${e.doree ? " (Dorée 👑)" : ""} : ${e.degats} dégâts${e.critique ? " (critique !)" : ""}${e.avantage ? " (avantage de type)" : ""}.`;
     }
     if (e.t === "effet") return { soin: `💚 ${nomDe(e.cote)} se soigne de ${e.valeur} ❤️.`, rempart: `🧱 ${nomDe(e.cote)} dresse un rempart : dégâts réduits de moitié !`, affaibli: `🎉 La fête affaiblit l'attaque adverse de 15 % !`, tempete: `🌪️ La tempête frappe aussi le banc : ${e.valeur} dégâts !` }[e.effet] || "";
     if (e.t === "changer") return `🔄 ${e.cote === 0 ? "Vous faites" : "L'adversaire fait"} entrer ${BY_ID[e.id]?.nom || "une carte"}.`;
@@ -303,17 +317,20 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia }) {
       if (e.t === "fin") continue;
       const t = texte(e);
       if (t) $("#cbLog").textContent = t;
-      if (e.t === "attaque" || e.t === "special") {
+      if (e.t === "attaque" || e.t === "special" || e.t === "supreme") {
         // L'attaquant s'élance vers sa cible
         const att = $(`.combattant[data-cote="${e.cote}"]`);
         att?.classList.remove("frappe", "frappe-haut"); void att?.offsetWidth; att?.classList.add(e.cote === 0 ? "frappe-haut" : "frappe");
-        if (e.t === "special") { $(".arene")?.classList.remove("flash"); void $(".arene")?.offsetWidth; $(".arene")?.classList.add("flash"); son("special"); }
+        if (e.t === "special" || e.t === "supreme") {
+          $(".arene")?.classList.remove("flash"); void $(".arene")?.offsetWidth; $(".arene")?.classList.add("flash");
+          son("special");
+        }
       }
-      if ((e.t === "attaque" || e.t === "special") && !e.esquive) {
+      if ((e.t === "attaque" || e.t === "special" || e.t === "supreme") && !e.esquive) {
         const cible = $(`.combattant[data-cote="${1 - e.cote}"]`);
         cible?.classList.remove("touche"); void cible?.offsetWidth; cible?.classList.add("touche");
-        cible?.insertAdjacentHTML("beforeend", `<span class="degat ${e.critique ? "crit" : ""}">-${e.degats}${e.critique ? " !" : ""}</span>`);
-        son(e.critique ? "crit" : "coup");
+        cible?.insertAdjacentHTML("beforeend", `<span class="degat ${e.critique || e.t === "supreme" ? "crit" : ""}">-${e.degats}${e.critique ? " !" : ""}</span>`);
+        son(e.critique || e.t === "supreme" ? "crit" : "coup");
       }
       if (e.t === "ko") { son("ko"); const ar = $(".arene"); ar?.classList.remove("secousse"); void ar?.offsetWidth; ar?.classList.add("secousse"); }
       if (e.t === "effet" && e.effet === "soin" || e.t === "garde") son("soin");
@@ -340,6 +357,8 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia }) {
     progresDefi("ko", etat.equipes[1].filter((u) => u.pv <= 0).length);
     if (gagne) progresDefi("victoires");
     gagnerXP(gagne ? 25 : 8); sauver();
+    // Points du tournoi de la semaine (l'arène est comptée directement par le serveur)
+    if (!estArene && typeof connecte === "function" && connecte()) api("tournois/victoire", { methode: "POST", corps: { gagne } }).catch(() => {});
     son(gagne ? "victoire" : "defaite");
     $("#cbLog").innerHTML = `<div class="resultat ${gagne ? "gagne" : "perdu"}">${gagne ? "🏆 Victoire !" : "💀 Défaite…"}</div>${gagne ? `<div class="confettis">${Array.from({ length: 24 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--d:${(i % 6) * 0.12}s;--c:${["#ffd34d", "#e0458b", "#3a9bff", "#3ad6a8", "#ff8a65"][i % 5]}"></i>`).join("")}</div>` : ""}`;
     $("#cbActions").innerHTML = `<p style="margin:0 0 8px;font-weight:700">${detail || ""}</p><button class="btn primary" data-close>Continuer</button>`;
@@ -396,12 +415,21 @@ async function defier(pseudo) {
   try {
     const d = await api("arene/defi", { methode: "POST", corps: { pseudo } });
     lancerCombat({
-      titre: `🏟️ Arène contre ${d.adversaire}`, adversaire: d.adversaire, moi: d.moi, lui: d.lui, graine: d.graine,
+      titre: `🏟️ Arène contre ${d.adversaire}`, adversaire: d.adversaire, arene: true, moi: d.moi, lui: d.lui, graine: d.graine,
       fin: async (etat) => {
         const r = await api("arene/fin", { methode: "POST", corps: { combat: d.combat, actions: etat.journal } });
-        if (r.gagne) S.combat.victoires++; else S.combat.defaites++;
+        let tournoiBonus = "";
+        if (r.gagne) {
+          S.combat.victoires++;
+          try {
+            const tv = await api("tournois/victoire", { methode: "POST" });
+            if (tv?.score !== undefined) tournoiBonus = ` · +25 pts Tournoi ⚡ (${tv.score} pts)`;
+          } catch {}
+        } else {
+          S.combat.defaites++;
+        }
         S.coins += r.pieces; sauver(); majCoins();
-        return `${r.delta >= 0 ? "+" : ""}${r.delta} 🏆 (${fmt(r.trophees)}) · +${r.pieces} 🪙`;
+        return `${r.delta >= 0 ? "+" : ""}${r.delta} 🏆 (${fmt(r.trophees)}) · +${r.pieces} 🪙${tournoiBonus}`;
       },
     });
   } catch (e) { toast("⚠ " + e.message); }

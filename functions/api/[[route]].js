@@ -16,6 +16,7 @@ import NATURE2 from "../../worldcards/data/nature2.js";
 import ANIMAUX2 from "../../worldcards/data/animaux2.js";
 import PLATS2 from "../../worldcards/data/plats2.js";
 import CULTURE from "../../worldcards/data/culture.js";
+import EXTENSIONS from "../../worldcards/data/extensions.js";
 
 const JOUR = 864e5;
 const SESSION_JOURS = 365; // on reste connecté un an (la session est prolongée à chaque visite)
@@ -49,11 +50,20 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS rappels ( user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, quand INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS arene ( user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, deck TEXT, puissance INTEGER NOT NULL DEFAULT 0, trophees INTEGER NOT NULL DEFAULT 1000, victoires INTEGER NOT NULL DEFAULT 0, defaites INTEGER NOT NULL DEFAULT 0, jour TEXT, nb INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE INDEX IF NOT EXISTS arene_trophees ON arene(trophees DESC)`,
+  `CREATE TABLE IF NOT EXISTS presence ( cle TEXT PRIMARY KEY, user_id INTEGER, pseudo TEXT, vu INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS metriques ( jour TEXT NOT NULL, cle TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (jour, cle) )`,
+  `CREATE TABLE IF NOT EXISTS securite_logs ( id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT NOT NULL, type TEXT NOT NULL, details TEXT NOT NULL, niveau TEXT NOT NULL DEFAULT 'avertissement', cree_le INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS feedback ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, pseudo TEXT NOT NULL, type TEXT NOT NULL, titre TEXT NOT NULL, texte TEXT NOT NULL, statut TEXT NOT NULL DEFAULT 'nouveau', reponse TEXT, cree_le INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS echanges ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, pseudo TEXT NOT NULL, carte_offerte TEXT NOT NULL, nom_offerte TEXT, carte_demandee TEXT NOT NULL, nom_demandee TEXT, pieces_demandees INTEGER NOT NULL DEFAULT 0, doree INTEGER NOT NULL DEFAULT 0, statut TEXT NOT NULL DEFAULT 'ouvert', preneur_id INTEGER, preneur_pseudo TEXT, cree_le INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS livraisons ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, carte TEXT, doree INTEGER NOT NULL DEFAULT 0, pieces INTEGER NOT NULL DEFAULT 0, message TEXT, cree_le INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS tournoi_scores ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, pseudo TEXT NOT NULL, semaine TEXT NOT NULL, score INTEGER NOT NULL DEFAULT 0, victoires INTEGER NOT NULL DEFAULT 0, jour TEXT, nb_jour INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL, PRIMARY KEY (user_id, semaine) )`,
+  `CREATE TABLE IF NOT EXISTS hebdo ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, semaine TEXT NOT NULL, cartes_debut INTEGER NOT NULL, cartes INTEGER NOT NULL, PRIMARY KEY (user_id, semaine) )`,
   `CREATE TABLE IF NOT EXISTS combats ( id INTEGER PRIMARY KEY AUTOINCREMENT, attaquant INTEGER NOT NULL, defenseur INTEGER NOT NULL, graine INTEGER NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, cree_le INTEGER NOT NULL, fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER )`,
 ];
 // Colonnes ajoutées après coup aux tables existantes (l'erreur « colonne déjà présente » est ignorée)
 const MIGRATIONS = [
   `ALTER TABLE users ADD COLUMN premium_jusqu INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE users ADD COLUMN temps_jeu INTEGER NOT NULL DEFAULT 0`,
 ];
 let schemaPret = false;
 async function preparerSchema(env) {
@@ -112,7 +122,13 @@ async function utilisateurCourant(request, env) {
   if (u) u.jeton = token;
   return u;
 }
-const profilPublic = (u) => ({ pseudo: u.pseudo, admin: !!u.admin, creeLe: u.cree_le, premiumJusqu: u.premium_jusqu || 0 });
+const profilPublic = (u) => ({ pseudo: u.pseudo, admin: !!u.admin, creeLe: u.cree_le, premiumJusqu: u.premium_jusqu || 0, tempsJeu: u.temps_jeu || 0 });
+// Semaine courante (lundi), en temps universel : clé des classements hebdomadaires
+function semaineCourante(decalage = 0) {
+  const d = new Date(); d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7) - 7 * decalage);
+  return d.toISOString().slice(0, 10);
+}
 const PREMIUM_VIE = 4102444800000;
 const estPremium = (u) => (u?.premium_jusqu || 0) > maintenant();
 
@@ -216,7 +232,9 @@ async function supprimerUtilisateur(env, id) {
     "DELETE FROM signalements WHERE post_id IN (SELECT id FROM posts WHERE user_id = ?)", "DELETE FROM posts WHERE user_id = ?",
     "DELETE FROM cadeaux_recus WHERE user_id = ?", "DELETE FROM cadeaux WHERE user_id = ?",
     "DELETE FROM abonnements WHERE user_id = ?", "DELETE FROM notifs WHERE user_id = ?", "DELETE FROM rappels WHERE user_id = ?",
-    "DELETE FROM arene WHERE user_id = ?", "DELETE FROM demandes_premium WHERE user_id = ?", "DELETE FROM users WHERE id = ?",
+    "DELETE FROM arene WHERE user_id = ?", "DELETE FROM demandes_premium WHERE user_id = ?",
+    "DELETE FROM livraisons WHERE user_id = ?", "DELETE FROM echanges WHERE user_id = ?", "DELETE FROM tournoi_scores WHERE user_id = ?",
+    "DELETE FROM hebdo WHERE user_id = ?", "DELETE FROM presence WHERE user_id = ?", "DELETE FROM users WHERE id = ?",
   ].map((sql) => env.DB.prepare(sql).bind(id)));
 }
 route("DELETE", "compte", async ({ request, env, user }) => {
@@ -255,6 +273,9 @@ route("PUT", "sauvegarde", async ({ request, env, user }) => {
     ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, maj = excluded.maj, cartes = excluded.cartes,
     secretes = excluded.secretes, badges = excluded.badges, vitrine = excluded.vitrine`)
     .bind(user.id, JSON.stringify(b.data), maintenant(), n(b.resume?.cartes), n(b.resume?.secretes), n(b.resume?.badges), JSON.stringify(vitrine)).run();
+  // Classement de la semaine : nombre de cartes au début de la semaine, et maintenant
+  await env.DB.prepare(`INSERT INTO hebdo (user_id, semaine, cartes_debut, cartes) VALUES (?1, ?2, ?3, ?3)
+    ON CONFLICT(user_id, semaine) DO UPDATE SET cartes = excluded.cartes`).bind(user.id, semaineCourante(), n(b.resume?.cartes)).run();
   return json({ ok: true, maj: maintenant() });
 }, { connecte: true });
 
@@ -312,11 +333,11 @@ route("GET", "classement", async ({ request, env }) => {
 });
 
 route("GET", "profil/([A-Za-z0-9_-]{3,20})", async ({ env, p }) => {
-  const u = await env.DB.prepare(`SELECT u.id, u.pseudo, u.admin, u.cree_le, u.premium_jusqu, s.cartes, s.secretes, s.badges, s.vitrine,
+  const u = await env.DB.prepare(`SELECT u.id, u.pseudo, u.admin, u.cree_le, u.premium_jusqu, u.temps_jeu, u.derniere_co, s.cartes, s.secretes, s.badges, s.vitrine,
       (SELECT COUNT(*) FROM posts WHERE user_id = u.id) AS messages, (SELECT trophees FROM arene WHERE user_id = u.id) AS trophees
     FROM users u LEFT JOIN sauvegardes s ON s.user_id = u.id WHERE u.pseudo = ? AND u.banni = 0`).bind(p[1]).first();
   if (!u) return erreur("Joueur introuvable.", 404);
-  return json({ pseudo: u.pseudo, admin: !!u.admin, creeLe: u.cree_le, cartes: u.cartes || 0, secretes: u.secretes || 0, badges: u.badges || 0, messages: u.messages, trophees: u.trophees || 0, premium: estPremium(u), vitrine: JSON.parse(u.vitrine || "[]") });
+  return json({ pseudo: u.pseudo, admin: !!u.admin, creeLe: u.cree_le, cartes: u.cartes || 0, secretes: u.secretes || 0, badges: u.badges || 0, messages: u.messages, trophees: u.trophees || 0, premium: estPremium(u), tempsJeu: u.temps_jeu || 0, derniereCo: u.derniere_co, vitrine: JSON.parse(u.vitrine || "[]") });
 });
 
 // ----- Cadeaux -----
@@ -506,7 +527,11 @@ export async function planifie(env) {
     env.DB.prepare("DELETE FROM notifs WHERE cree_le < ?").bind(maintenant() - 30 * JOUR),
     env.DB.prepare("DELETE FROM sessions WHERE expire < ?").bind(maintenant()),
     env.DB.prepare("DELETE FROM combats WHERE cree_le < ?").bind(maintenant() - 7 * JOUR),
+    env.DB.prepare("DELETE FROM presence WHERE vu < ?").bind(maintenant() - JOUR),
+    env.DB.prepare("DELETE FROM securite_logs WHERE cree_le < ?").bind(maintenant() - 30 * JOUR),
+    env.DB.prepare("DELETE FROM metriques WHERE jour < ?").bind(new Date(maintenant() - 60 * JOUR).toISOString().slice(0, 10)),
   ]);
+  await recompenserTournoi(env);
 }
 async function prevenirAdmins(env, notif) {
   const { results } = await env.DB.prepare("SELECT id FROM users WHERE admin = 1").all();
@@ -564,6 +589,10 @@ const CATALOGUE = (() => {
   for (const x of [...ANIMAUX.ANIMAUX_BRUTS, ...ANIMAUX2.ANIMAUX_BRUTS2]) ajouter("ani:" + x[0], { type: "animal", rarete: x[4], nom: x[1] });
   for (const x of [...PLATS.PLATS_BRUTS, ...PLATS2.PLATS_BRUTS2]) ajouter("plat:" + x[0], { type: "plat", rarete: x[4], nom: x[1] });
   for (const x of [...MONDE.MONUMENTS_BRUTS, ...MONUMENTS2.MONUMENTS_EXTRA, ...MONUMENTS3.MONUMENTS_EXTRA2, ...MONUMENTS4.MONUMENTS_EXTRA3]) ajouter("monu:" + x[0], { type: "monument", rarete: x[6], nom: x[1] });
+  for (const x of EXTENSIONS.VILLES_NOUVELLES) ajouter("ville:" + x[0], { type: "ville", rarete: "peu-commun", nom: x[1] });
+  for (const x of EXTENSIONS.MONUMENTS_NOUVEAUX) ajouter("monu:" + x[0], { type: "monument", rarete: x[6], nom: x[1] });
+  for (const x of EXTENSIONS.NATURE_NOUVELLE) ajouter("nat:" + x[0], { type: "nature", rarete: x[6], nom: x[1] });
+  for (const ev of Object.values(EXTENSIONS.EVENEMENTS_SAISONNIERS)) for (const x of ev.cartes) ajouter("event:" + x[0], { type: "monument", rarete: x[4], nom: x[1] });
   for (const x of MONDE.MERVEILLES_BRUTES) ajouter("merv:" + x[0], { type: "merveille", rarete: "legendaire", nom: x[1] });
   for (const x of MONDE.SECRETES_MONDE) ajouter("secret:" + x[0], { type: "secrete", rarete: "secrete", nom: x[1] });
   return m;
@@ -584,8 +613,9 @@ async function construireDeck(env, userId, ids) {
     const c = CATALOGUE[id];
     if (!c || !((save.owned || {})[id] > 0)) throw new ErreurApi("Une carte du deck ne fait pas partie de votre collection (sauvegarde du compte).");
     cout += COMBAT.COUT[c.rarete];
-    const st = COMBAT.stats(id, c.type, c.rarete, (save.qualite || {})[id], Math.min(16, save.owned[id]), !!(save.shiny || {})[id]);
-    return { id, type: c.type, nom: c.nom, shiny: !!(save.shiny || {})[id], atk: st.atk, def: st.def, pv: st.pv, niveau: st.niveau, talent: st.talent };
+    const doree = !!(save.doree || {})[id];
+    const st = COMBAT.stats(id, c.type, c.rarete, (save.qualite || {})[id], Math.min(16, save.owned[id]), !!(save.shiny || {})[id], doree);
+    return { id, type: c.type, nom: c.nom, shiny: !!(save.shiny || {})[id], doree, atk: st.atk, def: st.def, pv: st.pv, niveau: st.niveau, talent: st.talent };
   });
   if (cout > COMBAT.BUDGET) throw new ErreurApi(`Deck trop coûteux (${cout}/${COMBAT.BUDGET}).`);
   return unites;
@@ -639,6 +669,7 @@ route("POST", "arene/fin", async ({ request, env, user, ctx }) => {
   const delta = Math.round(32 * ((gagne ? 1 : 0) - attendu));
   const deltaDef = -Math.round(delta / 2);
   const pieces = gagne ? 60 : 15;
+  await ajouterPointsTournoi(env, user, gagne ? 100 : 25, gagne, true);
   await env.DB.batch([
     env.DB.prepare("UPDATE combats SET fini = 1, gagne = ? WHERE id = ?").bind(gagne ? 1 : 0, c.id),
     env.DB.prepare("UPDATE arene SET trophees = MAX(0, trophees + ?), victoires = victoires + ?, defaites = defaites + ? WHERE user_id = ?").bind(delta, gagne ? 1 : 0, gagne ? 0 : 1, user.id),
@@ -655,6 +686,285 @@ route("GET", "arene/classement", async ({ env }) => {
   return json({ joueurs: results.map((x) => ({ pseudo: x.pseudo, admin: !!x.admin, premium: estPremium(x), trophees: x.trophees, victoires: x.victoires, defaites: x.defaites })) });
 });
 
+
+/* =====================================================================
+   Joueurs en ligne, temps de jeu, métriques et bouclier anti-bot
+   ===================================================================== */
+const EN_LIGNE_MS = 2 * 60000;
+route("POST", "presence/ping", async ({ request, env, user }) => {
+  let b = {}; try { b = await request.json(); } catch {}
+  const visiteur = String(b.visiteur || "").replace(/[^a-z0-9]/gi, "").slice(0, 24);
+  const cle = user ? "u" + user.id : visiteur ? "v" + visiteur : null;
+  const requetes = [];
+  if (cle) {
+    const avant = user ? await env.DB.prepare("SELECT vu FROM presence WHERE cle = ?").bind(cle).first() : null;
+    requetes.push(env.DB.prepare("INSERT INTO presence (cle, user_id, pseudo, vu) VALUES (?, ?, ?, ?) ON CONFLICT(cle) DO UPDATE SET vu = excluded.vu, user_id = excluded.user_id, pseudo = excluded.pseudo")
+      .bind(cle, user?.id ?? null, user?.pseudo ?? null, maintenant()));
+    // Temps de jeu : on compte le temps écoulé depuis le dernier signal (au plus 2 minutes)
+    if (user && avant && maintenant() - avant.vu < EN_LIGNE_MS) requetes.push(env.DB.prepare("UPDATE users SET temps_jeu = temps_jeu + ? WHERE id = ?").bind(Math.round((maintenant() - avant.vu) / 1000), user.id));
+  }
+  if (requetes.length) await env.DB.batch(requetes);
+  const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM presence WHERE vu > ?").bind(maintenant() - EN_LIGNE_MS).first();
+  const alerte = user?.admin ? await lireConfig(env, "alerte") : null;
+  const t = user ? await env.DB.prepare("SELECT temps_jeu FROM users WHERE id = ?").bind(user.id).first() : null;
+  return json({ ok: true, actifs: Math.max(1, n.n), tempsJeu: t?.temps_jeu || 0, alerteSecurite: !!alerte, alerte });
+});
+route("GET", "presence/actifs", async ({ env }) => {
+  const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM presence WHERE vu > ?").bind(maintenant() - EN_LIGNE_MS).first();
+  return json({ actifs: Math.max(1, n.n) });
+});
+
+async function lireConfig(env, cle) {
+  const r = await env.DB.prepare("SELECT valeur FROM config WHERE cle = ?").bind(cle).first();
+  try { return r ? JSON.parse(r.valeur) : null; } catch { return null; }
+}
+const ecrireConfig = (env, cle, valeur) => valeur === null
+  ? env.DB.prepare("DELETE FROM config WHERE cle = ?").bind(cle).run()
+  : env.DB.prepare("INSERT INTO config (cle, valeur) VALUES (?, ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur").bind(cle, JSON.stringify(valeur)).run();
+
+// Requêtes par adresse IP (mémoire de l'instance du Worker) : détecte les rafales typiques des robots
+const RAFALES = new Map();
+const BLOQUEES = new Map(); // ip -> fin du blocage
+let bouclierCache = { t: 0, actif: false };
+async function bouclierActif(env) {
+  if (maintenant() - bouclierCache.t > 30000) bouclierCache = { t: maintenant(), actif: !!(await lireConfig(env, "bouclier")) };
+  return bouclierCache.actif;
+}
+async function signalerMenace(env, ip, type, details, niveau = "alerte") {
+  const derniere = await lireConfig(env, "alerte");
+  await env.DB.prepare("INSERT INTO securite_logs (ip, type, details, niveau, cree_le) VALUES (?, ?, ?, ?, ?)").bind(ip, type, details.slice(0, 300), niveau, maintenant()).run();
+  await ecrireConfig(env, "alerte", { ip, message: details, type, date: maintenant() });
+  // Une notification aux administrateurs au plus toutes les 15 minutes
+  if (!derniere || maintenant() - (derniere.notifie || 0) > 15 * 60000) {
+    await ecrireConfig(env, "alerte", { ip, message: details, type, date: maintenant(), notifie: maintenant() });
+    await prevenirAdmins(env, { titre: "🚨 Alerte sécurité WorldCards", texte: details, url: "./#admin" });
+  }
+}
+async function controleTrafic(request, env, ctx) {
+  const ip = request.headers.get("cf-connecting-ip") || "inconnue";
+  const t = maintenant();
+  if ((BLOQUEES.get(ip) || 0) > t) return erreur("Trop de requêtes : protection anti-robot activée. Réessayez dans quelques minutes.", 429);
+  const liste = (RAFALES.get(ip) || []).filter((x) => t - x < 10000);
+  liste.push(t); RAFALES.set(ip, liste);
+  if (RAFALES.size > 5000) RAFALES.clear();
+  const agent = (request.headers.get("user-agent") || "").toLowerCase();
+  const robot = /sqlmap|nikto|masscan|nmap|zgrab|python-requests|curl\/|wget\/|scrapy|go-http-client/.test(agent);
+  if (liste.length === 60 || (robot && liste.length === 1)) {
+    const details = robot ? `Robot suspect (${agent.slice(0, 60)}) depuis ${ip}` : `Rafale de ${liste.length} requêtes en 10 s depuis ${ip}`;
+    enArrierePlan(ctx, signalerMenace(env, ip, robot ? "robot" : "rafale", details));
+  }
+  if (liste.length > 60 && await bouclierActif(env)) { BLOQUEES.set(ip, t + 10 * 60000); return erreur("Trop de requêtes : protection anti-robot activée.", 429); }
+  return null;
+}
+// Compteurs du jour (requêtes API, par statut)
+function compterRequete(env, ctx, statut) {
+  const jour = new Date().toISOString().slice(0, 10);
+  enArrierePlan(ctx, env.DB.batch([
+    env.DB.prepare("INSERT INTO metriques (jour, cle, n) VALUES (?, 'total', 1) ON CONFLICT(jour, cle) DO UPDATE SET n = n + 1").bind(jour),
+    env.DB.prepare("INSERT INTO metriques (jour, cle, n) VALUES (?, ?, 1) ON CONFLICT(jour, cle) DO UPDATE SET n = n + 1").bind(jour, "s" + statut),
+  ]));
+}
+route("GET", "admin/metrics", async ({ env }) => {
+  const jour = new Date().toISOString().slice(0, 10), hier = new Date(maintenant() - JOUR).toISOString().slice(0, 10);
+  const [m, h, a, u, p, c, e, f, sem] = await env.DB.batch([
+    env.DB.prepare("SELECT cle, n FROM metriques WHERE jour = ?").bind(jour),
+    env.DB.prepare("SELECT n FROM metriques WHERE jour = ? AND cle = 'total'").bind(hier),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM presence WHERE vu > ?").bind(maintenant() - EN_LIGNE_MS),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM users"),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE premium_jusqu > ?").bind(maintenant()),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM combats WHERE cree_le > ?").bind(maintenant() - JOUR),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM echanges WHERE statut = 'ouvert'"),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM feedback WHERE statut = 'nouveau'"),
+    env.DB.prepare("SELECT jour, n FROM metriques WHERE cle = 'total' ORDER BY jour DESC LIMIT 7"),
+  ]);
+  const parCle = Object.fromEntries(m.results.map((x) => [x.cle, x.n]));
+  const statuts = Object.fromEntries(Object.entries(parCle).filter(([k]) => k.startsWith("s")).map(([k, n]) => [k.slice(1), n]));
+  return json({ actifsDirect: a.results[0].n, totalUsers: u.results[0].n, premiums: p.results[0].n, totalCombats: c.results[0].n, totalEchanges: e.results[0].n, totalFeedbacks: f.results[0].n,
+    requetesAujourdhui: parCle.total || 0, requetesHier: h.results[0]?.n || 0, semaine: sem.results.reverse(),
+    metrics: { totalRequests: parCle.total || 0, requestsByStatus: statuts } });
+}, { admin: true });
+route("GET", "admin/securite", async ({ env }) => {
+  const alerte = await lireConfig(env, "alerte");
+  const { results } = await env.DB.prepare("SELECT * FROM securite_logs ORDER BY id DESC LIMIT 40").all();
+  return json({ alerteActive: !!alerte, details: alerte, bouclierActif: !!(await lireConfig(env, "bouclier")), logs: results });
+}, { admin: true });
+route("POST", "admin/test-alerte", async ({ env }) => {
+  await signalerMenace(env, "test", "simulation", "Test de l'alerte : ceci est une simulation déclenchée par l'administrateur.", "info");
+  return json({ ok: true });
+}, { admin: true });
+route("POST", "admin/bouclier", async ({ env }) => {
+  const actif = !(await lireConfig(env, "bouclier"));
+  await ecrireConfig(env, "bouclier", actif ? true : null); bouclierCache.t = 0;
+  return json({ ok: true, bouclierActif: actif });
+}, { admin: true });
+route("POST", "admin/reinitialiser-alerte", async ({ env }) => { await ecrireConfig(env, "alerte", null); return json({ ok: true }); }, { admin: true });
+
+/* =====================================================================
+   Bugs et suggestions
+   ===================================================================== */
+route("POST", "feedback", async ({ request, env, user, ctx }) => {
+  const b = await corps(request);
+  const titre = String(b.titre || "").trim().slice(0, 100), texte = String(b.texte || b.message || "").trim().slice(0, 1000);
+  if (!titre || !texte) return erreur("Indiquez un titre et une description.");
+  const type = b.type === "bug" ? "bug" : "suggestion";
+  if (user) {
+    const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM feedback WHERE user_id = ? AND cree_le > ?").bind(user.id, maintenant() - JOUR).first();
+    if (r.n >= 10) return erreur("Vous avez déjà envoyé beaucoup de messages aujourd'hui. Merci !", 429);
+  }
+  await env.DB.prepare("INSERT INTO feedback (user_id, pseudo, type, titre, texte, cree_le) VALUES (?, ?, ?, ?, ?, ?)").bind(user?.id ?? null, user?.pseudo || "Visiteur", type, titre, texte, maintenant()).run();
+  enArrierePlan(ctx, prevenirAdmins(env, { titre: type === "bug" ? "🐛 Nouveau bug signalé" : "💡 Nouvelle suggestion", texte: `${user?.pseudo || "Visiteur"} : ${titre}`, url: "./#admin" }));
+  return json({ ok: true }, 201);
+});
+route("GET", "feedback/liste", async ({ env }) => {
+  const { results } = await env.DB.prepare("SELECT * FROM feedback ORDER BY CASE statut WHEN 'nouveau' THEN 0 WHEN 'en_cours' THEN 1 ELSE 2 END, id DESC LIMIT 100").all();
+  return json({ feedbacks: results });
+}, { admin: true });
+route("POST", "feedback/(\\d+)/statut", async ({ request, env, p, ctx }) => {
+  const b = await corps(request);
+  const statut = ["nouveau", "en_cours", "resolu", "rejete"].includes(b.statut) ? b.statut : "resolu";
+  const reponse = b.reponse ? String(b.reponse).slice(0, 500) : null;
+  await env.DB.prepare("UPDATE feedback SET statut = ?, reponse = COALESCE(?, reponse) WHERE id = ?").bind(statut, reponse, p[1]).run();
+  const f = await env.DB.prepare("SELECT user_id, titre FROM feedback WHERE id = ?").bind(p[1]).first();
+  if (f?.user_id && (statut === "resolu" || reponse)) enArrierePlan(ctx, envoyerPush(env, f.user_id, { titre: statut === "resolu" ? "✅ Votre retour a été traité" : "💬 Réponse de l'administrateur", texte: reponse || f.titre, url: "./" }));
+  return json({ ok: true });
+}, { admin: true });
+
+/* =====================================================================
+   Échanges de cartes : la carte offerte est mise de côté par le serveur,
+   puis livrée au joueur qui accepte (livraisons récupérées par le jeu)
+   ===================================================================== */
+async function saveDe(env, userId) {
+  const s = await env.DB.prepare("SELECT data FROM sauvegardes WHERE user_id = ?").bind(userId).first();
+  try { return s ? JSON.parse(s.data).sauvegarde || {} : {}; } catch { return {}; }
+}
+route("GET", "echanges", async ({ env }) => {
+  const { results } = await env.DB.prepare("SELECT id, pseudo, carte_offerte, nom_offerte, carte_demandee, nom_demandee, pieces_demandees, doree, cree_le FROM echanges WHERE statut = 'ouvert' ORDER BY id DESC LIMIT 60").all();
+  return json({ echanges: results });
+});
+route("POST", "echanges/creer", async ({ request, env, user }) => {
+  const b = await corps(request);
+  const offerte = String(b.carteOfferte || ""), demandee = String(b.carteDemandee || "");
+  const pieces = Math.max(0, Math.min(100000, Math.floor(Number(b.piecesDemandees) || 0)));
+  if (!CATALOGUE[offerte]) return erreur("Carte offerte inconnue.");
+  if (demandee !== "pieces" && !CATALOGUE[demandee]) return erreur("Carte demandée inconnue.");
+  if (demandee === "pieces" && pieces < 10) return erreur("Indiquez un nombre de pièces (10 au minimum).");
+  const ouverts = await env.DB.prepare("SELECT COUNT(*) AS n FROM echanges WHERE user_id = ? AND statut = 'ouvert'").bind(user.id).first();
+  if (ouverts.n >= 10) return erreur("Vous avez déjà 10 offres en cours : annulez-en une d'abord.", 429);
+  const save = await saveDe(env, user.id);
+  const enCours = await env.DB.prepare("SELECT COUNT(*) AS n FROM echanges WHERE user_id = ? AND statut = 'ouvert' AND carte_offerte = ?").bind(user.id, offerte).first();
+  if (((save.owned || {})[offerte] || 0) - enCours.n < 1) return erreur("Cette carte n'est pas dans votre collection (sauvegarde du compte).");
+  const doree = !!b.doree && !!(save.doree || {})[offerte];
+  const r = await env.DB.prepare("INSERT INTO echanges (user_id, pseudo, carte_offerte, nom_offerte, carte_demandee, nom_demandee, pieces_demandees, doree, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(user.id, user.pseudo, offerte, CATALOGUE[offerte].nom, demandee, demandee === "pieces" ? `${pieces} pièces` : CATALOGUE[demandee].nom, demandee === "pieces" ? pieces : 0, doree ? 1 : 0, maintenant()).run();
+  return json({ ok: true, id: r.meta.last_row_id }, 201);
+}, { connecte: true });
+route("POST", "echanges/(\\d+)/accepter", async ({ env, user, p, ctx }) => {
+  const e = await env.DB.prepare("SELECT * FROM echanges WHERE id = ? AND statut = 'ouvert'").bind(p[1]).first();
+  if (!e) return erreur("Cette offre n'est plus disponible.", 404);
+  if (e.user_id === user.id) return erreur("Vous ne pouvez pas accepter votre propre offre.");
+  const save = await saveDe(env, user.id);
+  if (e.carte_demandee !== "pieces" && !((save.owned || {})[e.carte_demandee] > 0)) return erreur(`Il vous faut la carte « ${e.nom_demandee} » (sauvegarde du compte).`);
+  if (e.carte_demandee === "pieces" && (save.coins || 0) < e.pieces_demandees) return erreur("Vous n'avez pas assez de pièces.");
+  // Verrou : une seule personne peut conclure l'échange
+  const r = await env.DB.prepare("UPDATE echanges SET statut = 'conclu', preneur_id = ?, preneur_pseudo = ? WHERE id = ? AND statut = 'ouvert'").bind(user.id, user.pseudo, e.id).run();
+  if (!r.meta.changes) return erreur("Quelqu'un vient de conclure cet échange.", 409);
+  await env.DB.prepare("INSERT INTO livraisons (user_id, carte, pieces, message, cree_le) VALUES (?, ?, ?, ?, ?)")
+    .bind(e.user_id, e.carte_demandee === "pieces" ? null : e.carte_demandee, e.carte_demandee === "pieces" ? e.pieces_demandees : 0, `Échange conclu avec ${user.pseudo}`, maintenant()).run();
+  enArrierePlan(ctx, envoyerPush(env, e.user_id, { titre: "🤝 Échange conclu !", texte: `${user.pseudo} a accepté votre échange : vous recevez ${e.nom_demandee}.`, url: "./#hub" }));
+  return json({ ok: true, message: `Échange conclu avec ${e.pseudo} : vous recevez ${e.nom_offerte} !`, recu: { id: e.carte_offerte, doree: !!e.doree }, donne: { id: e.carte_demandee === "pieces" ? null : e.carte_demandee, pieces: e.pieces_demandees } });
+}, { connecte: true });
+route("POST", "echanges/(\\d+)/annuler", async ({ env, user, p }) => {
+  const e = await env.DB.prepare("SELECT * FROM echanges WHERE id = ? AND statut = 'ouvert'").bind(p[1]).first();
+  if (!e) return erreur("Offre introuvable.", 404);
+  if (e.user_id !== user.id && !user.admin) return erreur("Non autorisé.", 403);
+  await env.DB.prepare("UPDATE echanges SET statut = 'annule' WHERE id = ?").bind(e.id).run();
+  // La carte mise de côté revient à son propriétaire
+  await env.DB.prepare("INSERT INTO livraisons (user_id, carte, doree, message, cree_le) VALUES (?, ?, ?, ?, ?)").bind(e.user_id, e.carte_offerte, e.doree, "Offre d'échange annulée : votre carte vous est rendue", maintenant()).run();
+  return json({ ok: true });
+}, { connecte: true });
+route("GET", "livraisons", async ({ env, user }) => {
+  const { results } = await env.DB.prepare("SELECT * FROM livraisons WHERE user_id = ? ORDER BY id").bind(user.id).all();
+  if (results.length) await env.DB.prepare(`DELETE FROM livraisons WHERE user_id = ? AND id <= ?`).bind(user.id, results[results.length - 1].id).run();
+  return json({ livraisons: results.map((l) => ({ carte: l.carte, doree: !!l.doree, pieces: l.pieces, message: l.message })) });
+}, { connecte: true });
+
+/* =====================================================================
+   Tournoi de la semaine et classement hebdomadaire (remis à zéro chaque lundi)
+   ===================================================================== */
+const THEMES_TOURNOI = [
+  { nom: "Grand Défi des Mégalopoles", regle: "Les combats d'arène rapportent 100 points, les autres 25.", emoji: "🏙️" },
+  { nom: "Le Sacre des Merveilles", regle: "Chaque victoire compte : arène 100 points, autres combats 25.", emoji: "🌟" },
+  { nom: "Fureur de la Nature", regle: "Arène 100 points par victoire, 25 par défaite ; Solo et combat rapide 25 points.", emoji: "🏔️" },
+  { nom: "Festival des Cultures", regle: "Arène 100 points par victoire ; Solo et combat rapide 25 points (20 par jour).", emoji: "🎭" },
+];
+const RECOMPENSES_TOURNOI = [[2500, 3], [1200, 2], [600, 1], ...Array(7).fill([300, 1])];
+async function ajouterPointsTournoi(env, user, points, victoire, arene) {
+  const sem = semaineCourante(), jour = new Date().toISOString().slice(0, 10);
+  const ligne = await env.DB.prepare("SELECT jour, nb_jour FROM tournoi_scores WHERE user_id = ? AND semaine = ?").bind(user.id, sem).first();
+  const nbJour = ligne?.jour === jour ? ligne.nb_jour : 0;
+  if (!arene && nbJour >= 20) return false;
+  await env.DB.prepare(`INSERT INTO tournoi_scores (user_id, pseudo, semaine, score, victoires, jour, nb_jour, maj) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, semaine) DO UPDATE SET score = score + excluded.score, victoires = victoires + excluded.victoires, pseudo = excluded.pseudo,
+    nb_jour = CASE WHEN tournoi_scores.jour = excluded.jour THEN tournoi_scores.nb_jour + ? ELSE ? END, jour = excluded.jour, maj = excluded.maj`)
+    .bind(user.id, user.pseudo, sem, points, victoire ? 1 : 0, jour, arene ? 0 : 1, maintenant(), arene ? 0 : 1, arene ? 0 : 1).run();
+  return true;
+}
+route("GET", "tournois/actuel", async ({ env, user }) => {
+  const sem = semaineCourante();
+  const theme = THEMES_TOURNOI[Math.floor(new Date(sem).getTime() / (7 * JOUR)) % THEMES_TOURNOI.length];
+  const { results } = await env.DB.prepare(`SELECT t.pseudo, t.score, t.victoires FROM tournoi_scores t JOIN users u ON u.id = t.user_id WHERE t.semaine = ? AND u.banni = 0 ORDER BY t.score DESC, t.victoires DESC LIMIT 50`).bind(sem).all();
+  const moi = user ? await env.DB.prepare("SELECT score, victoires FROM tournoi_scores WHERE user_id = ? AND semaine = ?").bind(user.id, sem).first() : null;
+  const fin = new Date(sem).getTime() + 7 * JOUR;
+  return json({ semaine: sem, finLe: fin, theme, classement: results, monScore: moi || { score: 0, victoires: 0 }, recompenses: RECOMPENSES_TOURNOI.slice(0, 4) });
+});
+route("POST", "tournois/victoire", async ({ request, env, user }) => {
+  let b = {}; try { b = await request.json(); } catch {}
+  const ok = await ajouterPointsTournoi(env, user, b.gagne ? 25 : 5, !!b.gagne, false);
+  const r = await env.DB.prepare("SELECT score, victoires FROM tournoi_scores WHERE user_id = ? AND semaine = ?").bind(user.id, semaineCourante()).first();
+  return json({ ok, score: r?.score || 0, victoires: r?.victoires || 0 });
+}, { connecte: true });
+route("GET", "classement/semaine", async ({ env }) => {
+  const sem = semaineCourante();
+  const { results } = await env.DB.prepare(`SELECT u.pseudo, u.admin, u.premium_jusqu, h.cartes - h.cartes_debut AS cartes_gagnees, COALESCE(t.victoires, 0) AS victoires, COALESCE(t.score, 0) AS score
+    FROM hebdo h JOIN users u ON u.id = h.user_id LEFT JOIN tournoi_scores t ON t.user_id = h.user_id AND t.semaine = h.semaine
+    WHERE h.semaine = ? AND u.banni = 0 ORDER BY cartes_gagnees DESC, victoires DESC LIMIT 50`).bind(sem).all();
+  return json({ semaine: sem, finLe: new Date(sem).getTime() + 7 * JOUR, joueurs: results.map((x) => ({ pseudo: x.pseudo, admin: !!x.admin, premium: estPremium(x), cartesGagnees: Math.max(0, x.cartes_gagnees), victoires: x.victoires, score: x.score })) });
+});
+// Le lundi, le cron récompense le top 10 du tournoi de la semaine précédente
+async function recompenserTournoi(env) {
+  const precedente = semaineCourante(1);
+  if ((await lireConfig(env, "tournoi_paye")) === precedente) return;
+  await ecrireConfig(env, "tournoi_paye", precedente);
+  const { results } = await env.DB.prepare("SELECT user_id, score FROM tournoi_scores WHERE semaine = ? AND score > 0 ORDER BY score DESC, victoires DESC LIMIT 10").bind(precedente).all();
+  for (const [i, x] of results.entries()) {
+    const [pieces, boosters] = RECOMPENSES_TOURNOI[i];
+    await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, ?, ?, ?, ?)").bind(x.user_id, pieces, boosters, `Tournoi de la semaine : ${i + 1}${i ? "e" : "er"} place !`, maintenant()).run();
+    await envoyerPush(env, x.user_id, { titre: "🏆 Récompense du tournoi !", texte: `Vous terminez ${i + 1}${i ? "e" : "er"} du tournoi : ${pieces} 🪙 et ${boosters} booster${boosters > 1 ? "s" : ""} vous attendent.`, url: "./" });
+  }
+}
+
+/* =====================================================================
+   Événements saisonniers (activés par l'administrateur)
+   ===================================================================== */
+const EVENEMENTS = ["halloween", "noel"];
+route("GET", "evenement", async ({ env }) => {
+  const e = await lireConfig(env, "evenement");
+  return json({ evenement: e && e.fin > maintenant() ? e : null });
+});
+route("POST", "admin/evenement", async ({ request, env, ctx }) => {
+  const b = await corps(request);
+  if (!b.cle) { await ecrireConfig(env, "evenement", null); return json({ ok: true, evenement: null }); }
+  if (!EVENEMENTS.includes(b.cle)) return erreur("Événement inconnu.");
+  const jours = Math.max(1, Math.min(60, Math.floor(Number(b.jours) || 7)));
+  const ev = { cle: b.cle, debut: maintenant(), fin: maintenant() + jours * JOUR };
+  await ecrireConfig(env, "evenement", ev);
+  if (b.prevenir) enArrierePlan(ctx, (async () => {
+    const { results } = await env.DB.prepare("SELECT DISTINCT user_id FROM abonnements LIMIT 1000").all();
+    for (const { user_id } of results) await envoyerPush(env, user_id, { titre: b.cle === "halloween" ? "🎃 L'événement Halloween commence !" : "🎄 L'événement de Noël commence !", texte: "Cartes exclusives à collectionner pendant une durée limitée.", url: "./#boosters" });
+  })());
+  return json({ ok: true, evenement: ev });
+}, { admin: true });
+
 /* =====================================================================
    Point d'entrée
    ===================================================================== */
@@ -670,15 +980,20 @@ export async function onRequest(context) {
   const chemin = url.pathname.replace(/^\/api\/?/, "").replace(/\/$/, "");
   const r = routes.find((x) => x.methode === request.method && x.motif.test(chemin));
   if (!r) return erreur("Adresse inconnue.", 404);
+  let reponse;
   try {
     await preparerSchema(env);
-    const user = await utilisateurCourant(request, env);
-    if ((r.connecte || r.admin) && !user) return erreur("Connectez-vous pour continuer.", 401);
-    if (r.admin && !user.admin) return erreur("Réservé à l'administrateur.", 403);
-    return await r.gestion({ request, env, ctx, user, p: chemin.match(r.motif) });
+    reponse = await controleTrafic(request, env, ctx);
+    if (!reponse) {
+      const user = await utilisateurCourant(request, env);
+      if ((r.connecte || r.admin) && !user) reponse = erreur("Connectez-vous pour continuer.", 401);
+      else if (r.admin && !user.admin) reponse = erreur("Réservé à l'administrateur.", 403);
+      else reponse = await r.gestion({ request, env, ctx, user, p: chemin.match(r.motif) });
+    }
   } catch (e) {
-    if (e instanceof ErreurApi) return erreur(e.message, e.status);
-    console.error(e);
-    return erreur("Erreur du serveur. Réessayez dans un instant.", 500);
+    if (e instanceof ErreurApi) reponse = erreur(e.message, e.status);
+    else { console.error(e); reponse = erreur("Erreur du serveur. Réessayez dans un instant.", 500); }
   }
+  if (chemin !== "presence/ping") compterRequete(env, ctx, reponse.status);
+  return reponse;
 }
