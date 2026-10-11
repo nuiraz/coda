@@ -5,8 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>WorldCards — Collectionner le monde</title>
 <meta name="description" content="Collectionnez les 195 pays, des villes, des monuments, les merveilles du monde, les grands jeux vidéo et les objets du quotidien, sous forme de cartes.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌐</text></svg>">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#e0913a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="WorldCards">
 </head>
 <body>
 <header class="top">
@@ -17,10 +23,19 @@
     <button data-u="objets" aria-label="Objets">🧰<span class="lbl"> Objets</span></button>
   </div>
   <div class="coins" title="Pièces : gagnez-en au quiz, ouvrez des boosters">🪙 <span id="coins">0</span></div>
-  <button class="iconbtn" id="settingsBtn" title="Réglages" aria-label="Réglages">⚙︎</button>
+  <button class="iconbtn" id="hubBtn" title="Communauté" aria-label="Communauté">👥</button>
+  <button class="iconbtn compte" id="compteBtn" title="Mon compte" aria-label="Mon compte">👤</button>
+  <button class="hidden" id="settingsBtn" aria-hidden="true" tabindex="-1"></button>
 </header>
 <nav id="nav"></nav>
 <main id="view"></main>
+<footer class="pied">
+  <div class="liens"><a href="#" data-pied="hub">Communauté</a> · <a href="#" data-pied="compte">Mon compte</a> ·
+  <a href="#" data-pied-legal="mentions">Mentions légales</a> · <a href="#" data-pied-legal="cgu">Conditions d'utilisation</a> ·
+  <a href="#" data-pied-legal="confidentialite">Confidentialité</a></div>
+  <button class="btn small hidden" id="installBtn">📲 Installer l'app</button>
+  <div class="muted">© 2026 WorldCards · jeu gratuit, sans publicité</div>
+</footer>
 <div id="modal" class="modal hidden" role="dialog" aria-modal="true"></div>
 <div id="toasts"></div>
 
@@ -31,6 +46,7 @@
 <script src="data/gaming.js"></script>
 <script src="data/objets.js"></script>
 <script src="data/photos.js"></script>
+<script src="compte.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -1,0 +1,23 @@
+{
+  "name": "WorldCards — Collectionner le monde",
+  "short_name": "WorldCards",
+  "description": "Collectionnez les pays, monuments, merveilles, objets du quotidien et jeux vidéo sous forme de cartes.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#15171c",
+  "theme_color": "#e0913a",
+  "categories": ["games", "education"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Ouvrir un booster", "url": "./#boosters", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Communauté", "url": "./#hub", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

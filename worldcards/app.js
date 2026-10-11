@@ -96,7 +96,11 @@ function charger() {
   return nouvelleSauvegarde();
 }
 let S = charger();
-const sauver = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch {} };
+const sauver = () => {
+  S.majLocale = Date.now();
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch {}
+  if (typeof apresSauvegarde === "function") apresSauvegarde(); // sauvegarde dans le cloud (compte.js)
+};
 
 // Collections personnelles et illustrations (images) : IndexedDB, plus spacieux que localStorage
 const idb = {
@@ -114,7 +118,10 @@ const idb = {
   async set(k, v) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction("kv", "readwrite"); t.objectStore("kv").put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); }); },
 };
 let PERSO = { collections: [], illus: {} };
-const sauverPerso = () => idb.set("perso", PERSO).catch((e) => toast("⚠ Impossible d'enregistrer l'image : " + e.message));
+const sauverPerso = () => {
+  if (typeof apresSauvegarde === "function") apresSauvegarde();
+  return idb.set("perso", PERSO).catch((e) => toast("⚠ Impossible d'enregistrer l'image : " + e.message));
+};
 
 const has = (id) => (S.owned[id] || 0) > 0;
 const count = (ids) => ids.filter(has).length;
@@ -434,10 +441,12 @@ const NAV = {
   gaming: [["accueil", "🏠", "Accueil"], ["boosters", "🎁", "Boosters"], ["album", "📚", "Encyclopédie"], ["collections", "🎨", "Mes collections"], ["badges", "🏅", "Badges"], ["quiz", "❓", "Quiz"]],
   objets: [["accueil", "🏠", "Accueil"], ["boosters", "🎁", "Boosters"], ["album", "📚", "Collection"], ["badges", "🏅", "Badges"], ["quiz", "❓", "Quiz"]],
 };
+// Vues communes aux trois univers (définies dans compte.js)
+const VUES_GLOBALES = ["compte", "hub", "admin", "legal"];
 function renderNav() {
   $$("#univers button").forEach((b) => b.classList.toggle("on", b.dataset.u === S.univers));
   const items = NAV[S.univers];
-  if (!items.some(([v]) => v === S.vue)) S.vue = "accueil";
+  if (!items.some(([v]) => v === S.vue) && !VUES_GLOBALES.includes(S.vue)) S.vue = "accueil";
   const pill = S.boosters[S.univers] + (dailyDispo(S.univers) ? 1 : 0);
   $("#nav").innerHTML = items.map(([v, ic, label]) =>
     `<button data-v="${v}" class="${S.vue === v ? "on" : ""}"><span class="ic">${ic}</span><span>${label}</span>${v === "boosters" && pill ? `<span class="pill">${pill}</span>` : ""}</button>`).join("");
@@ -446,7 +455,10 @@ function renderNav() {
 function aller(vue, opts) {
   S.vue = vue; sauver(); renderNav();
   const v = $("#view"); v.innerHTML = "";
-  ({ accueil: vueAccueil, boosters: vueBoosters, album: vueAlbum, atlas: vueAtlas, badges: vueBadges, quiz: vueQuiz, collections: vueCollections })[vue](v, opts);
+  ({ accueil: vueAccueil, boosters: vueBoosters, album: vueAlbum, atlas: vueAtlas, badges: vueBadges, quiz: vueQuiz, collections: vueCollections,
+    compte: vueCompte, hub: vueHub, admin: vueAdmin, legal: vueLegal })[vue](v, opts);
+  $("#hubBtn")?.classList.toggle("on", vue === "hub");
+  $("#compteBtn")?.classList.toggle("on", vue === "compte" || vue === "admin");
   window.scrollTo({ top: 0 });
 }
 $$("#univers button").forEach((b) => b.onclick = () => { S.univers = b.dataset.u; aller(S.vue); });
@@ -460,6 +472,12 @@ document.addEventListener("click", (e) => {
   if (BY_ID[id]) ficheCarte(BY_ID[id]);
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches?.(".card[data-id]")) e.target.click(); });
+
+$("#hubBtn").onclick = () => aller("hub");
+$("#compteBtn").onclick = () => aller("compte");
+$$("[data-pied]").forEach((a) => a.onclick = (e) => { e.preventDefault(); aller(a.dataset.pied); });
+$$("[data-pied-legal]").forEach((a) => a.onclick = (e) => { e.preventDefault(); aller("legal", { page: a.dataset.piedLegal }); });
+$("#installBtn").onclick = () => installer();
 
 /* =====================================================================
    Fiche détaillée
@@ -1094,10 +1112,14 @@ $("#settingsBtn").onclick = () => {
    ===================================================================== */
 async function demarrer() {
   appliquerTheme(); majCoins();
+  // Raccourcis de l'app installée (ex. ./#boosters, ./#hub)
+  const ancre = location.hash.slice(1);
+  if (["accueil", "boosters", "album", "quiz", "badges", "hub", "compte"].includes(ancre)) { S.vue = ancre; history.replaceState(null, "", location.pathname); }
   try { PERSO = (await idb.get("perso")) || PERSO; } catch (e) { console.warn("IndexedDB indisponible", e); }
   aller(S.vue);
   verifierProgression();
   chargerPhotos();
+  initCompte();
   if (!S.ouverts && !count(CARDS.map((c) => c.id))) {
     ouvrirModal(`<div style="text-align:center"><div style="font-size:56px">🌐</div><h2>Bienvenue dans WorldCards !</h2>
       <p>Collectionnez le monde : <b>195 pays</b>, des villes, des monuments, les <b>merveilles</b> du monde, les grands <b>jeux vidéo</b> et les <b>objets du quotidien</b>.</p>

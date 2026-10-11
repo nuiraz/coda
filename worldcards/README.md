@@ -29,6 +29,46 @@ Une application web de cartes à collectionner, en deux univers.
 - **Pièces** : achetez des boosters, ou obtenez directement une carte qui vous manque depuis l'album.
 - Les **anecdotes** se révèlent quand vous possédez la carte.
 
+## 👤 Comptes, sauvegarde dans le cloud et communauté
+- **Inscription** avec un pseudo et un mot de passe (sans e-mail), acceptation des conditions et de la politique
+  de confidentialité, vérification de l'âge (15 ans ou accord parental).
+- **Sauvegarde dans le cloud** automatique : la collection suit le joueur sur tous ses appareils. Si un appareil
+  a déjà une progression, le jeu demande laquelle garder.
+- **Hub communautaire** : fil de messages avec cartes jointes, « j'aime », signalements, classement des joueurs
+  et profils publics avec une vitrine de 5 cartes.
+- **Mode administrateur** (réservé au pseudo `nuiraz`) : statistiques, liste des joueurs, bannissement,
+  réinitialisation de mot de passe, suppression de compte, traitement des signalements, cadeaux (pièces et
+  boosters) à un joueur ou à tous, annonces épinglées et outils de test.
+- **RGPD** : téléchargement de ses données et suppression de son compte depuis « Mon compte ».
+- **Pages légales** : mentions légales, conditions d'utilisation et politique de confidentialité.
+  ⚠ Remplacez `CONTACT` en haut de `compte.js` par votre adresse e-mail de contact. Ces textes sont un modèle
+  adapté au site : relisez-les et adaptez-les à votre situation.
+
+## 📲 Application installable
+Le site s'installe comme une application (icône sur l'écran d'accueil, plein écran, fonctionne hors ligne) :
+bouton « Installer l'app » sur Android et ordinateur, ou menu Partager → « Sur l'écran d'accueil » sur iPhone.
+
+## ☁️ Mise en ligne sur Cloudflare Pages (gratuit)
+Les comptes ont besoin des **fonctions** du dossier `functions/` et d'une base **D1** : il faut donc relier
+le dépôt GitHub (l'envoi d'un zip ne prend pas en charge les fonctions).
+
+1. **Projet Pages relié à GitHub** : *Settings → Builds & deployments*
+   - Production branch : `claude/worldcards`
+   - Build command : *(vide)* — Build output directory : `worldcards` — Root directory : *(vide)*
+2. **Créer la base** : *Workers & Pages → D1 SQL Database → Create* — nom : `worldcards`.
+   Les tables se créent toutes seules au premier lancement.
+3. **Relier la base au site** : projet Pages → *Settings → Bindings → Add → D1 database* —
+   nom de la variable : `DB`, base : `worldcards`.
+4. **Code administrateur** : *Settings → Variables and Secrets → Add* — type *Secret*, nom `ADMIN_CODE`,
+   valeur : un code long que vous seul connaissez.
+5. **Redéployer** : *Deployments → Retry deployment* (les réglages ne s'appliquent qu'au déploiement suivant).
+6. Ouvrez le site → 👤 → « Créer un compte » avec le pseudo **nuiraz** : un champ « Code administrateur »
+   apparaît, entrez-y le code de l'étape 4. Personne d'autre ne peut prendre ce pseudo (ni « Nu1raz »,
+   « nuiraz_ »…).
+
+Gratuit dans les limites de l'offre de base de Cloudflare (100 000 requêtes par jour pour les fonctions,
+5 Go pour D1). Sans base D1, le jeu reste jouable : seuls les comptes et le hub sont indisponibles.
+
 ## Lancer
 Ouvrez `index.html` dans un navigateur : tout fonctionne sans serveur et sans connexion internet.
 La progression est enregistrée dans le navigateur ; exportez-la depuis ⚙︎ Réglages pour la garder ou changer d'appareil.
