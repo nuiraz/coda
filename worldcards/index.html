@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WorldCards — Collectionner le monde</title>
+<meta name="description" content="Collectionnez les 195 pays, des villes, des monuments, les merveilles du monde et les grands jeux vidéo, sous forme de cartes.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌐</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">🌐 <b><span>WorldCards</span></b></div>
+  <div class="seg" id="univers">
+    <button data-u="monde">🌍 Monde</button>
+    <button data-u="gaming">🎮 Gaming</button>
+  </div>
+  <div class="coins" title="Pièces : gagnez-en au quiz, ouvrez des boosters">🪙 <span id="coins">0</span></div>
+  <button class="iconbtn" id="settingsBtn" title="Réglages" aria-label="Réglages">⚙︎</button>
+</header>
+<nav id="nav"></nav>
+<main id="view"></main>
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true"></div>
+<div id="toasts"></div>
+
+<script src="vendor/d3.min.js"></script>
+<script src="vendor/topojson-client.min.js"></script>
+<script src="data/carte.js"></script>
+<script src="data/monde.js"></script>
+<script src="data/gaming.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
