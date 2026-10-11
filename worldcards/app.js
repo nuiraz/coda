@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v21"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v22"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -743,7 +743,7 @@ function renderNav() {
     nav.innerHTML = dest.map(([v, ic, label]) => `<button data-v="${v}" class="${S.vue === v ? "on" : ""}"><span class="ic">${ic}</span><span>${label}</span>${badge(v)}</button>`).join("");
     $$("button", nav).forEach((b) => b.onclick = () => aller(b.dataset.v));
     const n = niveauJoueur(), c = typeof COMPTE !== "undefined" && COMPTE.pseudo;
-    $("#joueurBloc").innerHTML = `<span class="avatar grand">${c ? esc(COMPTE.pseudo[0].toUpperCase()) : "🌐"}</span>
+    $("#joueurBloc").innerHTML = `<span class="avatar grand">${c ? esc(COMPTE.pseudo[0].toUpperCase()) + avImg(COMPTE.pseudo) : "🌐"}</span>
       <span class="jb-infos"><b>${c ? esc(COMPTE.pseudo) : "Invité"}${premium() ? " 💎" : ""}</b><small>Niveau ${n.niveau} · ${fmt(S.coins)} 🪙</small>
       <span class="bar"><i style="width:${(n.xp / n.besoin) * 100}%"></i></span></span>`;
     $("#joueurBloc").onclick = () => aller("compte");
@@ -766,7 +766,7 @@ function ouvrirMenuPlus() {
   const n = niveauJoueur();
   const autres = [...DESTINATIONS.filter(([v]) => !ONGLETS_MOBILE.includes(v)), ...(admin ? [["admin", "👑", "Admin"]] : [])];
   ouvrirModal(`<div class="menu-plus">
-    <div class="mp-joueur"><span class="avatar grand">${typeof COMPTE !== "undefined" && COMPTE.pseudo ? esc(COMPTE.pseudo[0].toUpperCase()) : "🌐"}</span>
+    <div class="mp-joueur"><span class="avatar grand">${typeof COMPTE !== "undefined" && COMPTE.pseudo ? esc(COMPTE.pseudo[0].toUpperCase()) + avImg(COMPTE.pseudo) : "🌐"}</span>
       <div><b>${typeof COMPTE !== "undefined" && COMPTE.pseudo ? esc(COMPTE.pseudo) : "Invité"}${premium() ? " 💎" : ""}</b><br><small class="muted">Niveau ${n.niveau} · ${n.xp}/${n.besoin} XP · ${fmt(S.coins)} 🪙</small>
       <div class="bar"><i style="width:${(n.xp / n.besoin) * 100}%"></i></div></div></div>
     <div class="mp-grille">${autres.map(([v, ic, l]) => `<button data-mp="${v}" class="${S.vue === v ? "on" : ""}"><span>${ic}</span>${l}</button>`).join("")}

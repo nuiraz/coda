@@ -168,16 +168,17 @@ async function hubAmis(el) {
     const { amis, demandes } = await api("amis");
     $("#amisListe").innerHTML = `${demandes.length ? `<div class="panel" style="margin-bottom:12px"><b>📨 Ils vous ont ajouté :</b> ${demandes.map((p) => `<button class="chip" data-ajouter="${esc(p)}">➕ ${esc(p)}</button>`).join(" ")}</div>` : ""}
       ${amis.length ? `<div class="amis">${amis.map((a) => `<div class="ami">
-        <span class="avatar">${esc(a.pseudo[0].toUpperCase())}</span>
+        ${avatarHTML(a.pseudo)}
         <div class="ami-infos"><b>${esc(a.pseudo)}${a.premium ? " 💎" : ""} ${a.enLigne ? `<span class="enligne">● en ligne</span>` : ""}</b>
           <small class="muted">${fmt(a.cartes)} cartes · ${a.palier.nom} · 🏆 ${fmt(a.trophees)}${a.reciproque ? "" : " · ne vous a pas encore ajouté"}</small></div>
-        <div class="row" style="gap:6px"><button class="btn small" data-collec="${esc(a.pseudo)}">📚 Collection</button>
+        <div class="row" style="gap:6px"><button class="btn small" data-ecrire="${esc(a.pseudo)}">✉️</button><button class="btn small" data-collec="${esc(a.pseudo)}">📚 Collection</button>
           <button class="btn small primary" data-defier="${esc(a.pseudo)}" ${a.deck ? "" : "disabled title=\"Pas encore de deck de défense\""}>⚔️ Défier</button>
           <button class="btn small" data-retirer="${esc(a.pseudo)}">✕</button></div></div>`).join("")}</div>`
         : `<p class="muted">Pas encore d'amis. Ajoutez un joueur avec son pseudo (il apparaît dans le fil et le classement).</p>`}`;
     $$("[data-ajouter]", el).forEach((b) => b.onclick = async () => { try { await api("amis", { methode: "POST", corps: { pseudo: b.dataset.ajouter } }); hubAmis(el); } catch (e) { toast("⚠ " + e.message); } });
     $$("[data-retirer]", el).forEach((b) => b.onclick = async () => { await api("amis/" + encodeURIComponent(b.dataset.retirer), { methode: "DELETE" }).catch(() => {}); hubAmis(el); });
     $$("[data-collec]", el).forEach((b) => b.onclick = () => voirCollectionAmi(b.dataset.collec));
+    $$("[data-ecrire]", el).forEach((b) => b.onclick = () => ouvrirConversation(b.dataset.ecrire));
     $$("[data-defier]", el).forEach((b) => b.onclick = async () => {
       if (!deckPret()) return;
       try { await envoyerDeckArene(); defier(b.dataset.defier); } catch (e) { toast("⚠ " + e.message); }
@@ -284,3 +285,258 @@ async function adminPhotos(el) {
     $$("[data-fbok]").forEach((b) => b.onclick = async () => { await api(`feedback/${b.dataset.fbok}/statut`, { methode: "POST", corps: { statut: "resolu" } }).catch(() => {}); adminPhotos(el); });
   } catch (e) { $("#cpSignal").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
+
+/* =====================================================================
+   Photos de profil
+   ===================================================================== */
+function avatarHTML(pseudo, classe = "") {
+  const p = String(pseudo || "?");
+  return `<span class="avatar ${classe}" aria-hidden="true">${esc(p[0].toUpperCase())}${avImg(p)}</span>`;
+}
+// Redimensionne l'image en 160×160 (recadrage carré) et l'encode en JPEG léger
+function preparerAvatar(fichier) {
+  return new Promise((ok, ko) => {
+    if (!/^image\//.test(fichier.type)) return ko(new Error("Choisissez une image."));
+    const img = new Image(), url = URL.createObjectURL(fichier);
+    img.onload = () => {
+      const c = document.createElement("canvas"); c.width = c.height = 160;
+      const cote = Math.min(img.width, img.height);
+      c.getContext("2d").drawImage(img, (img.width - cote) / 2, (img.height - cote) / 2, cote, cote, 0, 0, 160, 160);
+      URL.revokeObjectURL(url);
+      let q = 0.82, data = c.toDataURL("image/jpeg", q);
+      while (data.length > 58000 && q > 0.3) { q -= 0.12; data = c.toDataURL("image/jpeg", q); }
+      ok(data);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); ko(new Error("Image illisible.")); };
+    img.src = url;
+  });
+}
+function blocAvatar() {
+  return `<div class="panel bloc-avatar">${avatarHTML(COMPTE.pseudo, "grand")}
+    <div><b>Photo de profil</b><p class="muted" style="margin:4px 0 8px">Visible dans la discussion, les messages et la liste d'amis. Les photos choquantes (nudité, violence…) sont supprimées et peuvent entraîner un bannissement.</p>
+    <label class="btn small primary">📷 Choisir une photo<input type="file" id="avatarFichier" accept="image/*" hidden></label>
+    <button class="btn small" id="avatarRetirer">Retirer</button></div></div>`;
+}
+function brancherBlocAvatar(racine) {
+  const f = racine.querySelector("#avatarFichier"); if (!f) return;
+  f.onchange = async () => {
+    try {
+      const image = await preparerAvatar(f.files[0]);
+      const r = await api("avatar", { methode: "POST", corps: { image } });
+      AVATAR_V[COMPTE.pseudo] = r.v; toast("📷 Photo de profil mise à jour !"); aller("compte");
+    } catch (e) { toast("⚠ " + e.message); }
+  };
+  racine.querySelector("#avatarRetirer").onclick = async () => {
+    try { await api("avatar", { methode: "DELETE" }); AVATAR_V[COMPTE.pseudo] = Date.now(); aller("compte"); } catch (e) { toast("⚠ " + e.message); }
+  };
+}
+const _vueCompte = vueCompte;
+vueCompte = function (v, opts) {
+  _vueCompte(v, opts);
+  if (connecte()) { v.insertAdjacentHTML("afterbegin", blocAvatar()); brancherBlocAvatar(v); }
+};
+async function adminAvatars(el) {
+  el.innerHTML = `<p class="muted">Les photos signalées apparaissent en premier. Supprimer une photo prévient le joueur ; pour les récidivistes, bannissez-les depuis l'onglet Joueurs.</p><div id="listeAvatars">Chargement…</div>`;
+  try {
+    const { avatars } = await api("admin/avatars");
+    $("#listeAvatars").innerHTML = avatars.length ? `<div class="grille-avatars">${avatars.map((a) => `<div class="carte-avatar ${a.signale ? "signale" : ""}">
+      <img src="/api/avatar/${encodeURIComponent(a.pseudo)}?v=${a.maj}" alt="Photo de ${esc(a.pseudo)}">
+      <b>${esc(a.pseudo)}</b><small class="muted">${depuis(a.maj)}${a.signale ? ` · 🚩 ${a.signale}` : ""}</small>
+      <button class="btn small danger" data-suppr="${esc(a.pseudo)}">🗑 Supprimer</button></div>`).join("")}</div>` : `<p class="muted">Aucune photo de profil pour l'instant.</p>`;
+    $$("[data-suppr]", el).forEach((b) => b.onclick = async () => {
+      if (!confirm(`Supprimer la photo de ${b.dataset.suppr} ?`)) return;
+      try { await api("admin/avatars/" + encodeURIComponent(b.dataset.suppr), { methode: "DELETE" }); toast("🗑 Photo supprimée."); adminAvatars(el); } catch (e) { toast("⚠ " + e.message); }
+    });
+  } catch (e) { $("#listeAvatars").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+
+/* =====================================================================
+   Fiche joueur (depuis la discussion, les messages, les amis)
+   ===================================================================== */
+function ficheJoueur(pseudo) {
+  if (!pseudo || pseudo === COMPTE.pseudo) return;
+  ouvrirModal(`<div class="fiche-joueur">${avatarHTML(pseudo, "grand")}<h2 style="margin:8px 0 2px">${esc(pseudo)}</h2>
+    <div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px">
+      <button class="btn primary" id="fjMp">✉️ Message privé</button>
+      <button class="btn" id="fjAmi">➕ Ajouter en ami</button>
+      <button class="btn" id="fjCollec">📚 Collection</button></div>
+    <div class="row" style="gap:8px;justify-content:center;margin-top:10px">
+      <button class="btn small" id="fjSignaler">🚩 Signaler sa photo</button>
+      <button class="btn small danger" id="fjBloquer">🚫 Bloquer / débloquer</button></div></div>`);
+  $("#fjMp").onclick = () => { fermerModal(); ouvrirConversation(pseudo); };
+  $("#fjAmi").onclick = async () => { try { await api("amis", { methode: "POST", corps: { pseudo } }); toast(`👫 ${pseudo} ajouté à vos amis !`); } catch (e) { toast("⚠ " + e.message); } };
+  $("#fjCollec").onclick = () => voirCollectionAmi(pseudo);
+  $("#fjSignaler").onclick = async () => { try { await api(`avatar/${encodeURIComponent(pseudo)}/signaler`, { methode: "POST", corps: {} }); toast("🚩 Merci, l'admin va vérifier."); } catch (e) { toast("⚠ " + e.message); } };
+  $("#fjBloquer").onclick = async () => {
+    try { const r = await api(`bloquer/${encodeURIComponent(pseudo)}`, { methode: "POST", corps: {} }); toast(r.bloque ? `🚫 ${pseudo} est bloqué : vous ne verrez plus ses messages.` : `${pseudo} est débloqué.`); fermerModal(); if (S.vue === "hub") aller("hub"); }
+    catch (e) { toast("⚠ " + e.message); }
+  };
+}
+
+/* =====================================================================
+   Discussion en direct (salons)
+   ===================================================================== */
+const chatEtat = { salon: "general", dernier: 0, carte: null, reponse: null, minuteur: null };
+const heureCourte = (t) => new Date(t).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+function bulleMessage(m, prive) {
+  const carte = m.carte && BY_ID[m.carte];
+  return `<div class="bulle ${m.moi ? "moi" : ""}" data-id="${m.id}">
+    ${prive || m.moi ? "" : `<button class="bulle-av" data-joueur="${esc(m.pseudo)}">${avatarHTML(m.pseudo)}</button>`}
+    <div class="bulle-corps">
+      ${prive || m.moi ? "" : `<button class="bulle-nom" data-joueur="${esc(m.pseudo)}">${esc(m.pseudo)}${m.admin ? " 🛡️" : ""}${m.premium ? " 💎" : ""}</button>`}
+      ${m.cite ? `<div class="bulle-cite">↪ ${esc(m.cite)}</div>` : ""}
+      ${m.texte ? `<div class="bulle-texte">${esc(m.texte)}</div>` : ""}
+      ${carte ? `<div class="bulle-carte" data-carte="${esc(m.carte)}">${carte.emoji || "🃏"} <b>${esc(carte.nom)}</b> <small>${esc(RARETES[carte.rarete]?.nom || "")}</small></div>` : ""}
+      <div class="bulle-meta">${heureCourte(m.cree_le)}${prive && m.moi ? (m.lu ? " · ✓✓ lu" : " · ✓") : ""}
+        ${prive ? "" : `<button data-repondre="${m.id}" title="Répondre">↩</button>`}
+        ${!prive && (m.moi || COMPTE.admin) ? `<button data-suppr-msg="${m.id}" title="Supprimer">🗑</button>` : ""}</div>
+    </div></div>`;
+}
+function brancherBulles(racine) {
+  $$("[data-joueur]", racine).forEach((b) => b.onclick = () => ficheJoueur(b.dataset.joueur));
+  $$("[data-carte]", racine).forEach((b) => b.onclick = () => { const c = BY_ID[b.dataset.carte]; if (c) ficheCarte(c); });
+  $$("[data-repondre]", racine).forEach((b) => b.onclick = () => {
+    const bulle = b.closest(".bulle"); chatEtat.reponse = Number(b.dataset.repondre);
+    const nom = bulle.querySelector(".bulle-nom")?.textContent || "vous";
+    $("#chatReponse").innerHTML = `↪ Réponse à <b>${esc(nom)}</b> <button type="button" id="annulerRep">✕</button>`;
+    $("#annulerRep").onclick = () => { chatEtat.reponse = null; $("#chatReponse").innerHTML = ""; };
+    $("#chatTxt").focus();
+  });
+  $$("[data-suppr-msg]", racine).forEach((b) => b.onclick = async () => {
+    try { await api("chat/message/" + b.dataset.supprMsg, { methode: "DELETE" }); b.closest(".bulle").remove(); } catch (e) { toast("⚠ " + e.message); }
+  });
+}
+async function hubDiscussion(el) {
+  clearInterval(chatEtat.minuteur); clearInterval(mpEtat.minuteur); chatEtat.dernier = 0;
+  el.innerHTML = `<div class="chat">
+    <div class="chat-salons" id="chatSalons"></div>
+    <div class="chat-fil" id="chatFil"><p class="muted">Chargement…</p></div>
+    ${connecte() ? `<form class="chat-saisie" id="chatForm">
+      <div id="chatReponse" class="chat-reponse"></div><div id="chatPj" class="chat-reponse"></div>
+      <div class="row" style="gap:6px"><button type="button" class="btn small" id="chatCarte" title="Joindre une carte">🃏</button>
+      <input id="chatTxt" maxlength="400" placeholder="Écrire dans le salon…" autocomplete="off">
+      <button class="btn primary">Envoyer</button></div></form>`
+    : `<div class="panel"><p style="margin:0">Connectez-vous pour participer à la discussion.</p><button class="btn primary" data-aller="compte" style="margin-top:8px">Se connecter</button></div>`}
+  </div>`;
+  brancherLiens(el);
+  api("chat/salons").then(({ salons }) => {
+    $("#chatSalons").innerHTML = salons.map((s) => `<button class="chip ${s.cle === chatEtat.salon ? "on" : ""}" data-salon="${s.cle}">${esc(s.nom)}${s.messages24h ? ` <small>${s.messages24h}</small>` : ""}</button>`).join("");
+    $$("[data-salon]", el).forEach((b) => b.onclick = () => { chatEtat.salon = b.dataset.salon; hubDiscussion(el); });
+  }).catch(() => {});
+  const charger = async () => {
+    if (!document.body.contains(el) || !$("#chatFil")) { clearInterval(chatEtat.minuteur); return; }
+    try {
+      const { messages } = await api(`chat/${chatEtat.salon}?apres=${chatEtat.dernier}`);
+      const fil = $("#chatFil");
+      if (!chatEtat.dernier) fil.innerHTML = messages.length ? "" : `<p class="muted vide">Aucun message pour l'instant. Lancez la discussion ! 👋</p>`;
+      if (!messages.length) return;
+      fil.querySelector(".vide")?.remove();
+      const enBas = fil.scrollHeight - fil.scrollTop - fil.clientHeight < 80;
+      fil.insertAdjacentHTML("beforeend", messages.map((m) => bulleMessage(m)).join(""));
+      brancherBulles(fil);
+      chatEtat.dernier = messages[messages.length - 1].id;
+      if (enBas || messages.length === fil.children.length) fil.scrollTop = fil.scrollHeight;
+    } catch {}
+  };
+  await charger();
+  chatEtat.minuteur = setInterval(() => { if (!document.hidden) charger(); }, 4000);
+  const form = $("#chatForm"); if (!form) return;
+  $("#chatCarte").onclick = () => choisirCarte("Montrer une carte", (id) => { chatEtat.carte = id; $("#chatPj").innerHTML = `🃏 ${esc(BY_ID[id].nom)} <button type="button" id="retPj">✕</button>`; $("#retPj").onclick = () => { chatEtat.carte = null; $("#chatPj").innerHTML = ""; }; });
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const texte = $("#chatTxt").value.trim(); if (!texte && !chatEtat.carte) return;
+    try {
+      await api(`chat/${chatEtat.salon}`, { methode: "POST", corps: { texte, carte: chatEtat.carte, reponse: chatEtat.reponse } });
+      $("#chatTxt").value = ""; chatEtat.carte = chatEtat.reponse = null; $("#chatPj").innerHTML = $("#chatReponse").innerHTML = "";
+      await charger(); $("#chatFil").scrollTop = $("#chatFil").scrollHeight;
+    } catch (err) { toast("⚠ " + err.message); }
+  };
+}
+
+/* =====================================================================
+   Messages privés
+   ===================================================================== */
+const mpEtat = { avec: null, dernier: 0, minuteur: null, carte: null };
+async function hubMessages(el) {
+  clearInterval(mpEtat.minuteur); clearInterval(chatEtat.minuteur);
+  if (!connecte()) { el.innerHTML = `<div class="panel"><p>Connectez-vous pour envoyer des messages privés.</p><button class="btn primary" data-aller="compte">Se connecter</button></div>`; brancherLiens(el); return; }
+  if (mpEtat.avec) return conversation(el, mpEtat.avec);
+  el.innerHTML = `<div class="panel"><input class="search" id="mpRecherche" placeholder="🔎 Chercher un joueur pour lui écrire…" maxlength="20" style="max-width:none;width:100%">
+    <div id="mpResultats" class="amis" style="margin-top:8px"></div></div>
+    <h3>Conversations</h3><div id="mpListe" class="amis"><p class="muted">Chargement…</p></div>`;
+  let attente;
+  $("#mpRecherche").oninput = () => {
+    clearTimeout(attente);
+    const q = $("#mpRecherche").value.trim();
+    if (!q) { $("#mpResultats").innerHTML = ""; return; }
+    attente = setTimeout(async () => {
+      try {
+        const { joueurs } = await api("joueurs/recherche?q=" + encodeURIComponent(q));
+        $("#mpResultats").innerHTML = joueurs.length ? joueurs.map((j) => `<div class="ami">${avatarHTML(j.pseudo)}
+          <div class="ami-infos"><b>${esc(j.pseudo)}${j.premium ? " 💎" : ""} ${j.enLigne ? `<span class="enligne">● en ligne</span>` : ""}</b><small class="muted">${fmt(j.cartes)} cartes</small></div>
+          <div class="row" style="gap:6px"><button class="btn small primary" data-ecrire="${esc(j.pseudo)}">✉️ Écrire</button><button class="btn small" data-joueur="${esc(j.pseudo)}">👤</button></div></div>`).join("") : `<p class="muted">Aucun joueur trouvé.</p>`;
+        $$("[data-ecrire]", el).forEach((b) => b.onclick = () => ouvrirConversation(b.dataset.ecrire));
+        $$("[data-joueur]", el).forEach((b) => b.onclick = () => ficheJoueur(b.dataset.joueur));
+      } catch {}
+    }, 250);
+  };
+  try {
+    const { conversations } = await api("mp");
+    $("#mpListe").innerHTML = conversations.length ? conversations.map((c) => `<button class="ami conv ${c.nonLus ? "non-lu" : ""}" data-ecrire="${esc(c.pseudo)}">${avatarHTML(c.pseudo)}
+      <div class="ami-infos"><b>${esc(c.pseudo)}${c.admin ? " 🛡️" : ""}${c.premium ? " 💎" : ""} ${c.enLigne ? `<span class="enligne">●</span>` : ""}</b>
+      <small class="muted">${c.deMoi ? "Vous : " : ""}${esc((c.dernier || "🃏 Carte").slice(0, 70))}</small></div>
+      <span class="conv-droite"><small class="muted">${depuis(c.cree_le)}</small>${c.nonLus ? `<span class="pastille">${c.nonLus}</span>` : ""}</span></button>`).join("")
+      : `<p class="muted">Aucune conversation. Cherchez un joueur ci-dessus, ou écrivez à un ami depuis l'onglet 👫 Amis.</p>`;
+    $$("#mpListe [data-ecrire]", el).forEach((b) => b.onclick = () => ouvrirConversation(b.dataset.ecrire));
+  } catch (e) { $("#mpListe").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+function ouvrirConversation(pseudo) { mpEtat.avec = pseudo; hubEtat.onglet = "messages"; aller("hub"); }
+async function conversation(el, pseudo) {
+  mpEtat.dernier = 0; mpEtat.carte = null;
+  el.innerHTML = `<div class="chat">
+    <div class="conv-tete"><button class="btn small" id="mpRetour">←</button><button class="conv-qui" data-joueur="${esc(pseudo)}">${avatarHTML(pseudo)} <b>${esc(pseudo)}</b> <span id="mpStatut" class="muted"></span></button></div>
+    <div class="chat-fil" id="chatFil"><p class="muted">Chargement…</p></div>
+    <form class="chat-saisie" id="mpForm"><div id="chatPj" class="chat-reponse"></div>
+      <div class="row" style="gap:6px"><button type="button" class="btn small" id="mpCarte" title="Envoyer une carte">🃏</button>
+      <input id="chatTxt" maxlength="400" placeholder="Message privé à ${esc(pseudo)}…" autocomplete="off"><button class="btn primary">Envoyer</button></div></form></div>`;
+  $("#mpRetour").onclick = () => { mpEtat.avec = null; aller("hub"); };
+  $("[data-joueur]", el).onclick = () => ficheJoueur(pseudo);
+  const charger = async () => {
+    if (!document.body.contains(el) || !$("#mpForm")) { clearInterval(mpEtat.minuteur); return; }
+    try {
+      const r = await api(`mp/${encodeURIComponent(pseudo)}?apres=${mpEtat.dernier}`);
+      $("#mpStatut").textContent = r.bloque ? "· bloqué" : r.enLigne ? "· ● en ligne" : "";
+      const fil = $("#chatFil");
+      if (!mpEtat.dernier) fil.innerHTML = r.messages.length ? "" : `<p class="muted vide">Début de votre conversation avec ${esc(pseudo)}. Soyez sympa ! 😊</p>`;
+      if (!r.messages.length) return;
+      fil.querySelector(".vide")?.remove();
+      fil.insertAdjacentHTML("beforeend", r.messages.map((m) => bulleMessage(m, true)).join(""));
+      brancherBulles(fil);
+      mpEtat.dernier = r.messages[r.messages.length - 1].id;
+      fil.scrollTop = fil.scrollHeight;
+      verifierMp();
+    } catch (e) { $("#chatFil").innerHTML = `<p class="err">${esc(e.message)}</p>`; clearInterval(mpEtat.minuteur); }
+  };
+  await charger();
+  mpEtat.minuteur = setInterval(() => { if (!document.hidden) charger(); }, 4000);
+  $("#mpCarte").onclick = () => choisirCarte("Montrer une carte", (id) => { mpEtat.carte = id; $("#chatPj").innerHTML = `🃏 ${esc(BY_ID[id].nom)} <button type="button" id="retPj">✕</button>`; $("#retPj").onclick = () => { mpEtat.carte = null; $("#chatPj").innerHTML = ""; }; });
+  $("#mpForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const texte = $("#chatTxt").value.trim(); if (!texte && !mpEtat.carte) return;
+    try { await api(`mp/${encodeURIComponent(pseudo)}`, { methode: "POST", corps: { texte, carte: mpEtat.carte } }); $("#chatTxt").value = ""; mpEtat.carte = null; $("#chatPj").innerHTML = ""; await charger(); }
+    catch (err) { toast("⚠ " + err.message); }
+  };
+}
+// Pastille « messages non lus » sur le bouton Communauté
+let mpNonLus = 0;
+async function verifierMp() {
+  if (!connecte()) return;
+  try {
+    const { nonLus } = await api("mp/non-lus");
+    if (nonLus > mpNonLus && !(S.vue === "hub" && hubEtat.onglet === "messages")) toast(`✉️ Nouveau message privé (${nonLus} non lu${nonLus > 1 ? "s" : ""})`);
+    mpNonLus = nonLus;
+    $$("#hubBtn, [data-v='hub']").forEach((b) => { b.classList.toggle("a-pastille", nonLus > 0); b.dataset.pastille = nonLus > 9 ? "9+" : nonLus; });
+  } catch {}
+}
+setInterval(() => { if (!document.hidden) verifierMp(); }, 30000);
+setTimeout(verifierMp, 4000);

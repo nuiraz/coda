@@ -67,6 +67,13 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS amis ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, ami_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, ami_id) )`,
   `CREATE TABLE IF NOT EXISTS paiements ( commande TEXT PRIMARY KEY, user_id INTEGER NOT NULL, formule TEXT NOT NULL, montant TEXT NOT NULL, statut TEXT NOT NULL, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS photos ( carte TEXT PRIMARY KEY, titre TEXT NOT NULL, maj INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS chat ( id INTEGER PRIMARY KEY AUTOINCREMENT, salon TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, texte TEXT NOT NULL, carte TEXT, reponse INTEGER, cree_le INTEGER NOT NULL )`,
+  `CREATE INDEX IF NOT EXISTS chat_salon ON chat (salon, id)`,
+  `CREATE TABLE IF NOT EXISTS mp ( id INTEGER PRIMARY KEY AUTOINCREMENT, de_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, a_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, texte TEXT NOT NULL, carte TEXT, lu INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
+  `CREATE INDEX IF NOT EXISTS mp_a ON mp (a_id, lu)`,
+  `CREATE INDEX IF NOT EXISTS mp_paire ON mp (de_id, a_id, id)`,
+  `CREATE TABLE IF NOT EXISTS avatars ( user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, image TEXT NOT NULL, maj INTEGER NOT NULL, signale INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS bloques ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, bloque_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (user_id, bloque_id) )`,
   `CREATE TABLE IF NOT EXISTS combats ( id INTEGER PRIMARY KEY AUTOINCREMENT, attaquant INTEGER NOT NULL, defenseur INTEGER NOT NULL, graine INTEGER NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, cree_le INTEGER NOT NULL, fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER )`,
 ];
 // Colonnes ajoutées après coup aux tables existantes (l'erreur « colonne déjà présente » est ignorée)
@@ -143,7 +150,7 @@ const estPremium = (u) => (u?.premium_jusqu || 0) > maintenant();
 
 /* ---------- Validation ---------- */
 const PSEUDO_RE = /^[A-Za-z0-9_-]{3,20}$/;
-const CARTE_RE = /^[a-z]+:[a-z0-9-]{1,40}$/;
+const CARTE_RE = /^[a-z]+:[A-Za-z0-9-]{1,40}$/;
 const pseudoAdmin = (env) => (env.ADMIN_PSEUDO || "nuiraz").toLowerCase();
 // Empêche les imitations du pseudo de l'administrateur (« Nuiraz_ », « nu1raz »…)
 const squelette = (p) => p.toLowerCase().replace(/[0]/g, "o").replace(/[1l]/g, "i").replace(/[3]/g, "e").replace(/[^a-z]/g, "");
@@ -1104,6 +1111,153 @@ route("POST", "admin/photos", async ({ request, env }) => {
   else await env.DB.prepare("INSERT INTO photos (carte, titre, maj) VALUES (?, ?, ?) ON CONFLICT(carte) DO UPDATE SET titre = excluded.titre, maj = excluded.maj").bind(carte, titre, maintenant()).run();
   return json({ ok: true });
 }, { admin: true });
+
+/* =====================================================================
+   Discussion en direct (salons publics) et messages privés
+   ===================================================================== */
+const SALONS = { general: "💬 Général", echanges: "🤝 Échanges", combat: "⚔️ Combat", aide: "🆘 Entraide" };
+const ANTI_FLOOD_MS = 3000;
+// Mots interdits masqués (liste courte, l'admin modère le reste)
+const MOTS_MASQUES = /\b(connard|connasse|encul[ée]+|salope|pute|ntm|fdp|nique ta|pd|batard|bâtard)\b/gi;
+const nettoyerTexte = (t) => String(t || "").replace(/\s+/g, " ").trim().slice(0, 400).replace(MOTS_MASQUES, (m) => "•".repeat(m.length));
+async function antiFlood(env, table, colonne, userId) {
+  const d = await env.DB.prepare(`SELECT cree_le FROM ${table} WHERE ${colonne} = ? ORDER BY id DESC LIMIT 1`).bind(userId).first();
+  if (d && maintenant() - d.cree_le < ANTI_FLOOD_MS) throw new ErreurApi("Doucement ! Attendez quelques secondes entre deux messages.", 429);
+}
+route("GET", "chat/salons", async ({ env }) => {
+  const depuis = maintenant() - 24 * 3600000;
+  const { results } = await env.DB.prepare("SELECT salon, COUNT(*) AS n, MAX(id) AS dernier FROM chat WHERE cree_le > ? GROUP BY salon").bind(depuis).all();
+  const stats = Object.fromEntries(results.map((r) => [r.salon, r]));
+  return json({ salons: Object.entries(SALONS).map(([cle, nom]) => ({ cle, nom, messages24h: stats[cle]?.n || 0, dernier: stats[cle]?.dernier || 0 })) });
+});
+route("GET", "chat/([a-z]+)", async ({ request, env, user, p }) => {
+  if (!SALONS[p[1]]) return erreur("Salon inconnu.", 404);
+  const apres = Number(new URL(request.url).searchParams.get("apres")) || 0;
+  const bloques = user ? "AND c.user_id NOT IN (SELECT bloque_id FROM bloques WHERE user_id = ?3)" : "";
+  const { results } = await env.DB.prepare(`SELECT * FROM (SELECT c.id, c.texte, c.carte, c.reponse, c.cree_le, u.pseudo, u.admin, u.premium_jusqu,
+      (SELECT u2.pseudo || ' : ' || substr(c2.texte, 1, 60) FROM chat c2 JOIN users u2 ON u2.id = c2.user_id WHERE c2.id = c.reponse) AS cite
+    FROM chat c JOIN users u ON u.id = c.user_id WHERE c.salon = ?1 AND c.id > ?2 AND u.banni = 0 ${bloques} ORDER BY c.id DESC LIMIT 60) ORDER BY id`)
+    .bind(...(user ? [p[1], apres, user.id] : [p[1], apres])).all();
+  return json({ messages: results.map((m) => ({ id: m.id, texte: m.texte, carte: m.carte, cite: m.cite, cree_le: m.cree_le, pseudo: m.pseudo, admin: !!m.admin, premium: estPremium(m), moi: !!user && m.pseudo === user.pseudo })) });
+});
+route("POST", "chat/([a-z]+)", async ({ request, env, user, p }) => {
+  if (!SALONS[p[1]]) return erreur("Salon inconnu.", 404);
+  const b = await corps(request);
+  const texte = nettoyerTexte(b.texte), carte = b.carte && CARTE_RE.test(b.carte) ? b.carte : null;
+  if (!texte && !carte) return erreur("Message vide.");
+  if (!user.admin) await antiFlood(env, "chat", "user_id", user.id);
+  const r = await env.DB.prepare("INSERT INTO chat (salon, user_id, texte, carte, reponse, cree_le) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(p[1], user.id, texte, carte, Number(b.reponse) || null, maintenant()).run();
+  return json({ id: r.meta.last_row_id }, 201);
+}, { connecte: true });
+route("DELETE", "chat/message/(\\d+)", async ({ env, user, p }) => {
+  const m = await env.DB.prepare("SELECT user_id FROM chat WHERE id = ?").bind(p[1]).first();
+  if (!m) return erreur("Message introuvable.", 404);
+  if (m.user_id !== user.id && !user.admin) return erreur("Vous ne pouvez supprimer que vos messages.", 403);
+  await env.DB.prepare("DELETE FROM chat WHERE id = ?").bind(p[1]).run();
+  return json({ ok: true });
+}, { connecte: true });
+
+// Messages privés
+route("GET", "mp", async ({ env, user }) => {
+  const { results } = await env.DB.prepare(`SELECT u.pseudo, u.premium_jusqu, u.admin, m.texte, m.cree_le, m.de_id,
+      (SELECT COUNT(*) FROM mp n WHERE n.de_id = u.id AND n.a_id = ?1 AND n.lu = 0) AS non_lus,
+      (SELECT MAX(vu) FROM presence pr WHERE pr.user_id = u.id) AS vu
+    FROM (SELECT CASE WHEN de_id = ?1 THEN a_id ELSE de_id END AS autre, MAX(id) AS dernier FROM mp WHERE de_id = ?1 OR a_id = ?1 GROUP BY autre) c
+    JOIN mp m ON m.id = c.dernier JOIN users u ON u.id = c.autre WHERE u.banni = 0 ORDER BY m.id DESC LIMIT 100`).bind(user.id).all();
+  return json({ conversations: results.map((c) => ({ pseudo: c.pseudo, premium: estPremium(c), admin: !!c.admin, dernier: c.texte, deMoi: c.de_id === user.id, cree_le: c.cree_le, nonLus: c.non_lus, enLigne: !!c.vu && maintenant() - c.vu < EN_LIGNE_MS })) });
+}, { connecte: true });
+route("GET", "mp/non-lus", async ({ env, user }) => {
+  const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM mp WHERE a_id = ? AND lu = 0").bind(user.id).first();
+  return json({ nonLus: r.n });
+}, { connecte: true });
+async function autreJoueur(env, user, pseudo) {
+  const u = await env.DB.prepare("SELECT id, pseudo, admin, premium_jusqu FROM users WHERE pseudo = ? AND banni = 0").bind(pseudo).first();
+  if (!u) throw new ErreurApi("Joueur introuvable.", 404);
+  if (u.id === user.id) throw new ErreurApi("Vous ne pouvez pas vous écrire à vous-même.");
+  return u;
+}
+route("GET", "mp/([A-Za-z0-9_-]{3,20})", async ({ request, env, user, p }) => {
+  const u = await autreJoueur(env, user, p[1]);
+  const apres = Number(new URL(request.url).searchParams.get("apres")) || 0;
+  const { results } = await env.DB.prepare(`SELECT * FROM (SELECT id, de_id, texte, carte, lu, cree_le FROM mp
+    WHERE ((de_id = ?1 AND a_id = ?2) OR (de_id = ?2 AND a_id = ?1)) AND id > ?3 ORDER BY id DESC LIMIT 100) ORDER BY id`).bind(user.id, u.id, apres).all();
+  await env.DB.prepare("UPDATE mp SET lu = 1 WHERE de_id = ? AND a_id = ? AND lu = 0").bind(u.id, user.id).run();
+  const bloque = await env.DB.prepare("SELECT 1 FROM bloques WHERE user_id = ? AND bloque_id = ?").bind(user.id, u.id).first();
+  const pr = await env.DB.prepare("SELECT MAX(vu) AS vu FROM presence WHERE user_id = ?").bind(u.id).first();
+  return json({ pseudo: u.pseudo, premium: estPremium(u), admin: !!u.admin, bloque: !!bloque, enLigne: !!pr?.vu && maintenant() - pr.vu < EN_LIGNE_MS,
+    messages: results.map((m) => ({ id: m.id, moi: m.de_id === user.id, texte: m.texte, carte: m.carte, lu: !!m.lu, cree_le: m.cree_le })) });
+}, { connecte: true });
+route("POST", "mp/([A-Za-z0-9_-]{3,20})", async ({ request, env, user, p, ctx }) => {
+  const u = await autreJoueur(env, user, p[1]);
+  const b = await corps(request);
+  const texte = nettoyerTexte(b.texte), carte = b.carte && CARTE_RE.test(b.carte) ? b.carte : null;
+  if (!texte && !carte) return erreur("Message vide.");
+  if (await env.DB.prepare("SELECT 1 FROM bloques WHERE (user_id = ?1 AND bloque_id = ?2) OR (user_id = ?2 AND bloque_id = ?1)").bind(u.id, user.id).first())
+    return erreur("Vous ne pouvez pas écrire à ce joueur.", 403);
+  if (!user.admin) await antiFlood(env, "mp", "de_id", user.id);
+  const r = await env.DB.prepare("INSERT INTO mp (de_id, a_id, texte, carte, cree_le) VALUES (?, ?, ?, ?, ?)").bind(user.id, u.id, texte, carte, maintenant()).run();
+  // Une notification seulement si la conversation était « au calme » (pas de spam de notifications)
+  const avant = await env.DB.prepare("SELECT COUNT(*) AS n FROM mp WHERE de_id = ? AND a_id = ? AND lu = 0").bind(user.id, u.id).first();
+  if (avant.n <= 1) enArrierePlan(ctx, envoyerPush(env, u.id, { titre: `✉️ ${user.pseudo}`, texte: texte ? texte.slice(0, 90) : "vous a envoyé une carte", url: "./#hub" }));
+  return json({ id: r.meta.last_row_id }, 201);
+}, { connecte: true });
+route("POST", "bloquer/([A-Za-z0-9_-]{3,20})", async ({ env, user, p }) => {
+  const u = await autreJoueur(env, user, p[1]);
+  const deja = await env.DB.prepare("DELETE FROM bloques WHERE user_id = ? AND bloque_id = ?").bind(user.id, u.id).run();
+  if (!deja.meta.changes) await env.DB.batch([
+    env.DB.prepare("INSERT OR IGNORE INTO bloques (user_id, bloque_id) VALUES (?, ?)").bind(user.id, u.id),
+    env.DB.prepare("DELETE FROM amis WHERE (user_id = ?1 AND ami_id = ?2) OR (user_id = ?2 AND ami_id = ?1)").bind(user.id, u.id),
+  ]);
+  return json({ bloque: !deja.meta.changes });
+}, { connecte: true });
+/* Photos de profil : petite image JPEG/WebP (redimensionnée côté client), modérée par l'admin */
+const AVATAR_RE = /^data:image\/(jpeg|webp|png);base64,([A-Za-z0-9+/=]+)$/;
+route("POST", "avatar", async ({ request, env, user, ctx }) => {
+  const b = await corps(request);
+  const m = AVATAR_RE.exec(String(b.image || ""));
+  if (!m || m[2].length > 60000) return erreur("Image invalide ou trop lourde.");
+  const avant = await env.DB.prepare("SELECT maj FROM avatars WHERE user_id = ?").bind(user.id).first();
+  if (!user.admin && avant && maintenant() - avant.maj < 30000) return erreur("Attendez un peu avant de changer à nouveau de photo.", 429);
+  await env.DB.prepare("INSERT INTO avatars (user_id, image, maj, signale) VALUES (?, ?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET image = excluded.image, maj = excluded.maj, signale = 0").bind(user.id, b.image, maintenant()).run();
+  return json({ ok: true, v: maintenant() });
+}, { connecte: true });
+route("DELETE", "avatar", async ({ env, user }) => {
+  await env.DB.prepare("DELETE FROM avatars WHERE user_id = ?").bind(user.id).run();
+  return json({ ok: true });
+}, { connecte: true });
+route("GET", "avatar/([A-Za-z0-9_-]{3,20})", async ({ env, p }) => {
+  const a = await env.DB.prepare("SELECT a.image FROM avatars a JOIN users u ON u.id = a.user_id WHERE u.pseudo = ? AND u.banni = 0").bind(p[1]).first();
+  const m = a && AVATAR_RE.exec(a.image);
+  // Pas de photo : GIF transparent (la lettre du pseudo reste visible dessous)
+  if (!m) return new Response(Uint8Array.from(atob("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/gif", "cache-control": "public, max-age=120" } });
+  const bin = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
+  return new Response(bin, { headers: { "content-type": "image/" + m[1], "cache-control": "public, max-age=300", "x-content-type-options": "nosniff" } });
+});
+route("POST", "avatar/([A-Za-z0-9_-]{3,20})/signaler", async ({ env, user, p, ctx }) => {
+  const r = await env.DB.prepare("UPDATE avatars SET signale = signale + 1 WHERE user_id = (SELECT id FROM users WHERE pseudo = ?)").bind(p[1]).run();
+  if (r.meta.changes) enArrierePlan(ctx, prevenirAdmins(env, { titre: "🚩 Photo de profil signalée", texte: `${user.pseudo} signale la photo de ${p[1]}`, url: "./#admin" }));
+  return json({ ok: true });
+}, { connecte: true });
+route("GET", "admin/avatars", async ({ env }) => {
+  const { results } = await env.DB.prepare("SELECT u.pseudo, a.maj, a.signale FROM avatars a JOIN users u ON u.id = a.user_id ORDER BY a.signale DESC, a.maj DESC LIMIT 200").all();
+  return json({ avatars: results });
+}, { admin: true });
+route("DELETE", "admin/avatars/([A-Za-z0-9_-]{3,20})", async ({ env, p, ctx }) => {
+  const u = await env.DB.prepare("SELECT id FROM users WHERE pseudo = ?").bind(p[1]).first();
+  if (!u) return erreur("Joueur introuvable.", 404);
+  await env.DB.prepare("DELETE FROM avatars WHERE user_id = ?").bind(u.id).run();
+  enArrierePlan(ctx, envoyerPush(env, u.id, { titre: "🛡️ Photo de profil retirée", texte: "Votre photo de profil ne respectait pas les règles et a été supprimée par l'administrateur.", url: "./#compte" }));
+  return json({ ok: true });
+}, { admin: true });
+// Recherche de joueurs (pour ajouter des amis ou écrire)
+route("GET", "joueurs/recherche", async ({ request, env, user }) => {
+  const q = String(new URL(request.url).searchParams.get("q") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 20);
+  const { results } = await env.DB.prepare(`SELECT u.pseudo, u.admin, u.premium_jusqu, COALESCE(s.cartes, 0) AS cartes, (SELECT MAX(vu) FROM presence pr WHERE pr.user_id = u.id) AS vu
+    FROM users u LEFT JOIN sauvegardes s ON s.user_id = u.id WHERE u.banni = 0 AND u.id != ? AND (? = '' OR u.pseudo LIKE ? || '%')
+    ORDER BY vu DESC NULLS LAST, cartes DESC LIMIT 20`).bind(user.id, q, q).all();
+  return json({ joueurs: results.map((j) => ({ pseudo: j.pseudo, admin: !!j.admin, premium: estPremium(j), cartes: j.cartes, enLigne: !!j.vu && maintenant() - j.vu < EN_LIGNE_MS })) });
+}, { connecte: true });
 
 /* =====================================================================
    Point d'entrée

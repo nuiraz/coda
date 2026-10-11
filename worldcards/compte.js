@@ -65,6 +65,9 @@ async function api(chemin, { methode = "GET", corps, keepalive = false } = {}) {
   return j;
 }
 const connecte = () => COMPTE.etat === "connecte";
+// Photo de profil posée par-dessus la lettre du pseudo (GIF transparent côté serveur s'il n'y en a pas)
+const AVATAR_V = {};
+const avImg = (pseudo) => pseudo ? `<img src="/api/avatar/${encodeURIComponent(pseudo)}${AVATAR_V[pseudo] ? "?v=" + AVATAR_V[pseudo] : ""}" alt="" loading="lazy" onerror="this.remove()">` : "";
 
 /* =====================================================================
 /* =====================================================================
@@ -201,7 +204,7 @@ function majBoutonCompte() {
   if (!b) return;
   if (typeof renderNav === "function" && $("#navSide")) try { renderNav(); } catch {}
   const icone = { "": "", attente: " ⋯", ok: " ✓", erreur: " ⚠" }[SYNC.etat] || "";
-  b.innerHTML = connecte() ? `<span class="avatar">${esc(COMPTE.pseudo[0].toUpperCase())}</span><span class="lbl">${esc(COMPTE.pseudo)}</span>${COMPTE.admin ? "👑" : ""}${estPremium() ? "💎" : ""}<span class="sync">${icone}</span>` : "👤<span class='lbl'> Connexion</span>";
+  b.innerHTML = connecte() ? `<span class="avatar">${esc(COMPTE.pseudo[0].toUpperCase())}${avImg(COMPTE.pseudo)}</span><span class="lbl">${esc(COMPTE.pseudo)}</span>${COMPTE.admin ? "👑" : ""}${estPremium() ? "💎" : ""}<span class="sync">${icone}</span>` : "👤<span class='lbl'> Connexion</span>";
   b.title = connecte() ? `Mon compte (${SYNC.etat === "ok" ? "sauvegardé dans le cloud" : SYNC.etat === "erreur" ? "sauvegarde en échec" : "synchronisation"})` : "Se connecter ou créer un compte";
 }
 
@@ -349,7 +352,7 @@ function vueCompte(v) {
   } else {
     haut = `<div class="panel">
       <div class="row" style="justify-content:space-between">
-        <div class="row"><span class="avatar big">${esc(COMPTE.pseudo[0].toUpperCase())}</span>
+        <div class="row"><span class="avatar big">${esc(COMPTE.pseudo[0].toUpperCase())}${avImg(COMPTE.pseudo)}</span>
           <div><h2 style="margin:0">${esc(COMPTE.pseudo)} ${COMPTE.admin ? `<span class="rbadge" data-r="legendaire">👑 Admin</span>` : ""}</h2>
           <span class="muted">Membre depuis le ${new Date(COMPTE.creeLe).toLocaleDateString("fr-FR")} · ${SYNC.etat === "erreur" ? "⚠ dernière sauvegarde en échec" : "☁️ progression sauvegardée dans le cloud"}</span></div></div>
         <div class="row">${COMPTE.admin ? `<button class="btn primary" data-aller="admin">👑 Administration</button>` : ""}
@@ -491,7 +494,7 @@ function choisirCarte(titre, choisir, retirer) {
 /* =====================================================================
    Hub communautaire
    ===================================================================== */
-const hubEtat = { onglet: "fil", tri: "cartes", carte: null };
+const hubEtat = { onglet: "discussion", tri: "cartes", carte: null };
 const depuis = (t) => {
   const s = (Date.now() - t) / 1000;
   if (s < 60) return "à l'instant";
@@ -505,10 +508,10 @@ function vueHub(v) {
     return;
   }
   v.innerHTML = `<div class="sectiontitle"><h3>👥 Communauté WorldCards</h3><span class="muted">Fil d'actualité, marché d'échanges, tournois de la semaine & classements</span></div>
-    <div class="toolbar">${[["fil", "💬 Fil d'actualité"], ["echanges", "🤝 Marché d'échanges"], ["tournois", "🏆 Tournoi hebdo"], ["classement", "🌟 Classement"], ["amis", "👫 Amis"]].map(([k, l]) => `<button class="chip ${hubEtat.onglet === k ? "on" : ""}" data-o="${k}">${l}</button>`).join("")}</div>
+    <div class="toolbar">${[["discussion", "💬 Discussion"], ["messages", "✉️ Messages"], ["fil", "📰 Fil d'actualité"], ["echanges", "🤝 Marché d'échanges"], ["tournois", "🏆 Tournoi hebdo"], ["classement", "🌟 Classement"], ["amis", "👫 Amis"]].map(([k, l]) => `<button class="chip ${hubEtat.onglet === k ? "on" : ""}" data-o="${k}">${l}</button>`).join("")}</div>
     <div id="hubCorps"></div>`;
   $$("[data-o]", v).forEach((b) => b.onclick = () => { hubEtat.onglet = b.dataset.o; aller("hub"); });
-  const router = { fil: hubFil, echanges: hubEchanges, tournois: hubTournois, classement: hubClassement, amis: hubAmis };
+  const router = { fil: hubFil, echanges: hubEchanges, tournois: hubTournois, classement: hubClassement, amis: hubAmis, discussion: hubDiscussion, messages: hubMessages };
   (router[hubEtat.onglet] || hubFil)($("#hubCorps"));
 }
 async function hubFil(el) {
@@ -555,7 +558,7 @@ async function chargerPosts(box, avant) {
 function postHTML(p) {
   const c = p.carte && BY_ID[p.carte];
   return `<article class="post${p.epingle ? " pinned" : ""}" data-post="${p.id}">
-    <header><button class="pseudo" data-profil="${esc(p.pseudo)}"><span class="avatar">${esc(p.pseudo[0].toUpperCase())}</span>${esc(p.pseudo)}${p.admin ? " 👑" : ""}${p.premium ? " 💎" : ""}</button>
+    <header><button class="pseudo" data-profil="${esc(p.pseudo)}"><span class="avatar">${esc(p.pseudo[0].toUpperCase())}${avImg(p.pseudo)}</span>${esc(p.pseudo)}${p.admin ? " 👑" : ""}${p.premium ? " 💎" : ""}</button>
       <span class="muted">${p.epingle ? "📌 Annonce · " : ""}${depuis(p.cree_le)}</span></header>
     ${p.texte ? `<p class="txt">${esc(p.texte)}</p>` : ""}
     ${c ? `<div class="pj"><div style="width:130px">${cardHTML(c, { locked: false })}</div></div>` : ""}
@@ -596,7 +599,7 @@ async function hubClassement(el) {
   try {
     const { joueurs } = await api(`classement?tri=${hubEtat.tri}`);
     $("#cl").innerHTML = joueurs.length ? joueurs.map((j, i) => `<tr class="${j.pseudo === COMPTE.pseudo ? "moi" : ""}">
-      <td>${["🥇", "🥈", "🥉"][i] || i + 1}</td><td><button class="pseudo" data-profil="${esc(j.pseudo)}"><span class="avatar">${esc(j.pseudo[0].toUpperCase())}</span>${esc(j.pseudo)}${j.admin ? " 👑" : ""}${j.premium ? " 💎" : ""}</button></td>
+      <td>${["🥇", "🥈", "🥉"][i] || i + 1}</td><td><button class="pseudo" data-profil="${esc(j.pseudo)}"><span class="avatar">${esc(j.pseudo[0].toUpperCase())}${avImg(j.pseudo)}</span>${esc(j.pseudo)}${j.admin ? " 👑" : ""}${j.premium ? " 💎" : ""}</button></td>
       <td>${fmt(j.cartes)}</td><td>${j.secretes}</td><td>${j.badges}</td></tr>`).join("") : `<tr><td colspan="5" class="muted">Personne au classement pour l'instant.</td></tr>`;
     $$("[data-profil]", el).forEach((b) => b.onclick = () => ouvrirProfil(b.dataset.profil));
   } catch (err) { $("#cl").innerHTML = `<tr><td colspan="5" class="err">${esc(err.message)}</td></tr>`; }
@@ -611,7 +614,7 @@ async function classementSemaine(el) {
     const { joueurs, finLe } = await api("classement/semaine");
     $("#semFin").textContent = `Le classement repart de zéro dans ${finLe - Date.now() > 864e5 ? Math.ceil((finLe - Date.now()) / 864e5) + " jours" : duree(finLe - Date.now())} (chaque lundi).`;
     $("#cl").innerHTML = joueurs.length ? joueurs.map((j, i) => `<tr class="${j.pseudo === COMPTE.pseudo ? "moi" : ""}"><td>${["🥇", "🥈", "🥉"][i] || i + 1}</td>
-      <td><button class="pseudo" data-profil="${esc(j.pseudo)}"><span class="avatar">${esc(j.pseudo[0].toUpperCase())}</span>${esc(j.pseudo)}${j.admin ? " 👑" : ""}${j.premium ? " 💎" : ""}</button></td>
+      <td><button class="pseudo" data-profil="${esc(j.pseudo)}"><span class="avatar">${esc(j.pseudo[0].toUpperCase())}${avImg(j.pseudo)}</span>${esc(j.pseudo)}${j.admin ? " 👑" : ""}${j.premium ? " 💎" : ""}</button></td>
       <td>+${fmt(j.cartesGagnees)}</td><td>${j.victoires}</td><td>${fmt(j.score)}</td></tr>`).join("") : `<tr><td colspan="5" class="muted">Personne cette semaine pour l'instant : ouvrez des boosters et combattez !</td></tr>`;
     $$("[data-profil]", el).forEach((b) => b.onclick = () => ouvrirProfil(b.dataset.profil));
   } catch (e) { $("#cl").innerHTML = `<tr><td colspan="5" class="err">${esc(e.message)}</td></tr>`; }
@@ -622,7 +625,7 @@ async function ouvrirProfil(pseudo) {
     const p = await api("profil/" + encodeURIComponent(pseudo));
     const vitrine = p.vitrine.map((id) => BY_ID[id]).filter(Boolean);
     $("#modal .box").innerHTML = `<button class="close" data-close aria-label="Fermer">✕</button>
-      <div class="row"><span class="avatar big">${esc(p.pseudo[0].toUpperCase())}</span><div><h2 style="margin:0">${esc(p.pseudo)}${p.admin ? " 👑" : ""}${p.premium ? " 💎" : ""}</h2>
+      <div class="row"><span class="avatar big">${esc(p.pseudo[0].toUpperCase())}${avImg(p.pseudo)}</span><div><h2 style="margin:0">${esc(p.pseudo)}${p.admin ? " 👑" : ""}${p.premium ? " 💎" : ""}</h2>
       <span class="muted">Membre depuis le ${new Date(p.creeLe).toLocaleDateString("fr-FR")} · ⏱️ ${formatTempsJeu(p.tempsJeu)} de jeu${p.derniereCo ? ` · vu ${depuis(p.derniereCo)}` : ""}</span></div></div>
       <div class="statgrid"><div class="stat"><b>${fmt(p.cartes)}</b><span>cartes</span></div><div class="stat"><b>${p.secretes}</b><span>secrètes</span></div>
       <div class="stat"><b>${p.badges}</b><span>badges</span></div><div class="stat"><b>🏆 ${fmt(p.trophees || 0)}</b><span>trophées</span></div></div>
@@ -937,7 +940,7 @@ async function vueAdmin(v) {
   if (!COMPTE.admin) { v.innerHTML = `<div class="panel"><p>Accès réservé à l'administrateur.</p><button class="btn" data-aller="compte">Mon compte</button></div>`; brancherLiens(v); return; }
   v.innerHTML = `<div class="sectiontitle"><h3>👑 Administration</h3><span class="muted">Connecté en tant que ${esc(COMPTE.pseudo)}</span></div>
     <div class="statgrid" id="aStats"><div class="stat"><b>…</b><span>chargement</span></div></div>
-    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
+    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["avatars", "🖼️ Photos de profil"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
     <div id="aCorps"></div>`;
   $$("[data-a]", v).forEach((b) => b.onclick = () => { adminEtat.onglet = b.dataset.a; aller("admin"); });
   api("admin/stats").then((s) => {
@@ -945,7 +948,7 @@ async function vueAdmin(v) {
       .map(([l, n]) => `<div class="stat"><b>${fmt(n)}</b><span>${l}</span></div>`).join("");
   }).catch((e) => { $("#aStats").innerHTML = `<p class="err">${esc(e.message)}</p>`; });
   const corps = $("#aCorps");
-  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, evenements: adminEvenements, photos: adminPhotos, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
+  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, evenements: adminEvenements, photos: adminPhotos, avatars: adminAvatars, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
 }
 async function adminJoueurs(el) {
   el.innerHTML = `<input class="search" id="aq" type="search" placeholder="Rechercher un joueur…" value="${esc(adminEtat.q)}" style="max-width:none;width:100%;margin-bottom:10px">
@@ -1402,7 +1405,7 @@ const PAGES_LEGALES = {
     <h3>2. Accès et compte</h3><p>Le jeu est gratuit et jouable sans compte. Le compte, gratuit lui aussi, permet de sauvegarder sa collection dans le cloud et de participer au hub. L'inscription est ouverte aux personnes de 15 ans et plus, ou plus jeunes avec l'accord d'un parent. Vous êtes responsable de la confidentialité de votre mot de passe ; un seul compte par personne est conseillé.</p>
     <h3>3. Pièces, cartes et Premium</h3><p>Les pièces, boosters et cartes du jeu n'ont aucune valeur monétaire : ils ne se vendent pas et ne s'échangent pas contre de l'argent. Seule l'option Premium est payante ; elle est régie par les conditions générales de vente. Le jeu reste entièrement jouable sans payer.</p>
     <h3>3 bis. Arène et combats</h3><p>L'arène oppose votre deck à celui d'autres joueurs. Toute triche (modification de la sauvegarde, automatisation) peut entraîner la remise à zéro des trophées ou la suspension du compte.</p>
-    <h3>4. Règles du hub communautaire</h3><p>Sont interdits : les insultes, le harcèlement, les propos haineux ou discriminatoires, les contenus violents, sexuels ou illégaux, le spam, la publicité, la publication d'informations personnelles (les vôtres ou celles d'autrui) et l'usurpation d'identité, notamment de l'administrateur. Les pseudos doivent rester respectueux.</p>
+    <h3>4. Règles du hub communautaire</h3><p>Sont interdits, dans les messages publics, les messages privés et les photos de profil : les insultes, le harcèlement, les photos à caractère sexuel, violent ou choquant, les propos haineux ou discriminatoires, les contenus violents, sexuels ou illégaux, le spam, la publicité, la publication d'informations personnelles (les vôtres ou celles d'autrui) et l'usurpation d'identité, notamment de l'administrateur. Les pseudos doivent rester respectueux.</p>
     <h3>5. Modération</h3><p>L'administrateur peut supprimer tout message contraire à ces règles et suspendre ou supprimer un compte, sans préavis en cas de manquement grave. Chacun peut signaler un message.</p>
     <h3>6. Vos contenus</h3><p>Vous restez propriétaire des messages que vous publiez et accordez à ${NOM_SITE} le droit de les afficher dans le hub tant qu'ils sont en ligne. Les illustrations que vous ajoutez à vos cartes restent privées : elles ne sont pas publiées dans le hub.</p>
     <h3>7. Responsabilité</h3><p>Le jeu est fourni tel quel, sans garantie de disponibilité permanente. L'éditeur fait ses meilleurs efforts pour conserver les sauvegardes mais ne peut garantir l'absence de perte ; pensez à exporter votre progression. Les anecdotes sont proposées à titre ludique et peuvent comporter des imprécisions.</p>
@@ -1413,7 +1416,7 @@ const PAGES_LEGALES = {
     <h3>Responsable du traitement</h3><p>${EDITEUR}, éditeur du site. Contact : ${CONTACT}.</p>
     <h3>Données traitées</h3>
     <ul><li><b>Sans compte</b> : votre progression est enregistrée uniquement dans votre navigateur (stockage local). Elle ne nous est pas transmise.</li>
-    <li><b>Avec un compte</b> : votre pseudo, votre mot de passe (enregistré sous forme chiffrée et irréversible, jamais en clair), la date d'inscription, de dernière connexion et d'acceptation des conditions, votre sauvegarde de jeu (y compris vos collections et illustrations personnelles), votre vitrine, et vos activités dans le hub (messages, « j'aime », signalements).</li>
+    <li><b>Avec un compte</b> : votre pseudo, votre mot de passe (enregistré sous forme chiffrée et irréversible, jamais en clair), la date d'inscription, de dernière connexion et d'acceptation des conditions, votre sauvegarde de jeu (y compris vos collections et illustrations personnelles), votre vitrine, votre photo de profil si vous en ajoutez une, et vos activités dans le hub (messages publics et privés, « j'aime », signalements, joueurs bloqués).</li>
     <li><b>Données techniques</b> : comme tout hébergeur, Cloudflare traite les adresses IP et journaux de connexion pour faire fonctionner et sécuriser le site.</li></ul>
     <h3>Finalités et bases légales</h3>
     <ul><li>Fournir le compte, la sauvegarde et le hub : exécution du service que vous demandez (article 6.1.b du RGPD).</li>
