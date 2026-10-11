@@ -1,6 +1,6 @@
-# Configuration du Worker « worldcarte » (WorldCards).
+# Configuration du Worker « coda » (WorldCards).
 # Le nom doit être identique à celui du Worker dans Cloudflare.
-name = "worldcarte"
+name = "coda"
 main = "worker.js"
 compatibility_date = "2025-01-01"
 
