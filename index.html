@@ -5,146 +5,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Coda — Assistant IA unifié</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
-<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
-<style>
-  :root {
-    --bg: #f7f7f5; --panel: #ffffff; --side: #efeeea; --text: #1d1d1b; --muted: #6b6a66;
-    --border: #e2e0da; --accent: #c96442; --accent-text: #fff; --code: #f0efea; --danger: #b3261e;
-    --claude: #c96442; --openai: #10a37f; --gemini: #4285f4; --openrouter: #7c5cff; --grok: #1d1d1b; --win: #d4a017;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #1c1c1a; --panel: #262624; --side: #191917; --text: #ecebe6; --muted: #9c9a93;
-      --border: #3a3936; --code: #30302d; --danger: #f2b8b5; --grok: #d9d9d4;
-    }
-  }
-  :root[data-theme="dark"] {
-    --bg: #1c1c1a; --panel: #262624; --side: #191917; --text: #ecebe6; --muted: #9c9a93;
-    --border: #3a3936; --code: #30302d; --danger: #f2b8b5; --grok: #d9d9d4;
-  }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
-  body { background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; display: flex; overflow: hidden; }
-  button, input, select, textarea { font: inherit; color: inherit; }
-  button { cursor: pointer; }
-
-  /* Barre latérale */
-  #sidebar { width: 260px; flex-shrink: 0; background: var(--side); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-  #sidebar header { padding: 16px; display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 18px; }
-  #sidebar header span { color: var(--accent); }
-  .btn { border: 1px solid var(--border); background: var(--panel); border-radius: 10px; padding: 8px 12px; }
-  .btn:hover { border-color: var(--muted); }
-  .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
-  #newChat { margin: 0 12px 12px; }
-  #convList { flex: 1; overflow-y: auto; padding: 0 8px; }
-  .conv { display: flex; align-items: center; gap: 4px; padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--muted); }
-  .conv:hover, .conv.active { background: var(--panel); color: var(--text); }
-  .conv .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .conv .del { border: 0; background: none; color: var(--muted); opacity: 0; padding: 0 4px; }
-  .conv:hover .del { opacity: 1; }
-  #board { margin: 4px 12px 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); font-size: 13px; }
-  #board h4 { margin: 0 0 6px; font-size: 13px; }
-  #board .b { display: grid; grid-template-columns: 74px 1fr 22px; gap: 6px; align-items: center; margin: 3px 0; }
-  #board .bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
-  #board .bar i { display: block; height: 100%; }
-  #board .n { text-align: right; color: var(--muted); }
-  #sidebar footer { padding: 12px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
-  #sidebar footer .btn { flex: 1; }
-
-  /* Zone principale */
-  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  #topbar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-  #menuBtn { display: none; }
-  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-  .seg button { border: 0; background: transparent; padding: 6px 12px; }
-  .seg button.on { background: var(--text); color: var(--bg); }
-  #picker { display: flex; gap: 6px; flex-wrap: wrap; }
-  .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--panel); border-radius: 999px; padding: 4px 10px; font-size: 13px; }
-  .chip .dot { width: 9px; height: 9px; border-radius: 50%; }
-  .chip.on { border-color: var(--text); box-shadow: inset 0 0 0 1px var(--text); }
-  .chip.off { opacity: .45; }
-
-  #messages { flex: 1; overflow-y: auto; padding: 24px 16px 8px; }
-  .wrap { max-width: 860px; margin: 0 auto; }
-  .turn { margin-bottom: 24px; }
-  .user { margin-left: auto; max-width: 80%; width: fit-content; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 10px 14px; white-space: pre-wrap; word-wrap: break-word; }
-  .replies { display: grid; gap: 12px; margin-top: 12px; }
-  .replies.multi { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-  .reply { min-width: 0; }
-  .replies.multi .reply { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
-  .who { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-  .who .dot { width: 8px; height: 8px; border-radius: 50%; }
-  .who .copy { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 12px; }
-  .who .time { font-variant-numeric: tabular-nums; }
-  .score { margin-left: auto; font-weight: 700; color: var(--text); background: var(--code); border-radius: 6px; padding: 0 6px; }
-  .score + .copy { margin-left: 4px; }
-  .replies.multi .reply.winner { border-color: var(--win); box-shadow: 0 0 0 1px var(--win); }
-  .crown { color: var(--win); }
-  .cmt { font-size: 12.5px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
-  .verdict { margin-top: 10px; border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; font-size: 14px; background: var(--panel); display: flex; gap: 10px; align-items: baseline; }
-  .verdict .v { flex: 1; }
-  .verdict small { color: var(--muted); }
-  .verdict .rejudge { border: 0; background: none; color: var(--muted); font-size: 12px; white-space: nowrap; }
-  .body { overflow-wrap: anywhere; }
-  .body p:first-child { margin-top: 0; } .body p:last-child { margin-bottom: 0; }
-  .body pre { background: var(--code); padding: 12px; border-radius: 10px; overflow-x: auto; }
-  .body code { background: var(--code); padding: 1px 5px; border-radius: 5px; font-size: 13.5px; }
-  .body pre code { padding: 0; background: none; }
-  .body table { border-collapse: collapse; } .body td, .body th { border: 1px solid var(--border); padding: 4px 8px; }
-  .err { color: var(--danger); white-space: pre-wrap; }
-  .typing::after { content: "▍"; animation: blink 1s steps(2) infinite; }
-  @keyframes blink { 50% { opacity: 0; } }
-
-  #empty { text-align: center; color: var(--muted); margin-top: 12vh; }
-  #empty h1 { color: var(--text); font-weight: 600; margin-bottom: 6px; }
-
-  #composer { padding: 12px 16px 16px; }
-  #composer .box { max-width: 860px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 8px 8px 8px 14px; }
-  #input { flex: 1; border: 0; outline: 0; background: transparent; resize: none; max-height: 220px; padding: 6px 0; }
-  #send { border-radius: 10px; min-width: 44px; }
-  #hint { max-width: 860px; margin: 6px auto 0; font-size: 12px; color: var(--muted); text-align: center; }
-
-  /* Paramètres */
-  dialog { border: 1px solid var(--border); border-radius: 16px; background: var(--panel); color: var(--text); padding: 0; width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
-  dialog::backdrop { background: rgba(0,0,0,.4); }
-  dialog form { padding: 20px; }
-  dialog h2 { margin: 0 0 4px; }
-  .prov { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin: 12px 0; }
-  .prov h3 { margin: 0 0 8px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
-  .prov h3 a { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--muted); }
-  .row { display: grid; grid-template-columns: 90px 1fr; gap: 8px; align-items: center; margin-top: 6px; }
-  .row label { font-size: 13px; color: var(--muted); }
-  .row input, textarea.sys { width: 100%; border: 1px solid var(--border); background: var(--bg); border-radius: 8px; padding: 7px 10px; }
-  .note { font-size: 12.5px; color: var(--muted); }
-  .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-
-  @media (max-width: 760px) {
-    #sidebar { position: fixed; z-index: 10; inset: 0 auto 0 0; transform: translateX(-100%); transition: transform .2s; }
-    body.side-open #sidebar { transform: none; box-shadow: 0 0 40px rgba(0,0,0,.3); }
-    #menuBtn { display: inline-block; }
-    .user { max-width: 92%; }
-    .row { grid-template-columns: 1fr; }
-  }
-</style>
+<link rel="stylesheet" href="style.css">
+<script src="vendor/marked.min.js"></script>
+<script src="vendor/purify.min.js"></script>
 </head>
 <body>
 <aside id="sidebar">
   <header><span>✦</span> Coda</header>
   <button class="btn primary" id="newChat">＋ Nouvelle conversation</button>
-  <div id="board"></div>
+  <div id="board" style="display:none"></div>
   <div id="convList"></div>
   <footer>
-    <button class="btn" id="openSettings">⚙︎ Clés &amp; modèles</button>
-    <button class="btn" id="themeBtn" title="Thème" style="flex:0">◐</button>
+    <button class="btn" id="openSettings">⚙︎ Réglages</button>
+    <button class="btn" id="themeBtn" title="Thème clair / sombre" style="flex:0">◐</button>
   </footer>
 </aside>
 
 <main>
   <div id="topbar">
-    <button class="btn" id="menuBtn">☰</button>
+    <button class="btn" id="menuBtn" aria-label="Menu">☰</button>
     <div class="seg" id="modeSeg">
-      <button data-mode="single" class="on">Un assistant</button>
+      <button data-mode="auto" title="L'IA est choisie automatiquement selon la tâche">✦ Auto</button>
+      <button data-mode="single">Un assistant</button>
       <button data-mode="compare">Comparer</button>
     </div>
     <div id="picker"></div>
@@ -154,446 +36,67 @@
 
   <div id="composer">
     <div class="box">
-      <textarea id="input" rows="1" placeholder="Écrivez votre message…"></textarea>
-      <button class="btn primary" id="send" title="Envoyer">➤</button>
+      <div id="attachBar"></div>
+      <div class="inrow">
+        <button id="attachBtn" title="Joindre un fichier (image, PDF, vidéo, audio, texte)">📎</button>
+        <input type="file" id="fileInput" multiple hidden>
+        <textarea id="input" rows="1" placeholder="Écrivez votre message…"></textarea>
+        <button class="btn primary" id="send" title="Envoyer">➤</button>
+      </div>
     </div>
-    <div id="hint">Entrée pour envoyer · Maj+Entrée pour une nouvelle ligne</div>
+    <div id="hint"></div>
   </div>
+  <div id="drop">Déposez vos fichiers ici</div>
 </main>
 
 <dialog id="settings">
   <form method="dialog">
-    <h2>Clés API &amp; modèles</h2>
-    <p class="note">Les abonnements grand public (ChatGPT Plus, Gemini Advanced, Claude Pro) ne peuvent pas être branchés sur un site tiers : il faut une <b>clé API</b> de chaque fournisseur. Vos clés restent dans ce navigateur (localStorage) et sont envoyées directement aux fournisseurs, jamais ailleurs.</p>
-    <div id="provForm"></div>
-    <label class="note" for="sysPrompt">Instructions système (communes à tous les assistants)</label>
-    <textarea class="sys" id="sysPrompt" rows="3" placeholder="Ex. : Réponds toujours en français, de façon concise."></textarea>
-    <div class="prov">
-      <h3>⚖ Arbitre (mode Comparer)</h3>
-      <p class="note" style="margin:0 0 6px">Quand toutes les IA ont répondu, l'arbitre lit les réponses <b>anonymisées</b> (A, B, C…), les note sur 10 et désigne la meilleure.</p>
-      <div class="row"><label for="judgeSel">Arbitre</label><select id="judgeSel" style="border:1px solid var(--border);background:var(--bg);border-radius:8px;padding:7px 10px"></select></div>
-      <div class="row"><label for="autoJudge">Automatique</label><label style="color:var(--text)"><input type="checkbox" id="autoJudge" style="width:auto"> Juger chaque comparaison automatiquement</label></div>
+    <h2>Réglages</h2>
+    <div class="tabs" id="tabs">
+      <button type="button" data-tab="cloud" class="on">☁︎ IA en ligne</button>
+      <button type="button" data-tab="local">💻 IA locales</button>
+      <button type="button" data-tab="routes">✦ Mode Auto</button>
+      <button type="button" data-tab="general">⚖ Arbitre &amp; général</button>
     </div>
+
+    <div class="pane on" data-pane="cloud">
+      <p class="note">Les abonnements grand public (ChatGPT Plus, Gemini Advanced, Claude Pro, SuperGrok) ne peuvent pas être branchés sur un site tiers : il faut une <b>clé API</b>. Vos clés restent dans ce navigateur et partent uniquement vers le fournisseur concerné. <b>Sans clé ni compte ?</b> Utilisez l'onglet « IA locales ».</p>
+      <div id="cloudForm"></div>
+    </div>
+
+    <div class="pane" data-pane="local">
+      <p class="note">Ces IA tournent <b>sur votre ordinateur</b> : gratuites, sans compte, sans clé, et rien ne sort de votre machine. Installez <a href="https://ollama.com/download" target="_blank" rel="noopener">Ollama</a>, puis dans un terminal : <code>ollama pull llama3.2</code> (ou <code>gemma3</code> pour qu'elle voie aussi les images). Ouvrez ce site avec le script <code>lancer</code> fourni.</p>
+      <div id="localForm"></div>
+    </div>
+
+    <div class="pane routes" data-pane="routes">
+      <p class="note">En mode <b>✦ Auto</b>, chaque message part vers l'IA choisie pour ce type de tâche. Si elle n'est pas configurée, la première IA compatible prend le relais. Astuce : commencez un message par <code>@gemini</code>, <code>@claude</code>, <code>@grok</code>… pour forcer une IA.</p>
+      <div id="routeForm"></div>
+    </div>
+
+    <div class="pane" data-pane="general">
+      <div class="prov">
+        <h3>⚖ Arbitre (mode Comparer)</h3>
+        <p class="note" style="margin:0 0 6px">Quand toutes les IA ont répondu, l'arbitre lit les réponses <b>anonymisées</b> (A, B, C…), les note sur 10 et désigne la meilleure.</p>
+        <div class="row"><label for="judgeSel">Arbitre</label><select id="judgeSel"></select></div>
+        <div class="row"><label for="autoJudge">Automatique</label><label><input type="checkbox" id="autoJudge"> Juger chaque comparaison</label></div>
+      </div>
+      <label class="note" for="sysPrompt">Instructions système (communes à toutes les IA)</label>
+      <textarea class="sys" id="sysPrompt" rows="3" placeholder="Ex. : Réponds toujours en français, de façon concise."></textarea>
+      <div class="actions" style="justify-content:flex-start">
+        <button type="button" class="btn small" id="exportBtn">⬇ Exporter mes conversations</button>
+        <button type="button" class="btn small" id="importBtn">⬆ Importer</button>
+        <input type="file" id="importFile" accept=".json,application/json" hidden>
+      </div>
+    </div>
+
     <div class="actions">
       <button class="btn" value="cancel">Annuler</button>
-      <button class="btn primary" value="save" id="saveSettings">Enregistrer</button>
+      <button class="btn primary" value="save">Enregistrer</button>
     </div>
   </form>
 </dialog>
 
-<script>
-"use strict";
-
-/* ---------- Fournisseurs ---------- */
-const PROVIDERS = {
-  claude: {
-    name: "Claude", color: "var(--claude)", keyUrl: "https://console.anthropic.com/settings/keys",
-    defaultModel: "claude-sonnet-5-5",
-    models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
-    request(key, model, msgs, system) {
-      return {
-        url: "https://api.anthropic.com/v1/messages",
-        headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: { model, max_tokens: 8192, stream: true, messages: msgs, ...(system ? { system } : {}) },
-      };
-    },
-    delta: (d) => d.type === "content_block_delta" && d.delta?.type === "text_delta" ? d.delta.text : "",
-  },
-  openai: {
-    name: "ChatGPT", color: "var(--openai)", keyUrl: "https://platform.openai.com/api-keys",
-    defaultModel: "gpt-5",
-    models: ["gpt-5", "gpt-5-mini", "gpt-4.1", "o3"],
-    request(key, model, msgs, system) {
-      return {
-        url: "https://api.openai.com/v1/chat/completions",
-        headers: { Authorization: "Bearer " + key },
-        body: { model, stream: true, messages: system ? [{ role: "system", content: system }, ...msgs] : msgs },
-      };
-    },
-    delta: (d) => d.choices?.[0]?.delta?.content || "",
-  },
-  gemini: {
-    name: "Gemini", color: "var(--gemini)", keyUrl: "https://aistudio.google.com/apikey",
-    defaultModel: "gemini-2.5-flash",
-    models: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
-    request(key, model, msgs, system) {
-      return {
-        url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,
-        headers: { "x-goog-api-key": key },
-        body: {
-          contents: msgs.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-          ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
-        },
-      };
-    },
-    delta: (d) => (d.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join(""),
-  },
-  grok: {
-    name: "Grok", color: "var(--grok)", keyUrl: "https://console.x.ai",
-    defaultModel: "grok-4",
-    models: ["grok-4", "grok-4-fast", "grok-3", "grok-3-mini"],
-    request(key, model, msgs, system) {
-      return {
-        url: "https://api.x.ai/v1/chat/completions",
-        headers: { Authorization: "Bearer " + key },
-        body: { model, stream: true, messages: system ? [{ role: "system", content: system }, ...msgs] : msgs },
-      };
-    },
-    delta: (d) => d.choices?.[0]?.delta?.content || "",
-  },
-  openrouter: {
-    name: "OpenRouter", color: "var(--openrouter)", keyUrl: "https://openrouter.ai/keys",
-    defaultModel: "mistralai/mistral-large",
-    models: ["mistralai/mistral-large", "meta-llama/llama-3.3-70b-instruct", "deepseek/deepseek-chat", "x-ai/grok-3"],
-    request(key, model, msgs, system) {
-      return {
-        url: "https://openrouter.ai/api/v1/chat/completions",
-        headers: { Authorization: "Bearer " + key, "X-Title": "Coda" },
-        body: { model, stream: true, messages: system ? [{ role: "system", content: system }, ...msgs] : msgs },
-      };
-    },
-    delta: (d) => d.choices?.[0]?.delta?.content || "",
-  },
-};
-
-/* ---------- Stockage ---------- */
-const store = {
-  get(k, def) { try { const v = localStorage.getItem("coda:" + k); return v ? JSON.parse(v) : def; } catch { return def; } },
-  set(k, v) { try { localStorage.setItem("coda:" + k, JSON.stringify(v)); } catch {} },
-};
-let settings = { keys: {}, models: {}, system: "", judge: "auto", autoJudge: true, ...store.get("settings", {}) };
-let conversations = store.get("conversations", []);
-let ui = store.get("ui", { mode: "single", single: "claude", compare: ["claude", "openai", "gemini", "grok"], theme: "" });
-let currentId = null;
-const controllers = new Set();
-
-const $ = (s) => document.querySelector(s);
-const save = () => { store.set("conversations", conversations); };
-const modelOf = (p) => settings.models[p] || PROVIDERS[p].defaultModel;
-const hasKey = (p) => !!settings.keys[p];
-const judgeOf = () => settings.judge !== "auto" && hasKey(settings.judge) ? settings.judge
-  : ["claude", "openai", "gemini", "grok", "openrouter"].find(hasKey);
-const secs = (ms) => (ms / 1000).toFixed(1).replace(".", ",") + " s";
-const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
-
-/* ---------- Rendu Markdown ---------- */
-function md(text) {
-  if (window.marked && window.DOMPurify) return DOMPurify.sanitize(marked.parse(text));
-  const d = document.createElement("div"); d.textContent = text; return d.innerHTML.replace(/\n/g, "<br>");
-}
-
-/* ---------- Thème ---------- */
-function applyTheme() { if (ui.theme) document.documentElement.dataset.theme = ui.theme; else delete document.documentElement.dataset.theme; }
-$("#themeBtn").onclick = () => {
-  const dark = ui.theme ? ui.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-  ui.theme = dark ? "light" : "dark"; store.set("ui", ui); applyTheme();
-};
-
-/* ---------- Sélecteur d'assistants ---------- */
-function renderPicker() {
-  document.querySelectorAll("#modeSeg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === ui.mode));
-  const picker = $("#picker"); picker.innerHTML = "";
-  for (const [id, p] of Object.entries(PROVIDERS)) {
-    const on = ui.mode === "single" ? ui.single === id : ui.compare.includes(id);
-    const chip = document.createElement("button");
-    chip.className = "chip" + (on ? " on" : "") + (hasKey(id) ? "" : " off");
-    chip.title = hasKey(id) ? modelOf(id) : "Clé API manquante — cliquez sur « Clés & modèles »";
-    chip.innerHTML = `<span class="dot" style="background:${p.color}"></span>${p.name}`;
-    chip.onclick = () => {
-      if (!hasKey(id)) { openSettings(id); return; }
-      if (ui.mode === "single") ui.single = id;
-      else ui.compare = on ? ui.compare.filter((x) => x !== id) : [...ui.compare, id];
-      store.set("ui", ui); renderPicker();
-    };
-    picker.appendChild(chip);
-  }
-}
-document.querySelectorAll("#modeSeg button").forEach((b) => b.onclick = () => { ui.mode = b.dataset.mode; store.set("ui", ui); renderPicker(); });
-
-/* ---------- Conversations ---------- */
-const current = () => conversations.find((c) => c.id === currentId);
-function renderList() {
-  const list = $("#convList"); list.innerHTML = "";
-  for (const c of conversations) {
-    const el = document.createElement("div");
-    el.className = "conv" + (c.id === currentId ? " active" : "");
-    el.innerHTML = `<span class="t"></span><button class="del" title="Supprimer">✕</button>`;
-    el.querySelector(".t").textContent = c.title;
-    el.onclick = () => { currentId = c.id; renderList(); renderThread(); document.body.classList.remove("side-open"); };
-    el.querySelector(".del").onclick = (e) => {
-      e.stopPropagation();
-      if (!confirm("Supprimer cette conversation ?")) return;
-      conversations = conversations.filter((x) => x.id !== c.id);
-      if (currentId === c.id) currentId = null;
-      save(); renderList(); renderThread(); renderBoard();
-    };
-    list.appendChild(el);
-  }
-}
-$("#newChat").onclick = () => { currentId = null; renderList(); renderThread(); $("#input").focus(); document.body.classList.remove("side-open"); };
-$("#menuBtn").onclick = () => document.body.classList.toggle("side-open");
-
-function replyHTML(r, multi, judge) {
-  const p = PROVIDERS[r.provider];
-  const body = r.error ? `<div class="err"></div>` : `<div class="body${r.pending ? " typing" : ""}">${md(r.content || "")}</div>`;
-  const elapsed = r.start ? ((r.end || Date.now()) - r.start) : 0;
-  const time = multi && r.start ? `<span class="time">&nbsp;· ${r.pending ? "⏱ " : ""}${secs(elapsed)}</span>` : "";
-  const sc = judge?.status === "done" ? judge.scores[r.id] : null;
-  const win = judge?.status === "done" && judge.winner === r.id;
-  return `<div class="reply${win ? " winner" : ""}" data-rid="${r.id}">
-    <div class="who"><span class="dot" style="background:${p.color}"></span>${win ? `<span class="crown">🏆</span>` : ""}<b>${p.name}</b>&nbsp;· ${r.model}${time}
-      ${sc ? `<span class="score">${sc.note}/10</span>` : ""}
-      ${!r.pending && !r.error ? `<button class="copy" title="Copier">Copier</button>` : ""}</div>${body}
-    ${sc?.commentaire ? `<div class="cmt"></div>` : ""}</div>`;
-}
-function verdictHTML(t) {
-  const j = t.judge; if (!j) return "";
-  const by = `<small>arbitre : ${PROVIDERS[j.provider]?.name || "?"}</small>`;
-  if (j.status === "pending") return `<div class="verdict"><span class="v typing">⚖ L'arbitre compare les réponses…</span>${by}</div>`;
-  if (j.status === "error") return `<div class="verdict"><span class="v err"></span><button class="rejudge">↻ Réessayer</button></div>`;
-  const w = t.replies.find((r) => r.id === j.winner);
-  return `<div class="verdict"><span class="v">🏆 <b>Meilleure réponse : ${w ? PROVIDERS[w.provider].name : "?"}</b> — <span class="sum"></span></span>${by}<button class="rejudge" title="Juger à nouveau">↻</button></div>`;
-}
-function renderThread() {
-  const conv = current(); const thread = $("#thread");
-  if (!conv || !conv.turns.length) {
-    const ready = Object.keys(PROVIDERS).filter(hasKey);
-    thread.innerHTML = `<div id="empty"><h1>Tous vos assistants IA, au même endroit</h1>
-      <p>${ready.length ? "Choisissez un assistant en haut, ou passez en mode <b>Comparer</b> pour interroger plusieurs IA à la fois."
-        : "Commencez par ajouter au moins une clé API (Claude, ChatGPT, Gemini…)."}</p>
-      ${ready.length ? "" : `<button class="btn primary" onclick="openSettings()">Ajouter mes clés API</button>`}</div>`;
-    return;
-  }
-  thread.innerHTML = "";
-  conv.turns.forEach((t) => thread.appendChild(turnEl(t)));
-  scrollDown(true);
-}
-function turnEl(t) {
-  const el = document.createElement("div"); el.className = "turn"; el.dataset.tid = t.id;
-  const multi = t.replies.length > 1;
-  el.innerHTML = `<div class="user"></div><div class="replies${multi ? " multi" : ""}">${t.replies.map((r) => replyHTML(r, multi, t.judge)).join("")}</div><div class="vslot"></div>`;
-  el.querySelector(".user").textContent = t.user;
-  t.replies.forEach((r) => wireReply(el.querySelector(`[data-rid="${r.id}"]`), r, t.judge));
-  renderVerdict(t, el);
-  return el;
-}
-function renderVerdict(t, el = document.querySelector(`[data-tid="${t.id}"]`)) {
-  if (!el) return;
-  const slot = el.querySelector(".vslot"); slot.innerHTML = verdictHTML(t);
-  if (t.judge?.status === "error") slot.querySelector(".err").textContent = "⚖ Arbitrage impossible : " + t.judge.error;
-  if (t.judge?.status === "done") slot.querySelector(".sum").textContent = t.judge.resume || "";
-  const btn = slot.querySelector(".rejudge"); if (btn) btn.onclick = () => judgeTurn(t);
-  // Met à jour notes et couronnes sur les cartes
-  t.replies.forEach((r) => { const n = el.querySelector(`[data-rid="${r.id}"]`); if (n) { const f = freshReply(r, t.replies.length > 1, t.judge); n.replaceWith(f); } });
-}
-function freshReply(r, multi, judge) {
-  const tmp = document.createElement("div"); tmp.innerHTML = replyHTML(r, multi, judge);
-  const f = tmp.firstElementChild; wireReply(f, r, judge); return f;
-}
-function wireReply(node, r, judge) {
-  if (r.error) node.querySelector(".err").textContent = "⚠ " + r.error;
-  const cmt = node.querySelector(".cmt"); if (cmt) cmt.textContent = "⚖ " + judge.scores[r.id].commentaire;
-  const copy = node.querySelector(".copy");
-  if (copy) copy.onclick = () => { navigator.clipboard?.writeText(r.content || ""); copy.textContent = "Copié ✓"; setTimeout(() => copy.textContent = "Copier", 1200); };
-}
-function updateReply(r, multi) {
-  const node = document.querySelector(`[data-rid="${r.id}"]`); if (node) node.replaceWith(freshReply(r, multi));
-}
-function scrollDown(force) {
-  const m = $("#messages");
-  if (force || m.scrollHeight - m.scrollTop - m.clientHeight < 120) m.scrollTop = m.scrollHeight;
-}
-
-/* ---------- Historique envoyé à chaque fournisseur ---------- */
-function historyFor(conv, provider, uptoTurn) {
-  const msgs = [];
-  for (const t of conv.turns) {
-    msgs.push({ role: "user", content: t.user });
-    if (t === uptoTurn) break;
-    const r = t.replies.find((x) => x.provider === provider && x.content) || t.replies.find((x) => x.content);
-    if (r) msgs.push({ role: "assistant", content: r.content });
-    else msgs.pop(); // tour sans réponse : on l'ignore pour garder l'alternance user/assistant
-  }
-  return msgs;
-}
-
-/* ---------- Appel streaming (SSE) ---------- */
-async function stream(providerId, msgs, onText, signal) {
-  const p = PROVIDERS[providerId];
-  const req = p.request(settings.keys[providerId], modelOf(providerId), msgs, settings.system.trim());
-  const res = await fetch(req.url, {
-    method: "POST", signal,
-    headers: { "Content-Type": "application/json", ...req.headers },
-    body: JSON.stringify(req.body),
-  });
-  if (!res.ok) {
-    let msg = `Erreur ${res.status}`;
-    try { const j = await res.json(); msg += " : " + (j.error?.message || j.message || JSON.stringify(j)); } catch {}
-    throw new Error(msg);
-  }
-  const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = "";
-  for (;;) {
-    const { value, done } = await reader.read(); if (done) break;
-    buf += dec.decode(value, { stream: true });
-    let i;
-    while ((i = buf.indexOf("\n")) >= 0) {
-      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-      if (!line.startsWith("data:")) continue;
-      const data = line.slice(5).trim();
-      if (!data || data === "[DONE]") continue;
-      let d; try { d = JSON.parse(data); } catch { continue; }
-      if (d.type === "error" || (d.error && !d.choices)) throw new Error(d.error?.message || "Erreur du fournisseur");
-      const t = p.delta(d); if (t) onText(t);
-    }
-  }
-}
-
-/* ---------- Envoi ---------- */
-async function send() {
-  const input = $("#input"); const text = input.value.trim();
-  if (!text || controllers.size) return;
-  const targets = (ui.mode === "single" ? [ui.single] : ui.compare).filter(hasKey);
-  if (!targets.length) { openSettings(); return; }
-
-  let conv = current();
-  if (!conv) {
-    conv = { id: uid(), title: text.slice(0, 60), turns: [], created: Date.now() };
-    conversations.unshift(conv); currentId = conv.id;
-  }
-  const turn = { id: uid(), user: text, replies: targets.map((p) => ({ id: uid(), provider: p, model: modelOf(p), content: "", pending: true })) };
-  conv.turns.push(turn);
-  input.value = ""; autosize();
-  save(); renderList();
-  if (conv.turns.length === 1) renderThread(); else { $("#thread").appendChild(turnEl(turn)); scrollDown(true); }
-  setBusy(true);
-
-  const multi = turn.replies.length > 1;
-  await Promise.all(turn.replies.map(async (r) => {
-    const ctrl = new AbortController(); controllers.add(ctrl);
-    let raf = 0; r.start = Date.now();
-    const tick = multi ? setInterval(() => updateReply(r, multi), 100) : 0;
-    try {
-      await stream(r.provider, historyFor(conv, r.provider, turn), (t) => {
-        r.content += t;
-        if (!raf) raf = requestAnimationFrame(() => { raf = 0; updateReply(r, multi); scrollDown(); });
-      }, ctrl.signal);
-    } catch (e) {
-      if (e.name !== "AbortError") r.error = /Failed to fetch|NetworkError/i.test(e.message)
-        ? "Impossible de joindre le fournisseur (réseau, clé invalide ou blocage CORS)." : e.message;
-    } finally {
-      cancelAnimationFrame(raf); clearInterval(tick); r.end = Date.now(); r.pending = false; controllers.delete(ctrl);
-      updateReply(r, multi); save(); scrollDown();
-    }
-  }));
-  setBusy(false);
-  if (multi && settings.autoJudge && turn.replies.filter((r) => r.content && !r.error).length >= 2) judgeTurn(turn);
-}
-
-/* ---------- Arbitre ---------- */
-async function judgeTurn(turn) {
-  const ok = turn.replies.filter((r) => r.content && !r.error);
-  const judge = judgeOf();
-  if (ok.length < 2 || !judge || turn.judge?.status === "pending") return;
-  const letters = ok.map((_, i) => String.fromCharCode(65 + i));
-  const prompt = `Tu es un arbitre impartial. Plusieurs assistants IA anonymes ont répondu à la même question. Évalue chaque réponse sur 10 (exactitude, utilité, clarté, complétude, respect de la demande). Ne favorise pas les réponses longues.
-
-QUESTION :
-${turn.user}
-
-${ok.map((r, i) => `=== RÉPONSE ${letters[i]} ===\n${r.content}`).join("\n\n")}
-
-Réponds UNIQUEMENT avec un objet JSON, sans texte autour, au format :
-{"notes":[{"id":"A","note":8,"commentaire":"une phrase courte en français"}],"gagnant":"A","resume":"une phrase expliquant pourquoi le gagnant est meilleur"}`;
-  turn.judge = { status: "pending", provider: judge };
-  renderVerdict(turn); scrollDown();
-  let out = "";
-  try {
-    const sys = settings.system; settings.system = "";
-    try { await stream(judge, [{ role: "user", content: prompt }], (t) => { out += t; }); } finally { settings.system = sys; }
-    const m = out.match(/\{[\s\S]*\}/); if (!m) throw new Error("réponse de l'arbitre illisible");
-    const j = JSON.parse(m[0]);
-    const scores = {};
-    for (const n of j.notes || []) { const r = ok[letters.indexOf(String(n.id).trim().toUpperCase())]; if (r) scores[r.id] = { note: Math.round(Number(n.note) * 10) / 10, commentaire: n.commentaire || "" }; }
-    let winner = ok[letters.indexOf(String(j.gagnant || "").trim().toUpperCase())]?.id;
-    if (!winner) winner = Object.entries(scores).sort((a, b) => b[1].note - a[1].note)[0]?.[0];
-    if (!winner) throw new Error("aucune note trouvée");
-    // Remplace « Réponse B » / « B » par le nom de l'IA correspondante
-    const unmask = (txt) => String(txt || "").replace(/\b(?:(?:la |le )?réponse\s+)?([A-Z])\b/gi, (m, l) =>
-      letters.includes(l) && (l === l.toUpperCase() || /réponse/i.test(m)) ? PROVIDERS[ok[letters.indexOf(l.toUpperCase())].provider].name : m);
-    for (const k in scores) scores[k].commentaire = unmask(scores[k].commentaire);
-    turn.judge = { status: "done", provider: judge, scores, winner, resume: unmask(j.resume) };
-  } catch (e) {
-    turn.judge = { status: "error", provider: judge, error: e.message };
-  }
-  save(); renderVerdict(turn); renderBoard(); scrollDown();
-}
-
-/* ---------- Classement général ---------- */
-function renderBoard() {
-  const wins = {}; let total = 0;
-  for (const c of conversations) for (const t of c.turns) {
-    if (t.judge?.status !== "done") continue;
-    const w = t.replies.find((r) => r.id === t.judge.winner); if (!w) continue;
-    wins[w.provider] = (wins[w.provider] || 0) + 1; total++;
-  }
-  const board = $("#board");
-  if (!total) { board.style.display = "none"; return; }
-  board.style.display = "";
-  const max = Math.max(...Object.values(wins));
-  board.innerHTML = `<h4>🏆 Classement (${total} duel${total > 1 ? "s" : ""})</h4>` +
-    Object.entries(wins).sort((a, b) => b[1] - a[1]).map(([id, n]) =>
-      `<div class="b"><span>${PROVIDERS[id].name}</span><span class="bar"><i style="width:${n / max * 100}%;background:${PROVIDERS[id].color}"></i></span><span class="n">${n}</span></div>`).join("");
-}
-function setBusy(b) { const s = $("#send"); s.textContent = b ? "■" : "➤"; s.title = b ? "Arrêter" : "Envoyer"; }
-$("#send").onclick = () => controllers.size ? controllers.forEach((c) => c.abort()) : send();
-const autosize = () => { const i = $("#input"); i.style.height = "auto"; i.style.height = Math.min(i.scrollHeight, 220) + "px"; };
-$("#input").addEventListener("input", autosize);
-$("#input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
-
-/* ---------- Paramètres ---------- */
-function openSettings(focus) {
-  const form = $("#provForm"); form.innerHTML = "";
-  for (const [id, p] of Object.entries(PROVIDERS)) {
-    const box = document.createElement("div"); box.className = "prov";
-    box.innerHTML = `<h3><span class="dot" style="width:10px;height:10px;border-radius:50%;background:${p.color}"></span>${p.name}
-        <a href="${p.keyUrl}" target="_blank" rel="noopener">Obtenir une clé ↗</a></h3>
-      <div class="row"><label for="k-${id}">Clé API</label><input id="k-${id}" type="password" autocomplete="off" spellcheck="false"></div>
-      <div class="row"><label for="m-${id}">Modèle</label><input id="m-${id}" list="l-${id}" spellcheck="false">
-        <datalist id="l-${id}">${p.models.map((m) => `<option value="${m}">`).join("")}</datalist></div>`;
-    box.querySelector(`#k-${id}`).value = settings.keys[id] || "";
-    box.querySelector(`#m-${id}`).value = modelOf(id);
-    form.appendChild(box);
-  }
-  $("#sysPrompt").value = settings.system;
-  $("#judgeSel").innerHTML = `<option value="auto">Automatique (première IA disponible)</option>` +
-    Object.entries(PROVIDERS).map(([id, p]) => `<option value="${id}">${p.name}</option>`).join("");
-  $("#judgeSel").value = settings.judge; $("#autoJudge").checked = settings.autoJudge;
-  $("#settings").showModal();
-  if (focus) $("#k-" + focus).focus();
-}
-window.openSettings = openSettings;
-$("#openSettings").onclick = () => openSettings();
-$("#settings").addEventListener("close", () => {
-  if ($("#settings").returnValue !== "save") return;
-  for (const id of Object.keys(PROVIDERS)) {
-    settings.keys[id] = $("#k-" + id).value.trim();
-    settings.models[id] = $("#m-" + id).value.trim() || PROVIDERS[id].defaultModel;
-  }
-  settings.system = $("#sysPrompt").value;
-  settings.judge = $("#judgeSel").value; settings.autoJudge = $("#autoJudge").checked;
-  store.set("settings", settings);
-  if (!hasKey(ui.single)) ui.single = Object.keys(PROVIDERS).find(hasKey) || ui.single;
-  store.set("ui", ui);
-  renderPicker(); renderThread();
-});
-
-/* ---------- Démarrage ---------- */
-// Réponses interrompues lors d'un rechargement de page
-conversations.forEach((c) => c.turns.forEach((t) => {
-  if (t.judge?.status === "pending") t.judge = { status: "error", provider: t.judge.provider, error: "interrompu" };
-  t.replies.forEach((r) => { if (r.pending) { r.pending = false; if (!r.content) r.error = "Réponse interrompue."; } });
-}));
-applyTheme(); renderPicker(); renderBoard(); renderList(); renderThread();
-</script>
+<script src="app.js"></script>
 </body>
 </html>
