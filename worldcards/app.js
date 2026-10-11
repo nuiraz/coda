@@ -279,6 +279,13 @@ function gagner(id) {
   return neuf;
 }
 
+// Confirmation dans la page (les fenêtres confirm() du navigateur ne sont pas toujours disponibles)
+function confirmer(message, libelle, action) {
+  ouvrirModal(`<h2 style="margin-top:0">Confirmer</h2><p>${esc(message)}</p>
+    <div class="row" style="justify-content:flex-end"><button class="btn" data-close>Annuler</button><button class="btn primary" id="okConfirm" style="background:var(--bad);border-color:var(--bad)">${esc(libelle)}</button></div>`);
+  $("#okConfirm").onclick = action;
+}
+
 /* =====================================================================
    Interface générale
    ===================================================================== */
@@ -811,11 +818,10 @@ function editerCollection(coll) {
     if (neuf) PERSO.collections.push(coll);
     await sauverPerso(); collOuverte = coll.id; fermerModal(); aller("collections");
   };
-  $("#cDel")?.addEventListener("click", async () => {
-    if (!confirm(`Supprimer la collection « ${coll.nom} » et ses cartes ?`)) return;
+  $("#cDel")?.addEventListener("click", () => confirmer(`Supprimer la collection « ${coll.nom} » et ses cartes ?`, "Supprimer", async () => {
     PERSO.collections = PERSO.collections.filter((c) => c.id !== coll.id);
     await sauverPerso(); collOuverte = null; fermerModal(); aller("collections");
-  });
+  }));
 }
 function vueUneCollection(v, coll) {
   v.innerHTML = `<div class="row" style="margin-bottom:10px"><button class="btn small" id="back">← Mes collections</button></div>
@@ -929,11 +935,10 @@ $("#settingsBtn").onclick = () => {
     };
     input.click();
   };
-  $("#sReset").onclick = async () => {
-    if (!confirm("Effacer toute votre progression et vos collections ? C'est définitif.")) return;
+  $("#sReset").onclick = () => confirmer("Effacer toute votre progression et vos collections ? C'est définitif.", "Tout effacer", async () => {
     S = nouvelleSauvegarde(); PERSO = { collections: [], illus: {} };
     sauver(); await sauverPerso(); fermerModal(); majCoins(); aller("accueil");
-  };
+  });
 };
 
 /* =====================================================================
