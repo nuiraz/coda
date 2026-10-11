@@ -11,17 +11,17 @@
   :root {
     --bg: #f7f7f5; --panel: #ffffff; --side: #efeeea; --text: #1d1d1b; --muted: #6b6a66;
     --border: #e2e0da; --accent: #c96442; --accent-text: #fff; --code: #f0efea; --danger: #b3261e;
-    --claude: #c96442; --openai: #10a37f; --gemini: #4285f4; --openrouter: #7c5cff;
+    --claude: #c96442; --openai: #10a37f; --gemini: #4285f4; --openrouter: #7c5cff; --grok: #1d1d1b; --win: #d4a017;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #1c1c1a; --panel: #262624; --side: #191917; --text: #ecebe6; --muted: #9c9a93;
-      --border: #3a3936; --code: #30302d; --danger: #f2b8b5;
+      --border: #3a3936; --code: #30302d; --danger: #f2b8b5; --grok: #d9d9d4;
     }
   }
   :root[data-theme="dark"] {
     --bg: #1c1c1a; --panel: #262624; --side: #191917; --text: #ecebe6; --muted: #9c9a93;
-    --border: #3a3936; --code: #30302d; --danger: #f2b8b5;
+    --border: #3a3936; --code: #30302d; --danger: #f2b8b5; --grok: #d9d9d4;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -43,6 +43,12 @@
   .conv .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .conv .del { border: 0; background: none; color: var(--muted); opacity: 0; padding: 0 4px; }
   .conv:hover .del { opacity: 1; }
+  #board { margin: 4px 12px 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); font-size: 13px; }
+  #board h4 { margin: 0 0 6px; font-size: 13px; }
+  #board .b { display: grid; grid-template-columns: 74px 1fr 22px; gap: 6px; align-items: center; margin: 3px 0; }
+  #board .bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
+  #board .bar i { display: block; height: 100%; }
+  #board .n { text-align: right; color: var(--muted); }
   #sidebar footer { padding: 12px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
   #sidebar footer .btn { flex: 1; }
 
@@ -70,6 +76,16 @@
   .who { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
   .who .dot { width: 8px; height: 8px; border-radius: 50%; }
   .who .copy { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 12px; }
+  .who .time { font-variant-numeric: tabular-nums; }
+  .score { margin-left: auto; font-weight: 700; color: var(--text); background: var(--code); border-radius: 6px; padding: 0 6px; }
+  .score + .copy { margin-left: 4px; }
+  .replies.multi .reply.winner { border-color: var(--win); box-shadow: 0 0 0 1px var(--win); }
+  .crown { color: var(--win); }
+  .cmt { font-size: 12.5px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+  .verdict { margin-top: 10px; border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; font-size: 14px; background: var(--panel); display: flex; gap: 10px; align-items: baseline; }
+  .verdict .v { flex: 1; }
+  .verdict small { color: var(--muted); }
+  .verdict .rejudge { border: 0; background: none; color: var(--muted); font-size: 12px; white-space: nowrap; }
   .body { overflow-wrap: anywhere; }
   .body p:first-child { margin-top: 0; } .body p:last-child { margin-bottom: 0; }
   .body pre { background: var(--code); padding: 12px; border-radius: 10px; overflow-x: auto; }
@@ -116,6 +132,7 @@
 <aside id="sidebar">
   <header><span>✦</span> Coda</header>
   <button class="btn primary" id="newChat">＋ Nouvelle conversation</button>
+  <div id="board"></div>
   <div id="convList"></div>
   <footer>
     <button class="btn" id="openSettings">⚙︎ Clés &amp; modèles</button>
@@ -151,6 +168,12 @@
     <div id="provForm"></div>
     <label class="note" for="sysPrompt">Instructions système (communes à tous les assistants)</label>
     <textarea class="sys" id="sysPrompt" rows="3" placeholder="Ex. : Réponds toujours en français, de façon concise."></textarea>
+    <div class="prov">
+      <h3>⚖ Arbitre (mode Comparer)</h3>
+      <p class="note" style="margin:0 0 6px">Quand toutes les IA ont répondu, l'arbitre lit les réponses <b>anonymisées</b> (A, B, C…), les note sur 10 et désigne la meilleure.</p>
+      <div class="row"><label for="judgeSel">Arbitre</label><select id="judgeSel" style="border:1px solid var(--border);background:var(--bg);border-radius:8px;padding:7px 10px"></select></div>
+      <div class="row"><label for="autoJudge">Automatique</label><label style="color:var(--text)"><input type="checkbox" id="autoJudge" style="width:auto"> Juger chaque comparaison automatiquement</label></div>
+    </div>
     <div class="actions">
       <button class="btn" value="cancel">Annuler</button>
       <button class="btn primary" value="save" id="saveSettings">Enregistrer</button>
@@ -205,6 +228,19 @@ const PROVIDERS = {
     },
     delta: (d) => (d.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join(""),
   },
+  grok: {
+    name: "Grok", color: "var(--grok)", keyUrl: "https://console.x.ai",
+    defaultModel: "grok-4",
+    models: ["grok-4", "grok-4-fast", "grok-3", "grok-3-mini"],
+    request(key, model, msgs, system) {
+      return {
+        url: "https://api.x.ai/v1/chat/completions",
+        headers: { Authorization: "Bearer " + key },
+        body: { model, stream: true, messages: system ? [{ role: "system", content: system }, ...msgs] : msgs },
+      };
+    },
+    delta: (d) => d.choices?.[0]?.delta?.content || "",
+  },
   openrouter: {
     name: "OpenRouter", color: "var(--openrouter)", keyUrl: "https://openrouter.ai/keys",
     defaultModel: "mistralai/mistral-large",
@@ -225,9 +261,9 @@ const store = {
   get(k, def) { try { const v = localStorage.getItem("coda:" + k); return v ? JSON.parse(v) : def; } catch { return def; } },
   set(k, v) { try { localStorage.setItem("coda:" + k, JSON.stringify(v)); } catch {} },
 };
-let settings = store.get("settings", { keys: {}, models: {}, system: "" });
+let settings = { keys: {}, models: {}, system: "", judge: "auto", autoJudge: true, ...store.get("settings", {}) };
 let conversations = store.get("conversations", []);
-let ui = store.get("ui", { mode: "single", single: "claude", compare: ["claude", "openai", "gemini"], theme: "" });
+let ui = store.get("ui", { mode: "single", single: "claude", compare: ["claude", "openai", "gemini", "grok"], theme: "" });
 let currentId = null;
 const controllers = new Set();
 
@@ -235,6 +271,9 @@ const $ = (s) => document.querySelector(s);
 const save = () => { store.set("conversations", conversations); };
 const modelOf = (p) => settings.models[p] || PROVIDERS[p].defaultModel;
 const hasKey = (p) => !!settings.keys[p];
+const judgeOf = () => settings.judge !== "auto" && hasKey(settings.judge) ? settings.judge
+  : ["claude", "openai", "gemini", "grok", "openrouter"].find(hasKey);
+const secs = (ms) => (ms / 1000).toFixed(1).replace(".", ",") + " s";
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 /* ---------- Rendu Markdown ---------- */
@@ -286,7 +325,7 @@ function renderList() {
       if (!confirm("Supprimer cette conversation ?")) return;
       conversations = conversations.filter((x) => x.id !== c.id);
       if (currentId === c.id) currentId = null;
-      save(); renderList(); renderThread();
+      save(); renderList(); renderThread(); renderBoard();
     };
     list.appendChild(el);
   }
@@ -294,12 +333,26 @@ function renderList() {
 $("#newChat").onclick = () => { currentId = null; renderList(); renderThread(); $("#input").focus(); document.body.classList.remove("side-open"); };
 $("#menuBtn").onclick = () => document.body.classList.toggle("side-open");
 
-function replyHTML(r, multi) {
+function replyHTML(r, multi, judge) {
   const p = PROVIDERS[r.provider];
   const body = r.error ? `<div class="err"></div>` : `<div class="body${r.pending ? " typing" : ""}">${md(r.content || "")}</div>`;
-  return `<div class="reply" data-rid="${r.id}">
-    <div class="who"><span class="dot" style="background:${p.color}"></span><b>${p.name}</b>&nbsp;· ${r.model}
-      ${multi || !r.pending ? `<button class="copy" title="Copier">Copier</button>` : ""}</div>${body}</div>`;
+  const elapsed = r.start ? ((r.end || Date.now()) - r.start) : 0;
+  const time = multi && r.start ? `<span class="time">&nbsp;· ${r.pending ? "⏱ " : ""}${secs(elapsed)}</span>` : "";
+  const sc = judge?.status === "done" ? judge.scores[r.id] : null;
+  const win = judge?.status === "done" && judge.winner === r.id;
+  return `<div class="reply${win ? " winner" : ""}" data-rid="${r.id}">
+    <div class="who"><span class="dot" style="background:${p.color}"></span>${win ? `<span class="crown">🏆</span>` : ""}<b>${p.name}</b>&nbsp;· ${r.model}${time}
+      ${sc ? `<span class="score">${sc.note}/10</span>` : ""}
+      ${!r.pending && !r.error ? `<button class="copy" title="Copier">Copier</button>` : ""}</div>${body}
+    ${sc?.commentaire ? `<div class="cmt"></div>` : ""}</div>`;
+}
+function verdictHTML(t) {
+  const j = t.judge; if (!j) return "";
+  const by = `<small>arbitre : ${PROVIDERS[j.provider]?.name || "?"}</small>`;
+  if (j.status === "pending") return `<div class="verdict"><span class="v typing">⚖ L'arbitre compare les réponses…</span>${by}</div>`;
+  if (j.status === "error") return `<div class="verdict"><span class="v err"></span><button class="rejudge">↻ Réessayer</button></div>`;
+  const w = t.replies.find((r) => r.id === j.winner);
+  return `<div class="verdict"><span class="v">🏆 <b>Meilleure réponse : ${w ? PROVIDERS[w.provider].name : "?"}</b> — <span class="sum"></span></span>${by}<button class="rejudge" title="Juger à nouveau">↻</button></div>`;
 }
 function renderThread() {
   const conv = current(); const thread = $("#thread");
@@ -318,20 +371,33 @@ function renderThread() {
 function turnEl(t) {
   const el = document.createElement("div"); el.className = "turn"; el.dataset.tid = t.id;
   const multi = t.replies.length > 1;
-  el.innerHTML = `<div class="user"></div><div class="replies${multi ? " multi" : ""}">${t.replies.map((r) => replyHTML(r, multi)).join("")}</div>`;
+  el.innerHTML = `<div class="user"></div><div class="replies${multi ? " multi" : ""}">${t.replies.map((r) => replyHTML(r, multi, t.judge)).join("")}</div><div class="vslot"></div>`;
   el.querySelector(".user").textContent = t.user;
-  t.replies.forEach((r) => wireReply(el.querySelector(`[data-rid="${r.id}"]`), r));
+  t.replies.forEach((r) => wireReply(el.querySelector(`[data-rid="${r.id}"]`), r, t.judge));
+  renderVerdict(t, el);
   return el;
 }
-function wireReply(node, r) {
+function renderVerdict(t, el = document.querySelector(`[data-tid="${t.id}"]`)) {
+  if (!el) return;
+  const slot = el.querySelector(".vslot"); slot.innerHTML = verdictHTML(t);
+  if (t.judge?.status === "error") slot.querySelector(".err").textContent = "⚖ Arbitrage impossible : " + t.judge.error;
+  if (t.judge?.status === "done") slot.querySelector(".sum").textContent = t.judge.resume || "";
+  const btn = slot.querySelector(".rejudge"); if (btn) btn.onclick = () => judgeTurn(t);
+  // Met à jour notes et couronnes sur les cartes
+  t.replies.forEach((r) => { const n = el.querySelector(`[data-rid="${r.id}"]`); if (n) { const f = freshReply(r, t.replies.length > 1, t.judge); n.replaceWith(f); } });
+}
+function freshReply(r, multi, judge) {
+  const tmp = document.createElement("div"); tmp.innerHTML = replyHTML(r, multi, judge);
+  const f = tmp.firstElementChild; wireReply(f, r, judge); return f;
+}
+function wireReply(node, r, judge) {
   if (r.error) node.querySelector(".err").textContent = "⚠ " + r.error;
+  const cmt = node.querySelector(".cmt"); if (cmt) cmt.textContent = "⚖ " + judge.scores[r.id].commentaire;
   const copy = node.querySelector(".copy");
   if (copy) copy.onclick = () => { navigator.clipboard?.writeText(r.content || ""); copy.textContent = "Copié ✓"; setTimeout(() => copy.textContent = "Copier", 1200); };
 }
 function updateReply(r, multi) {
-  const node = document.querySelector(`[data-rid="${r.id}"]`); if (!node) return;
-  const tmp = document.createElement("div"); tmp.innerHTML = replyHTML(r, multi);
-  const fresh = tmp.firstElementChild; node.replaceWith(fresh); wireReply(fresh, r);
+  const node = document.querySelector(`[data-rid="${r.id}"]`); if (node) node.replaceWith(freshReply(r, multi));
 }
 function scrollDown(force) {
   const m = $("#messages");
@@ -404,7 +470,8 @@ async function send() {
   const multi = turn.replies.length > 1;
   await Promise.all(turn.replies.map(async (r) => {
     const ctrl = new AbortController(); controllers.add(ctrl);
-    let raf = 0;
+    let raf = 0; r.start = Date.now();
+    const tick = multi ? setInterval(() => updateReply(r, multi), 100) : 0;
     try {
       await stream(r.provider, historyFor(conv, r.provider, turn), (t) => {
         r.content += t;
@@ -414,11 +481,68 @@ async function send() {
       if (e.name !== "AbortError") r.error = /Failed to fetch|NetworkError/i.test(e.message)
         ? "Impossible de joindre le fournisseur (réseau, clé invalide ou blocage CORS)." : e.message;
     } finally {
-      cancelAnimationFrame(raf); r.pending = false; controllers.delete(ctrl);
+      cancelAnimationFrame(raf); clearInterval(tick); r.end = Date.now(); r.pending = false; controllers.delete(ctrl);
       updateReply(r, multi); save(); scrollDown();
     }
   }));
   setBusy(false);
+  if (multi && settings.autoJudge && turn.replies.filter((r) => r.content && !r.error).length >= 2) judgeTurn(turn);
+}
+
+/* ---------- Arbitre ---------- */
+async function judgeTurn(turn) {
+  const ok = turn.replies.filter((r) => r.content && !r.error);
+  const judge = judgeOf();
+  if (ok.length < 2 || !judge || turn.judge?.status === "pending") return;
+  const letters = ok.map((_, i) => String.fromCharCode(65 + i));
+  const prompt = `Tu es un arbitre impartial. Plusieurs assistants IA anonymes ont répondu à la même question. Évalue chaque réponse sur 10 (exactitude, utilité, clarté, complétude, respect de la demande). Ne favorise pas les réponses longues.
+
+QUESTION :
+${turn.user}
+
+${ok.map((r, i) => `=== RÉPONSE ${letters[i]} ===\n${r.content}`).join("\n\n")}
+
+Réponds UNIQUEMENT avec un objet JSON, sans texte autour, au format :
+{"notes":[{"id":"A","note":8,"commentaire":"une phrase courte en français"}],"gagnant":"A","resume":"une phrase expliquant pourquoi le gagnant est meilleur"}`;
+  turn.judge = { status: "pending", provider: judge };
+  renderVerdict(turn); scrollDown();
+  let out = "";
+  try {
+    const sys = settings.system; settings.system = "";
+    try { await stream(judge, [{ role: "user", content: prompt }], (t) => { out += t; }); } finally { settings.system = sys; }
+    const m = out.match(/\{[\s\S]*\}/); if (!m) throw new Error("réponse de l'arbitre illisible");
+    const j = JSON.parse(m[0]);
+    const scores = {};
+    for (const n of j.notes || []) { const r = ok[letters.indexOf(String(n.id).trim().toUpperCase())]; if (r) scores[r.id] = { note: Math.round(Number(n.note) * 10) / 10, commentaire: n.commentaire || "" }; }
+    let winner = ok[letters.indexOf(String(j.gagnant || "").trim().toUpperCase())]?.id;
+    if (!winner) winner = Object.entries(scores).sort((a, b) => b[1].note - a[1].note)[0]?.[0];
+    if (!winner) throw new Error("aucune note trouvée");
+    // Remplace « Réponse B » / « B » par le nom de l'IA correspondante
+    const unmask = (txt) => String(txt || "").replace(/\b(?:(?:la |le )?réponse\s+)?([A-Z])\b/gi, (m, l) =>
+      letters.includes(l) && (l === l.toUpperCase() || /réponse/i.test(m)) ? PROVIDERS[ok[letters.indexOf(l.toUpperCase())].provider].name : m);
+    for (const k in scores) scores[k].commentaire = unmask(scores[k].commentaire);
+    turn.judge = { status: "done", provider: judge, scores, winner, resume: unmask(j.resume) };
+  } catch (e) {
+    turn.judge = { status: "error", provider: judge, error: e.message };
+  }
+  save(); renderVerdict(turn); renderBoard(); scrollDown();
+}
+
+/* ---------- Classement général ---------- */
+function renderBoard() {
+  const wins = {}; let total = 0;
+  for (const c of conversations) for (const t of c.turns) {
+    if (t.judge?.status !== "done") continue;
+    const w = t.replies.find((r) => r.id === t.judge.winner); if (!w) continue;
+    wins[w.provider] = (wins[w.provider] || 0) + 1; total++;
+  }
+  const board = $("#board");
+  if (!total) { board.style.display = "none"; return; }
+  board.style.display = "";
+  const max = Math.max(...Object.values(wins));
+  board.innerHTML = `<h4>🏆 Classement (${total} duel${total > 1 ? "s" : ""})</h4>` +
+    Object.entries(wins).sort((a, b) => b[1] - a[1]).map(([id, n]) =>
+      `<div class="b"><span>${PROVIDERS[id].name}</span><span class="bar"><i style="width:${n / max * 100}%;background:${PROVIDERS[id].color}"></i></span><span class="n">${n}</span></div>`).join("");
 }
 function setBusy(b) { const s = $("#send"); s.textContent = b ? "■" : "➤"; s.title = b ? "Arrêter" : "Envoyer"; }
 $("#send").onclick = () => controllers.size ? controllers.forEach((c) => c.abort()) : send();
@@ -441,6 +565,9 @@ function openSettings(focus) {
     form.appendChild(box);
   }
   $("#sysPrompt").value = settings.system;
+  $("#judgeSel").innerHTML = `<option value="auto">Automatique (première IA disponible)</option>` +
+    Object.entries(PROVIDERS).map(([id, p]) => `<option value="${id}">${p.name}</option>`).join("");
+  $("#judgeSel").value = settings.judge; $("#autoJudge").checked = settings.autoJudge;
   $("#settings").showModal();
   if (focus) $("#k-" + focus).focus();
 }
@@ -453,6 +580,7 @@ $("#settings").addEventListener("close", () => {
     settings.models[id] = $("#m-" + id).value.trim() || PROVIDERS[id].defaultModel;
   }
   settings.system = $("#sysPrompt").value;
+  settings.judge = $("#judgeSel").value; settings.autoJudge = $("#autoJudge").checked;
   store.set("settings", settings);
   if (!hasKey(ui.single)) ui.single = Object.keys(PROVIDERS).find(hasKey) || ui.single;
   store.set("ui", ui);
@@ -461,8 +589,11 @@ $("#settings").addEventListener("close", () => {
 
 /* ---------- Démarrage ---------- */
 // Réponses interrompues lors d'un rechargement de page
-conversations.forEach((c) => c.turns.forEach((t) => t.replies.forEach((r) => { if (r.pending) { r.pending = false; if (!r.content) r.error = "Réponse interrompue."; } })));
-applyTheme(); renderPicker(); renderList(); renderThread();
+conversations.forEach((c) => c.turns.forEach((t) => {
+  if (t.judge?.status === "pending") t.judge = { status: "error", provider: t.judge.provider, error: "interrompu" };
+  t.replies.forEach((r) => { if (r.pending) { r.pending = false; if (!r.content) r.error = "Réponse interrompue."; } });
+}));
+applyTheme(); renderPicker(); renderBoard(); renderList(); renderThread();
 </script>
 </body>
 </html>

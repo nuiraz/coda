@@ -1,11 +1,15 @@
 # Coda — tous vos assistants IA sur un seul site
 
-Une seule page web pour discuter avec **Claude**, **ChatGPT**, **Gemini** et des centaines d'autres modèles (Mistral, Llama, DeepSeek, Grok… via **OpenRouter**).
+Une seule page web pour discuter avec **Claude**, **ChatGPT**, **Gemini**, **Grok** et des centaines d'autres modèles (Mistral, Llama, DeepSeek… via **OpenRouter**).
 
 ## Fonctionnalités
 
 - **Un assistant** : discutez avec l'IA de votre choix et changez d'IA en cours de conversation.
-- **Comparer** : envoyez la même question à plusieurs IA en même temps et voyez leurs réponses côte à côte.
+- **Comparer** : envoyez la même question à plusieurs IA en même temps et voyez leurs réponses arriver côte à côte,
+  avec un chronomètre en direct pour chacune.
+- **Arbitre automatique** : dès que toutes les IA ont répondu, une IA arbitre lit les réponses *anonymisées*
+  (A, B, C…), les note sur 10, commente chacune et désigne la meilleure (🏆).
+- **Classement** : le nombre de victoires de chaque IA s'affiche dans la barre latérale.
 - Réponses affichées en direct (streaming), mise en forme Markdown, bouton « Copier ».
 - Historique des conversations enregistré dans votre navigateur.
 - Instructions système communes à tous les assistants (ex. « Réponds en français »).
@@ -19,6 +23,7 @@ Une seule page web pour discuter avec **Claude**, **ChatGPT**, **Gemini** et des
    - Claude : https://console.anthropic.com/settings/keys
    - ChatGPT (OpenAI) : https://platform.openai.com/api-keys
    - Gemini : https://aistudio.google.com/apikey (offre gratuite disponible)
+   - Grok (xAI) : https://console.x.ai
    - OpenRouter : https://openrouter.ai/keys
 3. Choisissez un assistant en haut, ou passez en mode **Comparer**.
 
@@ -29,5 +34,7 @@ Une seule page web pour discuter avec **Claude**, **ChatGPT**, **Gemini** et des
 - Les clés sont stockées uniquement dans le `localStorage` de votre navigateur et envoyées directement
   aux fournisseurs. N'utilisez ce site que sur un appareil personnel, et ne partagez pas une version
   contenant vos clés.
+- L'arbitre se choisit dans les paramètres (par défaut : la première IA disponible). Chaque arbitrage
+  consomme un appel API supplémentaire ; il peut être désactivé.
 - Les noms de modèles sont modifiables dans les paramètres : quand un fournisseur sort un nouveau
   modèle, tapez simplement son identifiant.
