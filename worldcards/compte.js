@@ -4,11 +4,11 @@
 
 // À personnaliser : coordonnées affichées dans les mentions légales
 const EDITEUR = "nuiraz";
-const CONTACT = "[skubisn@icloud.com]";
+const CONTACT = "skubisn@icloud.com";
 const NOM_SITE = "WorldCards";
 // Vente du Premium : la loi impose d'indiquer l'identité réelle du vendeur et son adresse (ou son numéro SIRET)
-const ADRESSE = ""; // ex. : "nathan skbs  , chaussee de charleroi , 5030 gembloux "
-const SIRET = "";   // ex. : " (micro-entreprise)"
+const ADRESSE = "Nathan Skbs, chaussée de Charleroi, 5030 Gembloux, Belgique";
+const SIRET = "";   // numéro d'entreprise belge (BCE), ex. : "Numéro d'entreprise BE 0123.456.789"
 const TVA_NON_APPLICABLE = true;
 
 let COMPTE = { etat: "inconnu", pseudo: null, admin: false, creeLe: null, premiumJusqu: 0 };
@@ -1432,7 +1432,7 @@ const PAGES_LEGALES = {
     <h3>Mineurs</h3><p>Avant 15 ans, l'inscription nécessite l'accord d'un parent.</p>`],
   cgv: ["Conditions générales de vente", `
     <h3>1. Vendeur</h3><p>${EDITEUR}${ADRESSE ? `, ${ADRESSE}` : ""}. Contact : ${CONTACT}.${SIRET ? ` ${SIRET}.` : ""}</p>
-    <h3>2. Offre</h3><p>Le Premium est un abonnement à des avantages numériques dans ${NOM_SITE} : 2 boosters Classiques supplémentaires par jour, accès aux boosters Prestige (dont un offert par semaine), chances de cartes Shiny doublées, 20 questions de quiz par jour au lieu de 10, 20 combats d'arène par jour au lieu de 10 et un badge 💎. Trois formules, sans renouvellement automatique : <b>1 mois pour 3,99 €</b> (31 jours), <b>1 an pour 29,99 €</b> (365 jours) et <b>à vie pour 89 €</b> (pendant toute la durée d'exploitation du jeu). Prix toutes taxes comprises${TVA_NON_APPLICABLE ? " ; TVA non applicable, article 293 B du CGI" : ""}.</p>
+    <h3>2. Offre</h3><p>Le Premium est un abonnement à des avantages numériques dans ${NOM_SITE} : 2 boosters Classiques supplémentaires par jour, accès aux boosters Prestige (dont un offert par semaine), chances de cartes Shiny doublées, 20 questions de quiz par jour au lieu de 10, 20 combats d'arène par jour au lieu de 10 et un badge 💎. Trois formules, sans renouvellement automatique : <b>1 mois pour 3,99 €</b> (31 jours), <b>1 an pour 29,99 €</b> (365 jours) et <b>à vie pour 89 €</b> (pendant toute la durée d'exploitation du jeu). Prix toutes taxes comprises${TVA_NON_APPLICABLE ? " ; TVA non applicable, régime de franchise des petites entreprises (art. 56bis du Code TVA belge)" : ""}.</p>
     <h3>3. Commande et paiement</h3><p>Le paiement se fait par PayPal (paypal.me/noozoaa), en indiquant son pseudo dans la note. Le Premium est lié au compte du joueur et activé manuellement après vérification du paiement, en général sous 24 heures et au plus tard sous 7 jours. Sans activation dans ce délai, le joueur est remboursé sur simple demande.</p>
     <h3>4. Droit de rétractation</h3><p>Le Premium est un contenu numérique fourni sur un support immatériel. Conformément à l'article L221-28 13° du Code de la consommation, en demandant son activation, le joueur accepte que l'exécution commence immédiatement et renonce à son droit de rétractation une fois le Premium activé. Avant activation, il peut annuler sa commande et être remboursé intégralement.</p>
     <h3>5. Durée et fin</h3><p>Les avantages s'appliquent pendant la durée achetée. En cas de suspension du compte pour manquement grave aux conditions d'utilisation, le Premium prend fin sans remboursement. En cas d'arrêt définitif du jeu, les joueurs Premium en cours (formules mensuelle et annuelle) sont remboursés au prorata de la durée restante.</p>
