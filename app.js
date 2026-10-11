@@ -107,7 +107,28 @@ let settings = {
   keys: {}, models: {}, imageModels: {}, videoModels: {}, urls: {}, local: {}, routes: {},
   system: "", judge: "auto", autoJudge: true, ...ls.get("settings", {}),
 };
-let ui = { mode: "auto", single: "claude", compare: ["claude", "openai", "gemini", "grok"], theme: "", ...ls.get("ui", {}) };
+let ui = { mode: "auto", single: "claude", compare: ["claude", "openai", "gemini", "grok"], subs: ["auto"], theme: "", ...ls.get("ui", {}) };
+
+/* Mode Abonnements : ouvre les sites officiels (où vous êtes connecté) avec la question pré-remplie.
+   Aucune clé API, aucun frais : c'est votre abonnement qui sert. */
+const SUBS = {
+  openai: { name: "ChatGPT", url: (q) => "https://chatgpt.com/?q=" + encodeURIComponent(q) },
+  claude: { name: "Claude", url: (q) => "https://claude.ai/new?q=" + encodeURIComponent(q) },
+  gemini: { name: "Gemini", url: () => "https://gemini.google.com/app", paste: true },
+  grok: { name: "Grok", url: (q) => "https://grok.com/?q=" + encodeURIComponent(q) },
+};
+const SUB_IDS = Object.keys(SUBS);
+function subRoute(text, files) {
+  const task = TASKS.find((t) => t.test(text, files));
+  const want = settings.routes[task.id] || task.def;
+  return { id: SUBS[want] ? want : SUBS[task.def] ? task.def : "openai", task };
+}
+function subTargets(text, files) {
+  const f = forcedProvider(text);
+  if (f && SUBS[f.id]) return { ids: [f.id], text: f.rest.trim() };
+  if (ui.subs.includes("auto")) { const r = subRoute(text, files); return { ids: [r.id], text, task: r.task }; }
+  return { ids: ui.subs.filter((id) => SUBS[id]), text };
+}
 let conversations = [];
 let currentId = null;
 let attachments = [];
@@ -155,6 +176,22 @@ $("#themeBtn").onclick = () => {
 function renderPicker() {
   document.querySelectorAll("#modeSeg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === ui.mode));
   const picker = $("#picker"); picker.innerHTML = "";
+  if (ui.mode === "subs") {
+    const chips = [["auto", "✦ Auto", "var(--accent)"], ...SUB_IDS.map((id) => [id, SUBS[id].name, P(id).color])];
+    for (const [id, name, color] of chips) {
+      const on = ui.subs.includes(id);
+      const chip = document.createElement("button");
+      chip.className = "chip" + (on ? " on" : "");
+      chip.innerHTML = `<span class="dot" style="background:${color}"></span>${esc(name)}`;
+      chip.onclick = () => {
+        if (id === "auto") ui.subs = on ? [] : ["auto"];
+        else ui.subs = on ? ui.subs.filter((x) => x !== id) : [...ui.subs.filter((x) => x !== "auto"), id];
+        saveUi(); renderPicker();
+      };
+      picker.appendChild(chip);
+    }
+    updateHint(); return;
+  }
   if (ui.mode === "auto") {
     picker.innerHTML = `<span class="autoinfo">L'IA est choisie selon votre demande · <button type="button">personnaliser</button></span>`;
     picker.querySelector("button").onclick = () => openSettings("routes");
@@ -221,6 +258,12 @@ function updateHint() {
   const text = $("#input").value;
   const f = forcedProvider(text);
   if (f) { hint.innerHTML = `→ forcé vers <b>${esc(P(f.id).name)}</b>`; return; }
+  if (ui.mode === "subs" && text.trim()) {
+    const s = subTargets(text, attachments);
+    hint.innerHTML = s.ids.length ? `→ ouvre <b>${s.ids.map((id) => esc(SUBS[id].name)).join(", ")}</b>${s.task ? " · " + esc(s.task.label) : ""} avec votre abonnement`
+      : "Choisissez au moins une IA ci-dessus.";
+    return;
+  }
   if (ui.mode === "auto" && (text.trim() || attachments.length)) {
     const r = route(text, attachments);
     hint.innerHTML = r.error ? `<span class="err">${esc(r.error)}</span>`
@@ -352,6 +395,8 @@ function replyEl(r, multi, judge) {
     ${r.status && r.pending ? `<div class="status typing"></div>` : ""}
     ${r.error ? `<div class="err"></div>` : (r.content || (r.pending && r.kind !== "gen") ? `<div class="body${r.pending ? " typing" : ""}">${md(r.content || "")}</div>` : "")}
     ${(r.images || []).length || r.video || r.videoLink ? `<div class="gen"></div>` : ""}
+    ${r.kind === "link" ? `<div class="sublink"><a class="btn small" href="${esc(r.link)}" target="_blank" rel="noopener">Ouvrir dans ${esc(SUBS[r.provider]?.name || p.name)} ↗</a>
+      <span class="note">${r.paste ? "Votre question est copiée : collez-la avec Ctrl+V (⌘+V sur Mac)." : "La réponse s'affiche sur le site, avec votre abonnement."}</span></div>` : ""}
     ${r.note ? `<div class="warnline"></div>` : ""}
     ${sc?.commentaire ? `<div class="cmt"></div>` : ""}`;
   const q = (s) => el.querySelector(s);
@@ -587,6 +632,7 @@ async function send() {
   let text = input.value.trim();
   const files = attachments;
   if ((!text && !files.length) || controllers.size) return;
+  if (ui.mode === "subs") { sendSubs(text, files); return; }
   if (!ORDER.some(ready)) { openSettings(); return; }
 
   // Qui répond ?
@@ -632,6 +678,33 @@ async function send() {
   await Promise.all(turn.replies.filter((r) => r.pending).map((r) => runReply(conv, turn, r)));
   setBusy(false);
   if (turn.replies.length > 1 && settings.autoJudge && turn.replies.filter((r) => r.content && !r.error).length >= 2) judgeTurn(turn);
+}
+
+function sendSubs(text, files) {
+  const s = subTargets(text, files);
+  if (!s.ids.length || !s.text) return;
+  const long = s.text.length > 6000; // au-delà, l'adresse serait trop longue : on passe par le presse-papiers
+  const needPaste = s.ids.some((id) => SUBS[id].paste) || long;
+  if (needPaste) navigator.clipboard?.writeText(s.text).catch(() => {});
+  let conv = current();
+  if (!conv) { conv = { id: uid(), title: s.text.slice(0, 60), turns: [], created: Date.now() }; conversations.unshift(conv); currentId = conv.id; }
+  const turn = {
+    id: uid(), user: s.text, files: [],
+    replies: s.ids.map((id) => {
+      const paste = SUBS[id].paste || long;
+      return { id: uid(), provider: id, model: "abonnement", kind: "link", task: s.task?.id, routed: !!s.task,
+        link: paste ? SUBS[id].url("") : SUBS[id].url(s.text), paste, content: "" };
+    }),
+  };
+  let blocked = 0;
+  for (const r of turn.replies) { const w = window.open(r.link, "_blank"); if (!w) { blocked++; r.blocked = true; } }
+  if (files.length) turn.replies.forEach((r) => r.note = "Les pièces jointes ne peuvent pas être transmises : glissez-les vous-même dans la page de l'IA.");
+  if (blocked) turn.replies.filter((r) => r.blocked).forEach((r) => r.note = (r.note ? r.note + " " : "") + "Fenêtre bloquée par le navigateur : cliquez sur le bouton ci-dessus (ou autorisez les pop-ups pour ce site).");
+  conv.turns.push(turn);
+  attachments = []; renderAttachments();
+  $("#input").value = ""; autosize(); updateHint();
+  save(); renderList();
+  if (conv.turns.length === 1) renderThread(); else { $("#thread").appendChild(turnEl(turn)); scrollDown(true); }
 }
 
 async function runReply(conv, turn, r) {

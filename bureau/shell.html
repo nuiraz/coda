@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src https:; child-src https:">
+<title>Coda Bureau</title>
+<style>
+  :root { --bg: #f7f7f5; --panel: #fff; --text: #1d1d1b; --muted: #6b6a66; --border: #e2e0da; --accent: #c96442; --code: #f0efea; --danger: #b3261e; --ok: #10a37f; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1c1c1a; --panel: #262624; --text: #ecebe6; --muted: #9c9a93; --border: #3a3936; --code: #30302d; --danger: #f2b8b5; --ok: #5fd3a9; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; overflow: hidden; }
+  button, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  .btn { border: 1px solid var(--border); background: var(--panel); border-radius: 9px; padding: 6px 11px; }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+
+  #top { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  #top .logo { font-weight: 700; margin-right: 6px; } #top .logo span { color: var(--accent); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--panel); border-radius: 999px; padding: 3px 10px; font-size: 13px; }
+  .chip.on { border-color: var(--text); box-shadow: inset 0 0 0 1px var(--text); }
+  .chip:not(.on) { opacity: .5; }
+  #top .sp { flex: 1; }
+
+  #grid { flex: 1; display: grid; gap: 8px; padding: 8px; min-height: 0; }
+  .panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--panel); }
+  .panel.off { display: none; }
+  .panel.target { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .phead { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .phead b { margin-right: 4px; }
+  .phead .st { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .phead .st.ok { color: var(--ok); } .phead .st.ko { color: var(--danger); }
+  .phead button { border: 0; background: none; color: var(--muted); padding: 2px 5px; border-radius: 6px; }
+  .phead button:hover { background: var(--code); color: var(--text); }
+  webview { flex: 1; width: 100%; min-height: 0; background: #fff; }
+
+  #bottom { border-top: 1px solid var(--border); padding: 8px 12px 10px; }
+  #bottom .box { display: flex; gap: 8px; align-items: flex-end; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 6px 6px 6px 12px; }
+  #input { flex: 1; border: 0; outline: 0; background: transparent; resize: none; max-height: 180px; padding: 6px 0; }
+  #target { border: 1px solid var(--border); background: var(--bg); border-radius: 9px; padding: 6px 8px; }
+  #hint { font-size: 12px; color: var(--muted); margin-top: 5px; text-align: center; min-height: 16px; }
+  #hint b { color: var(--text); }
+
+  dialog { border: 1px solid var(--border); border-radius: 14px; background: var(--panel); color: var(--text); width: min(560px, calc(100vw - 32px)); padding: 18px; }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+  dialog h2 { margin: 0 0 6px; font-size: 18px; }
+  .row { display: grid; grid-template-columns: 1fr 160px; gap: 8px; align-items: center; margin-top: 8px; }
+  .row small { display: block; color: var(--muted); font-size: 12px; }
+  .row select { border: 1px solid var(--border); background: var(--bg); border-radius: 8px; padding: 6px 8px; }
+  .note { color: var(--muted); font-size: 12.5px; }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+</style>
+</head>
+<body>
+  <div id="top">
+    <div class="logo"><span>✦</span> Coda Bureau</div>
+    <div id="chips"></div>
+    <div class="sp"></div>
+    <button class="btn" id="allBtn" title="Afficher toutes les IA côte à côte">▦ Tout afficher</button>
+    <button class="btn" id="rulesBtn" title="Quelle IA pour quelle tâche en mode Auto">✦ Règles Auto</button>
+  </div>
+
+  <div id="grid"></div>
+
+  <div id="bottom">
+    <div class="box">
+      <textarea id="input" rows="1" placeholder="Votre question, envoyée à vos IA…"></textarea>
+      <select id="target" title="À qui envoyer"></select>
+      <button class="btn primary" id="send">Envoyer ➤</button>
+    </div>
+    <div id="hint"></div>
+  </div>
+
+  <dialog id="rules">
+    <form method="dialog">
+      <h2>✦ Règles du mode Auto</h2>
+      <p class="note">En mode Auto, votre question part uniquement vers l'IA choisie pour ce type de tâche, et son panneau s'agrandit. Astuce : commencez par <code>@gemini</code>, <code>@claude</code>, <code>@chatgpt</code> ou <code>@grok</code> pour forcer une IA.</p>
+      <div id="ruleRows"></div>
+      <div class="actions"><button class="btn" value="cancel">Annuler</button><button class="btn primary" value="save">Enregistrer</button></div>
+    </form>
+  </dialog>
+
+  <script src="shell.js"></script>
+</body>
+</html>

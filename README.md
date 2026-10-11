@@ -5,6 +5,44 @@ modèles via **OpenRouter**, et des **IA locales gratuites, sans compte** (Ollam
 
 Tout tourne sur votre ordinateur : pas d'inscription, pas de serveur, pas de base de données en ligne.
 
+## 🔑 Avec vos abonnements, sans aucun frais
+
+Vous avez déjà ChatGPT, Claude Pro, Gemini Pro ou SuperGrok ? Deux façons de les utiliser **sans clé API
+et sans payer en plus** :
+
+### Coda Bureau : les 4 IA côte à côte dans une seule fenêtre (recommandé)
+Une application pour ordinateur qui affiche **les sites officiels** de ChatGPT, Claude, Gemini et Grok,
+connectés à **vos** comptes. Vous tapez une seule fois, en bas, et la question part :
+- **à toutes les IA en même temps** pour comparer leurs réponses côte à côte ;
+- ou en **✦ Auto** : uniquement à l'IA choisie pour la tâche (vidéo/YouTube → Gemini, code → Claude,
+  actualité → Grok, images → ChatGPT…), réglable avec le bouton « Règles Auto » ;
+- ou à une seule IA, au choix. `@gemini`, `@claude`, `@chatgpt` ou `@grok` en début de message force une IA.
+
+**Lancer :** installez [Node.js](https://nodejs.org) (version LTS), puis double-cliquez sur
+`bureau/lancer-bureau.bat` (Windows) ou `bureau/lancer-bureau.command` (Mac), ou tapez
+`bureau/lancer-bureau.sh` (Linux). La première fois, l'installation télécharge environ 100 Mo. Connectez-vous
+ensuite une fois dans chaque panneau : les connexions sont gardées.
+
+Toutes les fonctions de vos abonnements restent disponibles dans les panneaux : images, vidéos (Veo pour
+Gemini Pro), fichiers (glissez-les dans le panneau), recherche web, historique, etc.
+
+### Mode « 🔑 Abonnements » du site Coda (sans rien installer, marche aussi sur téléphone)
+Vous écrivez dans Coda, et la bonne IA s'ouvre dans un nouvel onglet avec votre question déjà remplie
+(ChatGPT, Claude et Grok). Pour Gemini, la question est copiée : il suffit de la coller.
+Pour ouvrir plusieurs IA d'un coup, autorisez les fenêtres pop-up pour Coda dans votre navigateur.
+
+### À savoir
+- Les réponses restent sur les sites officiels : l'arbitre automatique et le classement ont besoin des clés
+  API (ou des IA locales). Avec les abonnements, c'est vous qui comparez, côte à côte.
+- Coda Bureau tape votre question à votre place dans les sites. Si un site change son interface, l'envoi
+  automatique peut ne plus marcher : le panneau l'indique, et vous pouvez toujours taper directement dedans.
+- Les conditions d'utilisation des services grand public interdisent en général l'automatisation. Coda Bureau
+  se contente de saisir votre question quand vous cliquez sur Envoyer, sans rien récupérer automatiquement,
+  mais l'usage reste sous votre responsabilité.
+- **Gemini gratuit en plus :** Google AI Studio donne une clé API Gemini avec une offre gratuite
+  (https://aistudio.google.com/apikey). Avec elle, Gemini marche aussi dans les modes Auto, Comparer et
+  arbitre du site, sans frais dans les limites de l'offre gratuite.
+
 ## Démarrer
 
 | Système | Comment lancer |
@@ -104,4 +142,5 @@ style.css      apparence (thème clair / sombre, mobile)
 app.js         logique : fournisseurs, routage, arbitre, pièces jointes, stockage
 vendor/        marked + DOMPurify (Markdown sécurisé, inclus pour fonctionner hors ligne)
 lancer.*       scripts de démarrage local
+bureau/        Coda Bureau (Electron) : sites officiels côte à côte avec vos abonnements
 ```
