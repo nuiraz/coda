@@ -44,8 +44,8 @@
     riposte: { nom: "Riposte", emoji: "↩️", desc: "Renvoie 15 % des dégâts subis." },
     precision: { nom: "Précision", emoji: "🎯", desc: "33 % de coups critiques au lieu de 15 %." },
     agilite: { nom: "Agilité", emoji: "💨", desc: "22 % d'esquive au lieu de 12 %." },
-    vitesse: { nom: "Vitesse", emoji: "⚡", desc: "Frappe plus souvent en premier." },
-    endurance: { nom: "Endurance", emoji: "🔋", desc: "La garde soigne 25 % de la vie et protège mieux." },
+    vitesse: { nom: "Vitesse", emoji: "⚡", desc: "Frappe plus souvent en premier, +4 % de dégâts." },
+    endurance: { nom: "Endurance", emoji: "🔋", desc: "La garde soigne 30 % de la vie et protège mieux." },
     colosse: { nom: "Colosse", emoji: "🗿", desc: "+12 % de points de vie." },
     perforant: { nom: "Perforant", emoji: "🗡️", desc: "Ignore 22 % de la défense adverse." },
   };
@@ -172,12 +172,13 @@
     if (AVANTAGE[att.type] === def.type) d *= BONUS_AVANTAGE;
     if (sp) d *= sp.mult;
     if (att.talent === "rage" && att.pv / att.pvMax < 0.5) d *= 1.32;
+    if (att.talent === "vitesse") d *= 1.04;
     d *= 0.6 + etat.r() * 0.8;
     const esquive = etat.r() < (def.talent === "agilite" ? 0.22 : 0.12);
     const critique = !esquive && etat.r() < (att.talent === "precision" ? 0.33 : 0.15);
     if (critique) d *= 1.8;
     if (esquive) return { d: 0, critique: false, esquive: true };
-    if (def.garde) d *= def.talent === "endurance" ? 0.3 : 0.4;
+    if (def.garde) d *= def.talent === "endurance" ? 0.22 : 0.4;
     if (def.talent === "bouclier") d *= 0.89;
     if (def.rempart >= etat.tour) d *= 0.5;
     return { d: Math.max(1, Math.round(d)), critique, esquive: false };
@@ -202,13 +203,13 @@
       if (actions[c] === "special" && !u.special) actions[c] = "attaque";
       u.garde = actions[c] === "garde";
       if (u.garde) {
-        const soin = Math.round(u.pvMax * (u.talent === "endurance" ? 0.25 : 0.08));
+        const soin = Math.round(u.pvMax * (u.talent === "endurance" ? 0.3 : 0.08));
         u.pv = Math.min(u.pvMax, u.pv + soin);
         ev.push({ t: "garde", cote: c, soin });
       }
     }
     // Le plus rapide frappe en premier : l'attaque compte, avec une part de hasard
-    const vitesse = (u) => u.atk * (u.talent === "vitesse" ? 1.2 : 1);
+    const vitesse = (u) => u.atk * (u.talent === "vitesse" ? 1.4 : 1);
     const vA = vitesse(actif(etat, 0)) * (0.8 + etat.r() * 0.4), vB = vitesse(actif(etat, 1)) * (0.8 + etat.r() * 0.4);
     const ordre = vA >= vB ? [0, 1] : [1, 0];
     for (const c of ordre) {

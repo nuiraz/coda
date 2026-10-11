@@ -5,7 +5,7 @@ Une application web de cartes à collectionner sur le monde, avec un mode combat
 ## 🌍 Les cartes
 - **195 pays** (les 193 membres de l'ONU, plus le Vatican et la Palestine) avec drapeau, silhouette, capitale,
   anecdote et la **photo d'un lieu emblématique** (souvent la capitale)
-- **340 villes** (tous les pays en ont au moins une), **323 monuments**, **110 sites naturels**, **100 animaux**, **100 plats** et les **14 merveilles**
+- **1 737 cartes** : 195 pays, **340 villes**, **423 monuments**, **210 sites naturels**, **210 animaux**, **210 plats**, **120 traditions et fêtes** (Culture) et les **14 merveilles**
   (7 modernes et 7 antiques), toutes légendaires, avec de vraies photos de Wikipédia
 - **Cartes Shiny** (environ 1 sur 45) avec effet holographique
 - **Badges**, **atlas interactif**, **cartes secrètes** (Avalon, El Dorado, l'Atlantide…)
@@ -21,9 +21,13 @@ Une application web de cartes à collectionner sur le monde, avec un mode combat
 - **Entraînement** contre l'ordinateur (3 difficultés) et **arène en ligne** contre les decks des autres joueurs,
   avec trophées et classement. Le serveur rejoue chaque combat (`combat.js`, partagé) pour vérifier le résultat.
 
+## 🏅 Progression
+- **319 badges** en 6 catégories (collection, continents, pays, combat, joueur, spécial), dont un badge « Ambassadeur » par pays.
+- **Niveau du joueur** (XP) avec récompenses à chaque niveau, et **3 défis du jour** (un booster Argent si les 3 sont réussis).
+
 ## 🎁 Économie
 - **Booster gratuit toutes les 12 heures** (avec notification quand il est prêt).
-- **Boutique** : Classique (120 🪙), Argent (380 🪙), Or (900 🪙) et Prestige (1 500 🪙, Premium) : plus cher, plus rare.
+- **Boutique** : Classique (120 🪙), Argent (380 🪙), Or (900 🪙), Méga 10 cartes (1 000 🪙), Prestige (Premium), 12 boosters thématiques (par type ou par continent), une offre du jour à -40 % et un bouton « Tout ouvrir ».
 - **Quiz** : 10 questions par jour (20 en Premium), 25 🪙 par bonne réponse.
 
 ## 💎 Premium (5,99 € par mois ou 39,99 € à vie)
