@@ -62,12 +62,127 @@ async function api(chemin, { methode = "GET", corps, keepalive = false } = {}) {
 const connecte = () => COMPTE.etat === "connecte";
 
 /* =====================================================================
+/* =====================================================================
+   Outils de temps de jeu, Présence & Retours
+   ===================================================================== */
+function formatTempsJeu(sec) {
+  const s = Math.max(0, Number(sec) || 0);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h} h ${m.toString().padStart(2, "0")} min`;
+  return `${m} min`;
+}
+
+function ouvrirModalFeedback() {
+  ouvrirModal(`<h2 style="margin-top:0">💡 Boîte à Idées & Signalement de Bugs</h2>
+    <p class="muted" style="margin-top:0">Une idée d'amélioration pour WorldCards ou un bug rencontré ? Envoyez un message directement à l'administrateur !</p>
+    <form class="form" id="fFeedback">
+      <label>Type de retour
+        <select id="fbType">
+          <option value="suggestion">💡 Suggestion / Idée de fonctionnalité</option>
+          <option value="bug">🐛 Signalement de bug</option>
+        </select>
+      </label>
+      <label>Titre résumé
+        <input id="fbTitre" maxlength="100" required placeholder="Ex. : Ajouter des échanges entre amis / Erreur affichage carte">
+      </label>
+      <label>Détails & description
+        <textarea id="fbMsg" rows="4" maxlength="1000" required placeholder="Décrivez votre idée ou expliquez comment reproduire le bug..."></textarea>
+      </label>
+      <div class="row" style="justify-content:flex-end">
+        <button type="button" class="btn" data-close>Annuler</button>
+        <button class="btn primary">Envoyer à l'admin 🚀</button>
+      </div>
+      <p class="err" id="fbErr"></p>
+    </form>`);
+
+  $("#fFeedback").onsubmit = async (e) => {
+    e.preventDefault();
+    $("#fbErr").textContent = "";
+    try {
+      await api("feedback", {
+        methode: "POST",
+        corps: {
+          type: $("#fbType").value,
+          titre: $("#fbTitre").value.trim(),
+          message: $("#fbMsg").value.trim(),
+          pseudo: connecte() ? COMPTE.pseudo : "Joueur invité"
+        }
+      });
+      fermerModal();
+      toast("🚀 Merci ! Votre retour a bien été transmis à l'administrateur.");
+    } catch (err) {
+      $("#fbErr").textContent = err.message;
+    }
+  };
+}
+
+let presenceTimer = null;
+async function rafraichirPresencesEtAlertes() {
+  try {
+    const res = await api("presence/ping", { methode: "POST", corps: {} });
+    const pill = $("#nbEnLigne");
+    if (pill && res?.actifs !== undefined) {
+      pill.textContent = res.actifs;
+    }
+  } catch {}
+
+  if (COMPTE.admin) {
+    try {
+      const sec = await api("admin/securite");
+      const alerteEl = $("#adminSecurityAlert");
+      if (alerteEl) {
+        if (sec.bouclier_actif && sec.attaques_recente?.length) {
+          const derniere = sec.attaques_recente[0];
+          alerteEl.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;flex:1">
+              <span style="font-size:22px">🚨</span>
+              <div>
+                <b>ALERTE BOT DÉTECTÉE PAR LE BOUCLIER !</b> Anomalie : ${esc(derniere.motif || "Requêtes suspectes")} (IP: ${esc(derniere.ip || "Inconnue")}).
+                <a id="secVoirLien" style="color:#fff;text-decoration:underline;margin-left:8px;font-weight:700">Voir détails admin →</a>
+              </div>
+            </div>
+            <button class="btn small close-sec" id="secFermerBtn" style="color:#fff;background:transparent;border:0;font-size:18px;cursor:pointer">✕</button>
+          `;
+          alerteEl.classList.remove("hidden");
+          $("#secVoirLien")?.addEventListener("click", () => {
+            adminEtat.onglet = "securite";
+            aller("admin");
+          });
+          $("#secFermerBtn")?.addEventListener("click", async () => {
+            alerteEl.classList.add("hidden");
+            try { await api("admin/reinitialiser-alerte", { methode: "POST" }); } catch {}
+          });
+        } else {
+          alerteEl.classList.add("hidden");
+        }
+      }
+    } catch {}
+  }
+}
+
+// Suivi du temps passé sur le site
+setInterval(() => {
+  S.tempsJeuTotal = (S.tempsJeuTotal || 0) + 10;
+  const aff = $("#tempsJeuAffiche");
+  if (aff) aff.textContent = formatTempsJeu(S.tempsJeuTotal);
+}, 10000);
+
+/* =====================================================================
    Démarrage
    ===================================================================== */
 async function initCompte() {
   installerPWA();
   majBoutonInstall();
   majBoutonCompte();
+
+  // Bouton retour bug / suggestion
+  $("#feedbackBtn")?.addEventListener("click", () => ouvrirModalFeedback());
+
+  // Polling de présence en temps réel & sécurité bot
+  rafraichirPresencesEtAlertes();
+  if (!presenceTimer) presenceTimer = setInterval(rafraichirPresencesEtAlertes, 15000);
+
   if (location.protocol === "file:") { COMPTE.etat = "indispo"; majBoutonCompte(); return; }
   // Affiche tout de suite le dernier compte connecté sur cet appareil, avant la réponse du serveur
   try { const c = JSON.parse(localStorage.getItem("worldcards:compte") || "null"); if (c && lireJeton()) { Object.assign(COMPTE, c); COMPTE.etat = "connecte"; majBoutonCompte(); } } catch {}
@@ -234,6 +349,17 @@ function vueCompte(v) {
           <button class="btn" id="notifBtn">${NOTIF.active ? "Désactiver" : "🔔 Activer les notifications"}</button></div>
       </div>
       <div class="panel" style="margin-top:16px">
+        <h3 style="margin-top:0">⏱️ Temps de jeu & Statistiques du compte</h3>
+        <div class="statgrid">
+          <div class="stat"><b id="tempsJeuAffiche">${formatTempsJeu(S.tempsJeuTotal)}</b><span>temps de jeu total</span></div>
+          <div class="stat"><b>${S.nbSessions || 1}</b><span>sessions de jeu</span></div>
+          <div class="stat"><b>${Object.keys(S.doree || {}).length}</b><span>cartes dorées 👑</span></div>
+          <div class="stat"><b>${S.ouverts || 0}</b><span>boosters ouverts</span></div>
+          <div class="stat"><b>${S.combat.victoires || 0}</b><span>victoires arène</span></div>
+          <div class="stat"><b>${Object.keys(S.badges || {}).length}</b><span>badges obtenus</span></div>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:16px">
         <h3 style="margin-top:0">🏆 Ma vitrine</h3>
         <p class="muted" style="margin-top:0">Choisissez jusqu'à 5 cartes à montrer sur votre profil public.</p>
         <div class="cards vitrine">${[0, 1, 2, 3, 4].map((i) => { const c = BY_ID[(S.vitrine || [])[i]]; return c && has(c.id) ? `<div data-slot="${i}" data-noclick>${cardHTML(c)}</div>` : `<button class="slot" data-slot="${i}">＋</button>`; }).join("")}</div>
@@ -363,11 +489,12 @@ function vueHub(v) {
     v.innerHTML = `<div class="panel"><h2 style="margin-top:0">👥 Communauté</h2><p>${COMPTE.etat === "hors-ligne" ? "Pas de connexion internet : le hub revient dès que vous êtes en ligne." : COMPTE.etat === "inconnu" ? "Chargement…" : "Le hub communautaire n'est pas disponible sur cette version du jeu."}</p></div>`;
     return;
   }
-  v.innerHTML = `<div class="sectiontitle"><h3>👥 Communauté ${NOM_SITE}</h3><span class="muted">Partagez vos cartes, comparez vos collections</span></div>
-    <div class="toolbar">${[["fil", "💬 Fil"], ["classement", "🏆 Classement"]].map(([k, l]) => `<button class="chip ${hubEtat.onglet === k ? "on" : ""}" data-o="${k}">${l}</button>`).join("")}</div>
+  v.innerHTML = `<div class="sectiontitle"><h3>👥 Communauté WorldCards</h3><span class="muted">Fil d'actualité, marché d'échanges, tournois de la semaine & classements</span></div>
+    <div class="toolbar">${[["fil", "💬 Fil d'actualité"], ["echanges", "🤝 Marché d'échanges"], ["tournois", "🏆 Tournoi hebdo"], ["classement", "🌟 Classement"]].map(([k, l]) => `<button class="chip ${hubEtat.onglet === k ? "on" : ""}" data-o="${k}">${l}</button>`).join("")}</div>
     <div id="hubCorps"></div>`;
   $$("[data-o]", v).forEach((b) => b.onclick = () => { hubEtat.onglet = b.dataset.o; aller("hub"); });
-  (hubEtat.onglet === "fil" ? hubFil : hubClassement)($("#hubCorps"));
+  const router = { fil: hubFil, echanges: hubEchanges, tournois: hubTournois, classement: hubClassement };
+  (router[hubEtat.onglet] || hubFil)($("#hubCorps"));
 }
 async function hubFil(el) {
   el.innerHTML = `${connecte() ? `<form class="panel form composer" id="fPost">
@@ -473,6 +600,295 @@ async function ouvrirProfil(pseudo) {
 }
 
 /* =====================================================================
+   Marché d'Échanges entre Joueurs
+   ===================================================================== */
+async function hubEchanges(el) {
+  el.innerHTML = `
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div>
+        <h3 style="margin:0">🤝 Marché d'Échanges de Cartes</h3>
+        <p class="muted" style="margin:4px 0 0">Échangez vos doublons contre des cartes rares ou des pièces avec les autres joueurs.</p>
+      </div>
+      <button class="btn primary" id="btnProposerEchange" ${connecte() ? "" : "disabled"}>➕ Proposer un échange</button>
+    </div>
+    <div id="echangesListe" class="echanges-grid"><p class="muted">Chargement des offres…</p></div>
+  `;
+  if (!connecte()) {
+    el.insertAdjacentHTML("afterbegin", `<div class="panel" style="margin-bottom:12px;background:var(--panel2)">
+      <span>Connectez-vous pour proposer et accepter des échanges avec d'autres joueurs.</span>
+      <button class="btn small primary" data-aller="compte" style="margin-left:10px">Se connecter</button>
+    </div>`);
+    brancherLiens(el);
+  }
+  $("#btnProposerEchange")?.addEventListener("click", () => ouvrirModalCreerEchange());
+  await chargerEchanges($("#echangesListe"));
+}
+
+async function chargerEchanges(box) {
+  try {
+    const { echanges } = await api("echanges");
+    if (!echanges || !echanges.length) {
+      box.innerHTML = `<p class="muted" style="grid-column:1/-1;text-align:center;padding:24px">Aucune offre d'échange en cours. Soyez le premier à proposer un doublon !</p>`;
+      return;
+    }
+    box.innerHTML = echanges.map((e) => {
+      const cOfferte = BY_ID[e.carte_offerte];
+      const cDemandee = BY_ID[e.carte_demandee];
+      const estMoi = connecte() && e.pseudo === COMPTE.pseudo;
+      const peutEchanger = connecte() && !estMoi && (
+        (cDemandee && (S.owned[cDemandee.id] || 0) > 0) ||
+        (e.pieces_demandees > 0 && S.coins >= e.pieces_demandees)
+      );
+
+      return `
+        <div class="echange-card">
+          <div class="echange-entete">
+            <b>👤 ${esc(e.pseudo)}</b>
+            <span>${depuis(e.cree_le)}</span>
+          </div>
+          <div class="echange-corps">
+            <div class="echange-side">
+              <small>Offre :</small>
+              <div style="width:75px;margin:4px auto">${cOfferte ? cardHTML(cOfferte, { locked: false, doree: !!e.doree }) : `🃏 ${esc(e.nom_offerte)}`}</div>
+              <b>${esc(e.nom_offerte)}${e.doree ? " 👑" : ""}</b>
+            </div>
+            <div class="echange-fleche">⇄</div>
+            <div class="echange-side">
+              <small>Demande :</small>
+              ${cDemandee ? `<div style="width:75px;margin:4px auto">${cardHTML(cDemandee, { locked: !has(cDemandee.id) })}</div><b>${esc(cDemandee.nom)}</b>` : ""}
+              ${e.pieces_demandees > 0 ? `<div style="font-size:24px;margin:10px 0">🪙</div><b>${fmt(e.pieces_demandees)} pièces</b>` : ""}
+            </div>
+          </div>
+          <div class="row" style="justify-content:flex-end;margin-top:auto">
+            ${estMoi ? `<button class="btn small" data-annuler-ech="${e.id}" style="color:var(--bad)">Annuler mon offre</button>` : ""}
+            ${!estMoi && connecte() ? `<button class="btn small primary" data-accepter-ech="${e.id}" ${peutEchanger ? "" : "disabled"}>${peutEchanger ? "✅ Conclure l'échange" : "Cartes/pièces insuffisantes"}</button>` : ""}
+            ${!connecte() ? `<button class="btn small" data-aller="compte">Se connecter</button>` : ""}
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    brancherLiens(box);
+
+    $$("[data-accepter-ech]", box).forEach((btn) => {
+      btn.onclick = async () => {
+        const id = Number(btn.dataset.accepterEch);
+        const ech = echanges.find((x) => x.id === id);
+        if (!ech) return;
+        confirmer(`Conclure cet échange avec ${ech.pseudo} ?`, "Échanger", async () => {
+          try {
+            const res = await api(`echanges/${id}/accepter`, { methode: "POST" });
+            if (ech.carte_offerte) {
+              S.owned[ech.carte_offerte] = (S.owned[ech.carte_offerte] || 0) + 1;
+              if (ech.doree) S.doree[ech.carte_offerte] = true;
+            }
+            if (ech.carte_demandee && S.owned[ech.carte_demandee]) {
+              S.owned[ech.carte_demandee] = Math.max(0, S.owned[ech.carte_demandee] - 1);
+            }
+            if (ech.pieces_demandees > 0) {
+              S.coins = Math.max(0, S.coins - ech.pieces_demandees);
+            }
+            sauver();
+            majCoins();
+            verifierProgression();
+            fermerModal();
+            toast(`🎉 ${esc(res.message || "Échange conclu avec succès !")}`, 5000);
+            aller("hub");
+          } catch (err) {
+            toast("⚠ " + err.message);
+          }
+        });
+      };
+    });
+
+    $$("[data-annuler-ech]", box).forEach((btn) => {
+      btn.onclick = () => {
+        const id = Number(btn.dataset.annulerEch);
+        confirmer("Annuler votre offre d'échange ?", "Annuler l'offre", async () => {
+          try {
+            await api(`echanges/${id}/annuler`, { methode: "POST" });
+            fermerModal();
+            toast("Offre annulée.");
+            aller("hub");
+          } catch (err) {
+            toast("⚠ " + err.message);
+          }
+        });
+      };
+    });
+
+  } catch (err) {
+    box.innerHTML = `<p class="err">${esc(err.message)}</p>`;
+  }
+}
+
+function ouvrirModalCreerEchange(preselectId) {
+  if (!connecte()) {
+    toast("Connectez-vous pour proposer un échange.");
+    return aller("compte");
+  }
+
+  const mesCartes = CARDS.filter((c) => has(c.id)).sort((a, b) => (S.owned[b.id] || 0) - (S.owned[a.id] || 0));
+  if (!mesCartes.length) {
+    return toast("Vous n'avez pas de cartes à proposer.");
+  }
+
+  let carteChoisie = preselectId && BY_ID[preselectId] ? preselectId : mesCartes[0].id;
+  const cartesManquantes = CARDS.filter((c) => !has(c.id) && c.type !== "secrete");
+
+  ouvrirModal(`
+    <h2 style="margin-top:0">🤝 Proposer un échange de carte</h2>
+    <form class="form" id="fCreerEch">
+      <label>1. Carte que vous offrez (vos doublons de préférence)
+        <select id="echOffre">
+          ${mesCartes.map((c) => `<option value="${c.id}" ${c.id === carteChoisie ? "selected" : ""}>${esc(c.nom)} (×${S.owned[c.id] || 1}) · ${RARETES[c.rarete].nom}</option>`).join("")}
+        </select>
+      </label>
+
+      <label class="check" style="margin:4px 0 10px">
+        <input type="checkbox" id="echDoree" ${S.doree?.[carteChoisie] ? "checked" : ""}> Proposer en Version Dorée 👑 (si forgée)
+      </label>
+
+      <label>2. Ce que vous demandez en retour
+        <select id="echTypeDemande">
+          <option value="carte">🃏 Une carte précise (carte manquante de votre atlas)</option>
+          <option value="pieces">🪙 Des pièces (or du jeu)</option>
+        </select>
+      </label>
+
+      <div id="blocDemandeCarte">
+        <label>Carte souhaitée
+          <input class="search" id="echDemandeRecherche" type="search" placeholder="Rechercher la carte demandée..." style="max-width:none;width:100%;margin-bottom:6px">
+          <select id="echDemandeSelect" size="5" style="width:100%;border-radius:10px;padding:6px">
+            ${(cartesManquantes.length ? cartesManquantes : CARDS).map((c) => `<option value="${c.id}">${esc(c.nom)} (${TYPES[c.type]} · ${RARETES[c.rarete].nom})</option>`).join("")}
+          </select>
+        </label>
+      </div>
+
+      <div id="blocDemandePieces" class="hidden">
+        <label>Nombre de pièces demandé
+          <input id="echPieces" type="number" min="50" max="5000" step="50" value="200">
+        </label>
+      </div>
+
+      <div class="row" style="justify-content:flex-end;margin-top:16px">
+        <button type="button" class="btn" data-close>Annuler</button>
+        <button class="btn primary">Publier mon offre d'échange 🤝</button>
+      </div>
+      <p class="err" id="echErr"></p>
+    </form>
+  `);
+
+  $("#echTypeDemande").onchange = (e) => {
+    const estPieces = e.target.value === "pieces";
+    $("#blocDemandeCarte").classList.toggle("hidden", estPieces);
+    $("#blocDemandePieces").classList.toggle("hidden", !estPieces);
+  };
+
+  $("#echDemandeRecherche").oninput = (e) => {
+    const q = sansAccents(e.target.value.trim());
+    const pool = CARDS.filter((c) => sansAccents(c.nom + " " + (NOM_PAYS[c.pays] || "")).includes(q));
+    $("#echDemandeSelect").innerHTML = pool.slice(0, 40).map((c) => `<option value="${c.id}">${esc(c.nom)} (${TYPES[c.type]} · ${RARETES[c.rarete].nom})</option>`).join("");
+  };
+
+  $("#fCreerEch").onsubmit = async (e) => {
+    e.preventDefault();
+    $("#echErr").textContent = "";
+    const idOfferte = $("#echOffre").value;
+    const cOfferte = BY_ID[idOfferte];
+    const estPieces = $("#echTypeDemande").value === "pieces";
+    const idDemandee = estPieces ? "" : $("#echDemandeSelect").value;
+    const cDemandee = idDemandee ? BY_ID[idDemandee] : null;
+    const pieces = estPieces ? Number($("#echPieces").value) : 0;
+    const doree = $("#echDoree").checked;
+
+    if (!estPieces && !cDemandee) {
+      $("#echErr").textContent = "Veuillez sélectionner la carte que vous demandez.";
+      return;
+    }
+
+    try {
+      await api("echanges/creer", {
+        methode: "POST",
+        corps: {
+          carteOfferte: idOfferte,
+          nomOfferte: cOfferte?.nom || idOfferte,
+          carteDemandee: idDemandee || "pieces",
+          nomDemandee: cDemandee ? cDemandee.nom : `${pieces} pièces`,
+          piecesDemandees: pieces,
+          doree
+        }
+      });
+      fermerModal();
+      toast("🤝 Votre offre d'échange est maintenant en ligne !", 4000);
+      aller("hub");
+    } catch (err) {
+      $("#echErr").textContent = err.message;
+    }
+  };
+}
+
+/* =====================================================================
+   Tournois de la Semaine
+   ===================================================================== */
+async function hubTournois(el) {
+  el.innerHTML = `
+    <div class="panel tournoi-hero">
+      <div class="row" style="justify-content:space-between;align-items:flex-start">
+        <div>
+          <span class="rbadge" data-r="ultra-rare">🏆 ÉVÉNEMENT HEBDOMADAIRE</span>
+          <h2 style="margin:8px 0 4px" id="tournoiTitre">Tournoi des Conquérants du Monde</h2>
+          <p class="muted" id="tournoiThemeDesc" style="margin:0 0 10px">Chargement des règles de la semaine…</p>
+        </div>
+        <div style="text-align:right">
+          <small class="muted" style="display:block">Fin de session</small>
+          <b id="tournoiChrono" style="color:var(--accent)">Dimanche minuit</b>
+        </div>
+      </div>
+      <div class="tournoi-ladder">
+        <div class="tournoi-step boss"><span style="font-size:22px">🥇</span><b>1er</b><small>2 500 🪙 + Booster Prestige 💎</small></div>
+        <div class="tournoi-step boss"><span style="font-size:22px">🥈</span><b>2e</b><small>1 200 🪙 + Booster Or 🥇</small></div>
+        <div class="tournoi-step"><span style="font-size:22px">🥉</span><b>3e</b><small>600 🪙 + Booster Argent 🥈</small></div>
+        <div class="tournoi-step"><span style="font-size:22px">🎖️</span><b>Top 4-10</b><small>300 🪙 + Booster Classique 🌍</small></div>
+      </div>
+      <div class="row" style="justify-content:center;margin-top:10px">
+        <button class="btn primary grand" id="btnParticiperTournoi">⚔️ Combattre dans l'Arène du Tournoi (+25 pts / victoire)</button>
+      </div>
+    </div>
+    <div class="sectiontitle" style="margin-top:20px"><h3>🌟 Classement du Tournoi Hebdomadaire</h3><span class="muted">Mis à jour en temps réel</span></div>
+    <div class="panel" style="padding:0;overflow-x:auto">
+      <table class="classement">
+        <thead><tr><th>#</th><th>Joueur</th><th>Points Tournoi</th><th>Victoires</th></tr></thead>
+        <tbody id="tournoiClassementTable"><tr><td colspan="4" class="muted">Chargement du classement…</td></tr></tbody>
+      </table>
+    </div>
+  `;
+
+  $("#btnParticiperTournoi").onclick = () => aller("combat");
+
+  try {
+    const data = await api("tournois/actuel");
+    const theme = data.theme || { nom: "Grand Tournoi Mondial", regle: "Affrontez les meilleurs decks !" };
+    $("#tournoiTitre").textContent = theme.nom;
+    $("#tournoiThemeDesc").innerHTML = `${theme.emoji || "⚔️"} <b>Règle spéciale :</b> ${esc(theme.regle)}`;
+
+    const classement = data.classement || [];
+    $("#tournoiClassementTable").innerHTML = classement.length
+      ? classement.map((j, i) => `
+        <tr class="${connecte() && j.pseudo === COMPTE.pseudo ? "moi" : ""}">
+          <td>${["🥇", "🥈", "🥉"][i] || i + 1}</td>
+          <td><b>${esc(j.pseudo)}</b></td>
+          <td><b>⚡ ${fmt(j.score || 0)} pts</b></td>
+          <td>${j.victoires || 0} victoires</td>
+        </tr>
+      `).join("")
+      : `<tr><td colspan="4" class="muted">Soyez le premier à remporter des combats d'arène cette semaine !</td></tr>`;
+  } catch (err) {
+    $("#tournoiClassementTable").innerHTML = `<tr><td colspan="4" class="err">${esc(err.message)}</td></tr>`;
+  }
+}
+
+/* =====================================================================
    Administration (réservée à nuiraz)
    ===================================================================== */
 const adminEtat = { onglet: "joueurs", q: "" };
@@ -480,7 +896,7 @@ async function vueAdmin(v) {
   if (!COMPTE.admin) { v.innerHTML = `<div class="panel"><p>Accès réservé à l'administrateur.</p><button class="btn" data-aller="compte">Mon compte</button></div>`; brancherLiens(v); return; }
   v.innerHTML = `<div class="sectiontitle"><h3>👑 Administration</h3><span class="muted">Connecté en tant que ${esc(COMPTE.pseudo)}</span></div>
     <div class="statgrid" id="aStats"><div class="stat"><b>…</b><span>chargement</span></div></div>
-    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
+    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
     <div id="aCorps"></div>`;
   $$("[data-a]", v).forEach((b) => b.onclick = () => { adminEtat.onglet = b.dataset.a; aller("admin"); });
   api("admin/stats").then((s) => {
@@ -488,7 +904,7 @@ async function vueAdmin(v) {
       .map(([l, n]) => `<div class="stat"><b>${fmt(n)}</b><span>${l}</span></div>`).join("");
   }).catch((e) => { $("#aStats").innerHTML = `<p class="err">${esc(e.message)}</p>`; });
   const corps = $("#aCorps");
-  ({ joueurs: adminJoueurs, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
+  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
 }
 async function adminJoueurs(el) {
   el.innerHTML = `<input class="search" id="aq" type="search" placeholder="Rechercher un joueur…" value="${esc(adminEtat.q)}" style="max-width:none;width:100%;margin-bottom:10px">
@@ -527,6 +943,184 @@ async function adminJoueurs(el) {
   }
   charger();
 }
+
+async function adminMetrics(el) {
+  el.innerHTML = `<p class="muted">Chargement des métriques du serveur…</p>`;
+  try {
+    const data = await api("admin/metrics");
+    const m = data.metrics || {};
+    el.innerHTML = `
+      <div class="row" style="justify-content:space-between;margin-bottom:12px">
+        <h3 style="margin:0">📊 Trafic, Requêtes & Utilisateurs en direct</h3>
+        <button class="btn small" id="mRecharger">🔄 Actualiser</button>
+      </div>
+      <div class="statgrid">
+        <div class="stat"><b style="color:#2ed573">🟢 ${data.actifsDirect || 1}</b><span>connectés en direct</span></div>
+        <div class="stat"><b>${fmt(m.totalRequests || 0)}</b><span>requêtes totales</span></div>
+        <div class="stat"><b>${fmt(data.totalUsers || 0)}</b><span>comptes créés</span></div>
+        <div class="stat"><b>${fmt(data.totalCombats || 0)}</b><span>combats joués</span></div>
+        <div class="stat"><b>${fmt(data.totalEchanges || 0)}</b><span>offres d'échanges</span></div>
+        <div class="stat"><b>${fmt(data.totalFeedbacks || 0)}</b><span>bugs & suggestions</span></div>
+      </div>
+
+      <div class="grid2" style="margin-top:16px">
+        <div class="panel">
+          <h3 style="margin-top:0">Statuts HTTP des requêtes</h3>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${Object.entries(m.requestsByStatus || {}).map(([code, count]) => `
+              <div class="row" style="justify-content:space-between">
+                <span>Code <b>${code}</b></span>
+                <span class="muted">${fmt(count)} requêtes</span>
+              </div>
+            `).join("") || `<p class="muted">Aucune donnée pour l'instant.</p>`}
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3 style="margin-top:0">Méthodes API utilisées</h3>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${Object.entries(m.requestsByMethod || {}).map(([methode, count]) => `
+              <div class="row" style="justify-content:space-between">
+                <span><b>${methode}</b></span>
+                <span class="muted">${fmt(count)}</span>
+              </div>
+            `).join("") || `<p class="muted">Aucune donnée pour l'instant.</p>`}
+          </div>
+        </div>
+      </div>
+    `;
+    $("#mRecharger").onclick = () => adminMetrics(el);
+  } catch (err) {
+    el.innerHTML = `<p class="err">${esc(err.message)}</p>`;
+  }
+}
+
+async function adminSecurite(el) {
+  el.innerHTML = `<p class="muted">Chargement du statut du bouclier anti-bot…</p>`;
+  try {
+    const data = await api("admin/securite");
+    el.innerHTML = `
+      <div class="panel" style="margin-bottom:16px;border-left:5px solid ${data.bouclierActif ? '#2ed573' : '#ff4757'}">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <div>
+            <h3 style="margin:0">🛡️ Bouclier de Protection Anti-Bot & Rate-Limiter</h3>
+            <p class="muted" style="margin:4px 0 0">Statut actuel : <b>${data.bouclierActif ? 'ACTIVÉ (Protection stricte)' : 'STANDARD'}</b></p>
+          </div>
+          <div class="row">
+            <button class="btn primary" id="btnTestAlerte">🚨 Simuler une attaque de bot</button>
+            <button class="btn" id="btnResetAlerte">✓ Acquitter les alertes</button>
+          </div>
+        </div>
+      </div>
+
+      ${data.alerteActive ? `
+        <div class="panel" style="background:rgba(211,47,47,.15);border:1px solid #d32f2f;margin-bottom:16px">
+          <b style="color:#d32f2f;font-size:16px">⚠️ ALERTE ACTIVE : Menace ou pic anormal détecté</b>
+          <p style="margin:6px 0">${esc(data.details?.message || "Nombre élevé de requêtes suspectes en peu de temps.")}</p>
+          <small class="muted">IP suspecte : ${esc(data.details?.ip || "Inconnue")} · Date : ${new Date(data.details?.date || Date.now()).toLocaleTimeString("fr-FR")}</small>
+        </div>
+      ` : `<div class="panel" style="margin-bottom:16px"><span style="color:#2ed573">✅ Aucune attaque de bot en cours. Trafic normal.</span></div>`}
+
+      <h3 style="margin-top:20px">Journal des événements de sécurité</h3>
+      <div class="panel" style="padding:0;overflow-x:auto">
+        <table class="classement">
+          <thead><tr><th>Date</th><th>Type</th><th>IP</th><th>Détails & Fréquence</th></tr></thead>
+          <tbody>
+            ${(data.logs || []).map((l) => `
+              <tr>
+                <td>${new Date(l.cree_le).toLocaleString("fr-FR")}</td>
+                <td><span class="rbadge" data-r="${l.niveau === 'critique' ? 'legendaire' : 'rare'}">${esc(l.type)}</span></td>
+                <td><code>${esc(l.ip)}</code></td>
+                <td>${esc(l.details)}</td>
+              </tr>
+            `).join("") || `<tr><td colspan="4" class="muted">Aucune alerte enregistrée.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    $("#btnTestAlerte")?.addEventListener("click", async () => {
+      try {
+        await api("admin/test-alerte", { methode: "POST" });
+        toast("🚨 Alerte bot simulée envoyée ! Le bandeau d'alerte apparaît en haut.");
+        rafraichirPresencesEtAlertes();
+        adminSecurite(el);
+      } catch (e) {
+        toast("⚠ " + e.message);
+      }
+    });
+
+    $("#btnResetAlerte")?.addEventListener("click", async () => {
+      try {
+        await api("admin/reinitialiser-alerte", { methode: "POST" });
+        toast("✅ Alertes réinitialisées.");
+        rafraichirPresencesEtAlertes();
+        adminSecurite(el);
+      } catch (e) {
+        toast("⚠ " + e.message);
+      }
+    });
+
+  } catch (err) {
+    el.innerHTML = `<p class="err">${esc(err.message)}</p>`;
+  }
+}
+
+async function adminBugs(el) {
+  el.innerHTML = `<p class="muted">Chargement des retours et signalements de bugs…</p>`;
+  try {
+    const { feedbacks } = await api("feedback/liste");
+    if (!feedbacks || !feedbacks.length) {
+      el.innerHTML = `<div class="panel" style="text-align:center"><p class="muted">Aucun bug ni suggestion soumis pour le moment.</p></div>`;
+      return;
+    }
+
+    el.innerHTML = `
+      <div class="sectiontitle">
+        <h3>💡 Boîte à Idées & Signalements (${feedbacks.length})</h3>
+        <span class="muted">Gérez les suggestions des joueurs et les bugs rapportés</span>
+      </div>
+      <div class="posts">
+        ${feedbacks.map((f) => `
+          <article class="post" data-fb="${f.id}">
+            <header>
+              <b>${f.type === 'bug' ? '🐛 BUG' : '💡 SUGGESTION'} : ${esc(f.titre)}</b>
+              <span class="muted">Par ${esc(f.pseudo || 'Anonyme')} · ${depuis(f.cree_le)}</span>
+            </header>
+            <p class="txt" style="margin:8px 0">${esc(f.texte)}</p>
+            <footer>
+              <label style="display:flex;align-items:center;gap:6px">
+                Statut :
+                <select class="chip" data-fb-statut="${f.id}">
+                  <option value="nouveau" ${f.statut === 'nouveau' ? 'selected' : ''}>Nouveau</option>
+                  <option value="en_cours" ${f.statut === 'en_cours' ? 'selected' : ''}>En cours</option>
+                  <option value="resolu" ${f.statut === 'resolu' ? 'selected' : ''}>Résolu ✓</option>
+                  <option value="rejete" ${f.statut === 'rejete' ? 'selected' : ''}>Classé sans suite</option>
+                </select>
+              </label>
+            </footer>
+          </article>
+        `).join("")}
+      </div>
+    `;
+
+    $$("[data-fb-statut]", el).forEach((sel) => {
+      sel.onchange = async () => {
+        const id = Number(sel.dataset.fbStatut);
+        try {
+          await api(`feedback/${id}/statut`, { methode: "POST", corps: { statut: sel.value } });
+          toast("✓ Statut mis à jour.");
+        } catch (e) {
+          toast("⚠ " + e.message);
+        }
+      };
+    });
+
+  } catch (err) {
+    el.innerHTML = `<p class="err">${esc(err.message)}</p>`;
+  }
+}
+
 async function adminSignalements(el) {
   el.innerHTML = `<p class="muted">Chargement…</p>`;
   try {

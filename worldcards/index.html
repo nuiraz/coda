@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>WorldCards — Collectionner le monde</title>
 <meta name="description" content="Collectionnez les 195 pays, des centaines de villes et de monuments et les merveilles du monde sous forme de cartes, puis affrontez les autres joueurs dans l'arène.">
+<meta property="og:title" content="WorldCards — Collectionner le monde">
+<meta property="og:description" content="Collectionnez les 195 pays, des centaines de villes et de monuments et les merveilles du monde sous forme de cartes, puis affrontez les autres joueurs dans l'arène.">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="stylesheet" href="style.css">
@@ -19,19 +21,24 @@
 <meta name="apple-mobile-web-app-title" content="WorldCards">
 </head>
 <body>
+<div id="adminSecurityAlert" class="admin-sec-banner hidden" role="alert"></div>
 <header class="top">
   <div class="brand">🌐 <b><span>WorldCards</span></b></div>
+  <div class="online-pill" id="onlinePill" title="Joueurs connectés en temps réel">
+    <span class="dot-live"></span><span id="nbEnLigne">12</span> en ligne
+  </div>
   <div class="nivjoueur" id="niveauJoueur" title="Niveau du joueur"></div>
   <div class="coins" title="Pièces : gagnez-en au quiz, ouvrez des boosters">🪙 <span id="coins">0</span></div>
+  <button class="iconbtn" id="feedbackBtn" title="Idées & Bugs pour l'admin" aria-label="Idée ou bug">💡</button>
   <button class="iconbtn premiumbtn" id="premiumBtn" title="Premium" aria-label="Premium">💎</button>
-  <button class="iconbtn" id="hubBtn" title="Communauté" aria-label="Communauté">👥</button>
+  <button class="iconbtn" id="hubBtn" title="Communauté & Échanges" aria-label="Communauté">👥</button>
   <button class="iconbtn compte" id="compteBtn" title="Mon compte" aria-label="Mon compte">👤</button>
   <button class="hidden" id="settingsBtn" aria-hidden="true" tabindex="-1"></button>
 </header>
 <nav id="nav"></nav>
 <main id="view"></main>
 <footer class="pied">
-  <div class="liens"><a href="#" data-pied="hub">Communauté</a> · <a href="#" data-pied="compte">Mon compte</a> ·
+  <div class="liens"><a href="#" data-pied="hub">Communauté & Échanges</a> · <a href="#" data-pied="tournoi">🏆 Tournoi</a> · <a href="#" data-pied="compte">Mon compte</a> ·
   <a href="#" data-pied-legal="mentions">Mentions légales</a> · <a href="#" data-pied-legal="cgu">Conditions d'utilisation</a> ·
   <a href="#" data-pied-legal="confidentialite">Confidentialité</a> · <a href="#" data-pied-legal="cgv">CGV</a> · <a href="#" data-pied="premium">💎 Premium</a></div>
   <button class="btn small hidden" id="installBtn">📲 Installer l'app</button>
@@ -59,6 +66,7 @@
 <script src="data/culture.js"></script>
 <script src="data/photos.js"></script>
 <script src="data/photos-pays.js"></script>
+<script src="data/extensions.js"></script>
 <script src="compte.js"></script>
 <script src="app.js"></script>
 <script src="combat-ui.js"></script>
