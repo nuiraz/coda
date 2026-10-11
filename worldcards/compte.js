@@ -22,7 +22,12 @@ function majPremium(jusqu) {
   if (typeof renderNav === "function") renderNav();
 }
 const PAYPAL = "https://paypal.me/noozoaa";
-const OFFRES_PREMIUM = { mois: { nom: "1 mois", prix: "5,99 €", lien: PAYPAL + "/5.99EUR" }, vie: { nom: "À vie", prix: "39,99 €", lien: PAYPAL + "/39.99EUR" } };
+const OFFRES_PREMIUM = {
+  mois: { nom: "1 mois", prix: "3,99 €", lien: PAYPAL + "/3.99EUR", detail: "31 jours de Premium, sans renouvellement automatique." },
+  an: { nom: "1 an", prix: "29,99 €", lien: PAYPAL + "/29.99EUR", detail: "365 jours de Premium : soit 2,50 € par mois.", ruban: "Populaire" },
+  vie: { nom: "À vie", prix: "89 €", lien: PAYPAL + "/89EUR", detail: "Un seul paiement, Premium pour toujours.", ruban: "Meilleure offre" },
+};
+const libelleFormule = (f) => `${OFFRES_PREMIUM[f]?.nom || f} · ${OFFRES_PREMIUM[f]?.prix || ""}`;
 let SYNC = { etat: "", timer: 0, enCours: false, encore: false };
 
 /* =====================================================================
@@ -606,10 +611,10 @@ function vuePremium(v) {
       <p class="muted" style="margin:0">${actif ? (COMPTE.premiumJusqu >= PREMIUM_VIE ? "Vous êtes Premium à vie. Merci !" : `Votre Premium est actif jusqu'au <b>${new Date(COMPTE.premiumJusqu).toLocaleDateString("fr-FR")}</b>.`) : "Plus de boosters, plus de Shiny, plus de jeu."}</p>
     </div>
     <div class="avantages">${AVANTAGES_PREMIUM.map(([e, t, d]) => `<div class="avantage"><span>${e}</span><div><b>${t}</b><small class="muted">${d}</small></div></div>`).join("")}</div>
-    <div class="grid2 offres" style="margin-top:16px">${Object.entries(OFFRES_PREMIUM).map(([k, o]) => `<div class="panel offre-premium ${k === "vie" ? "meilleure" : ""}">
-        ${k === "vie" ? `<span class="ruban">Meilleure offre</span>` : ""}
+    <div class="offres" style="margin-top:16px">${Object.entries(OFFRES_PREMIUM).map(([k, o]) => `<div class="panel offre-premium ${o.ruban ? "meilleure" : ""}">
+        ${o.ruban ? `<span class="ruban">${o.ruban}</span>` : ""}
         <h3 style="margin:0">${o.nom}</h3><div class="prix">${o.prix}</div>
-        <p class="muted" style="margin:0 0 10px">${k === "vie" ? "Un seul paiement, Premium pour toujours." : "31 jours de Premium, sans renouvellement automatique."}</p>
+        <p class="muted" style="margin:0 0 10px">${o.detail}</p>
         <a class="btn primary premium" href="${o.lien}" target="_blank" rel="noopener" data-payer="${k}">Payer ${o.prix} avec PayPal</a></div>`).join("")}</div>
     <div class="panel" style="margin-top:16px">
       <h3 style="margin-top:0">Comment ça marche ?</h3>
@@ -619,7 +624,7 @@ function vuePremium(v) {
         <li>Revenez ici et touchez « J'ai payé » : l'administrateur vérifie le paiement et active votre Premium, en général sous 24 heures. Vous recevez une notification.</li>
       </ol>
       ${connecte() ? `<form class="form" id="fDemande" style="max-width:520px">
-        <label>Formule<select id="dFormule"><option value="mois">1 mois · 5,99 €</option><option value="vie">À vie · 39,99 €</option></select></label>
+        <label>Formule<select id="dFormule">${Object.keys(OFFRES_PREMIUM).map((k) => `<option value="${k}">${libelleFormule(k)}</option>`).join("")}</select></label>
         <label>Nom ou e-mail utilisé sur PayPal (pour retrouver le paiement)<input id="dNote" maxlength="120" placeholder="Facultatif"></label>
         <button class="btn primary">✅ J'ai payé</button><p class="err" id="dErr"></p></form>` : ""}
       <p class="muted" style="font-size:12.5px;margin-bottom:0">En payant, vous acceptez les ${lienLegal("cgv", "conditions générales de vente")}. Le Premium est un contenu numérique fourni dès son activation : vous renoncez donc à votre droit de rétractation une fois le Premium activé (article L221-28 du Code de la consommation). Une question ? ${esc(CONTACT)}.</p>
@@ -638,7 +643,7 @@ function vuePremium(v) {
 async function adminPremium(el) {
   el.innerHTML = `<form class="panel form" id="fPrem" style="max-width:520px"><h3 style="margin:0">Activer le Premium</h3>
       <label>Joueur<input id="prPseudo" value="${esc(adminEtat.pseudoPremium || "")}" required></label>
-      <label>Formule<select id="prFormule"><option value="mois">+1 mois (5,99 €)</option><option value="vie">À vie (39,99 €)</option><option value="retirer">Retirer le Premium</option></select></label>
+      <label>Formule<select id="prFormule">${Object.keys(OFFRES_PREMIUM).map((k) => `<option value="${k}">${k === "vie" ? "" : "+"}${libelleFormule(k)}</option>`).join("")}<option value="retirer">Retirer le Premium</option></select></label>
       <button class="btn primary">💎 Valider</button><p class="err" id="prErr"></p>
       <p class="muted" style="margin:0;font-size:13px">Vérifiez d'abord le paiement dans votre compte PayPal (montant et pseudo dans la note).</p></form>
     <h3>Demandes en attente</h3><div id="prDemandes"><p class="muted">Chargement…</p></div>
@@ -655,7 +660,7 @@ async function adminPremium(el) {
   try {
     const { demandes, premiums } = await api("admin/premium");
     $("#prDemandes").innerHTML = demandes.length ? `<div class="posts">${demandes.map((d) => `<article class="post" data-d="${d.id}" data-p="${esc(d.pseudo)}" data-f="${d.formule}">
-        <header><b>${esc(d.pseudo)}</b><span class="muted">${depuis(d.cree_le)} · ${d.formule === "vie" ? "À vie · 39,99 €" : "1 mois · 5,99 €"}</span></header>
+        <header><b>${esc(d.pseudo)}</b><span class="muted">${depuis(d.cree_le)} · ${libelleFormule(d.formule)}</span></header>
         ${d.note ? `<p class="txt">PayPal : ${esc(d.note)}</p>` : ""}
         <footer><button class="btn small primary" data-ok>✅ Paiement reçu : activer</button><button class="btn small" data-non>Refuser</button></footer></article>`).join("")}</div>`
       : `<p class="muted">Aucune demande en attente.</p>`;
@@ -762,10 +767,10 @@ const PAGES_LEGALES = {
     <h3>Mineurs</h3><p>Avant 15 ans, l'inscription nécessite l'accord d'un parent.</p>`],
   cgv: ["Conditions générales de vente", `
     <h3>1. Vendeur</h3><p>${EDITEUR}${ADRESSE ? `, ${ADRESSE}` : ""}. Contact : ${CONTACT}.${SIRET ? ` ${SIRET}.` : ""}</p>
-    <h3>2. Offre</h3><p>Le Premium est un abonnement à des avantages numériques dans ${NOM_SITE} : 2 boosters Classiques supplémentaires par jour, accès aux boosters Prestige (dont un offert par semaine), chances de cartes Shiny doublées, 20 questions de quiz par jour au lieu de 10, 20 combats d'arène par jour au lieu de 10 et un badge 💎. Deux formules : <b>1 mois pour 5,99 €</b> (31 jours, sans renouvellement automatique) et <b>à vie pour 39,99 €</b> (pendant toute la durée d'exploitation du jeu). Prix toutes taxes comprises${TVA_NON_APPLICABLE ? " ; TVA non applicable, article 293 B du CGI" : ""}.</p>
+    <h3>2. Offre</h3><p>Le Premium est un abonnement à des avantages numériques dans ${NOM_SITE} : 2 boosters Classiques supplémentaires par jour, accès aux boosters Prestige (dont un offert par semaine), chances de cartes Shiny doublées, 20 questions de quiz par jour au lieu de 10, 20 combats d'arène par jour au lieu de 10 et un badge 💎. Trois formules, sans renouvellement automatique : <b>1 mois pour 3,99 €</b> (31 jours), <b>1 an pour 29,99 €</b> (365 jours) et <b>à vie pour 89 €</b> (pendant toute la durée d'exploitation du jeu). Prix toutes taxes comprises${TVA_NON_APPLICABLE ? " ; TVA non applicable, article 293 B du CGI" : ""}.</p>
     <h3>3. Commande et paiement</h3><p>Le paiement se fait par PayPal (paypal.me/noozoaa), en indiquant son pseudo dans la note. Le Premium est lié au compte du joueur et activé manuellement après vérification du paiement, en général sous 24 heures et au plus tard sous 7 jours. Sans activation dans ce délai, le joueur est remboursé sur simple demande.</p>
     <h3>4. Droit de rétractation</h3><p>Le Premium est un contenu numérique fourni sur un support immatériel. Conformément à l'article L221-28 13° du Code de la consommation, en demandant son activation, le joueur accepte que l'exécution commence immédiatement et renonce à son droit de rétractation une fois le Premium activé. Avant activation, il peut annuler sa commande et être remboursé intégralement.</p>
-    <h3>5. Durée et fin</h3><p>Les avantages s'appliquent pendant la durée achetée. En cas de suspension du compte pour manquement grave aux conditions d'utilisation, le Premium prend fin sans remboursement. En cas d'arrêt définitif du jeu, les joueurs Premium en cours (formule mensuelle) sont remboursés au prorata de la durée restante.</p>
+    <h3>5. Durée et fin</h3><p>Les avantages s'appliquent pendant la durée achetée. En cas de suspension du compte pour manquement grave aux conditions d'utilisation, le Premium prend fin sans remboursement. En cas d'arrêt définitif du jeu, les joueurs Premium en cours (formules mensuelle et annuelle) sont remboursés au prorata de la durée restante.</p>
     <h3>6. Réclamations et médiation</h3><p>Pour toute réclamation : ${CONTACT}. En cas de litige, le consommateur peut recourir gratuitement à un médiateur de la consommation ou à la plateforme européenne de règlement en ligne des litiges. Droit applicable : droit français.</p>`],
 };
 function vueLegal(v, opts = {}) {

@@ -527,3 +527,92 @@ table.classement tr.banni td { opacity: .55; }
 .opening.tout > div { position: relative; }
 .badge .medal .bdrap { width: 34px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
 @media (max-width: 400px) { .nivjoueur { min-width: 0; padding: 4px 8px 6px; } }
+
+/* ===== Interface mobile et web : corrections de mise en page ===== */
+#toasts { top: auto; bottom: 20px; left: auto; right: 20px; transform: none; width: min(360px, calc(100vw - 32px)); pointer-events: none; }
+.toast { pointer-events: auto; cursor: pointer; font-size: 14px; padding: 9px 13px; transition: opacity .3s, transform .3s; }
+.toast.sort { opacity: 0; transform: translateY(8px); }
+.hero-titre { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 6px; }
+.hero-titre h1 { margin: 0; }
+.sectiontitle { flex-wrap: wrap; row-gap: 2px; }
+.sectiontitle .muted { font-size: 13.5px; }
+/* Étiquettes NOUVELLE / doublon : au-dessus de la carte, sans cacher son en-tête */
+.flip, .opening.tout > div { margin-top: 12px; }
+.tagnew, .tagdup { top: -13px; font-size: 11px; padding: 1px 8px; box-shadow: 0 2px 6px rgba(0,0,0,.25); }
+.opening { row-gap: 22px; }
+.toolbar { row-gap: 8px; }
+.toolbar .search { min-width: 0; flex: 1 1 160px; }
+.statbloc > div { min-width: 0; }
+.detail { min-width: 0; }
+.detail dl { overflow-wrap: anywhere; }
+.btn { line-height: 1.25; }
+@media (max-width: 760px) {
+  #toasts { right: 50%; transform: translateX(50%); bottom: calc(74px + env(safe-area-inset-bottom)); }
+  .hero h1, .hero-titre h1 { font-size: 22px; }
+  .top { gap: 6px; }
+  .coins { padding: 5px 9px; font-size: 14px; }
+  .iconbtn { padding: 6px 8px; }
+  .statgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .stat { padding: 8px 10px; } .stat b { font-size: 19px; }
+  .row { gap: 8px; }
+  .hero .row .btn { flex: 1 1 calc(50% - 8px); }
+  .panel { padding: 14px; }
+  .sectiontitle h3 { font-size: 17px; }
+  .offre { padding: 10px; gap: 10px; }
+  .offre-jour { flex-direction: row; gap: 10px; padding: 12px; }
+  .pack.mini { width: 74px; height: 106px; } .pack.mini .big { font-size: 30px; } .pack.mini b { font-size: 11px; }
+  .boutique, .boutique.themes { grid-template-columns: 1fr; }
+  .defis .defi .btn { padding: 5px 8px; }
+  .chapitres { grid-template-columns: 1fr; }
+  .adversaire { flex-wrap: wrap; }
+  .detail { grid-template-columns: 1fr !important; }
+  .statbloc { gap: 6px; } .statbloc > div { padding: 6px 8px; }
+  #modal.plein .box { padding: 12px; }
+  .combattant { padding: 6px; gap: 8px; } .combattant .cb-carte { width: min(100px, 27vw); }
+  .combattant .cb-infos b { font-size: 15px; }
+  .arene .actions [data-a] { min-width: 0; flex: 1 1 30%; padding: 9px 6px; font-size: 14px; }
+  .cbLog { min-height: 38px; font-size: 14px; }
+}
+@media (max-width: 360px) {
+  .nivjoueur { display: none; }
+  #nav button span:not(.ic):not(.pill) { font-size: 9px; }
+}
+@media (min-width: 761px) {
+  main { padding-top: 20px; }
+  #modal.plein .arene { max-width: 640px; }
+  .combattant .cb-carte { width: 140px; }
+}
+
+/* ===== Carte en 3D ===== */
+#modal.sombre { background: radial-gradient(circle at 50% 40%, #2b2350, #07060d 75%); }
+.vue3d { color: #fff; display: flex; flex-direction: column; gap: 12px; min-height: 100%; align-items: center; }
+.vue3d-top { text-align: center; display: grid; gap: 2px; }
+.vue3d .muted { color: rgba(255,255,255,.6); font-size: 13px; }
+.vue3d .btn { background: rgba(255,255,255,.12); color: #fff; border-color: rgba(255,255,255,.25); }
+.vue3d .btn.on { background: #ffd34d; color: #3a2a00; }
+.scene3d { perspective: 1100px; width: min(300px, 76vw); aspect-ratio: 170 / 250; margin: 16px auto 34px; position: relative; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+.scene3d:active { cursor: grabbing; }
+.carte3d { position: absolute; inset: 0; transform-style: preserve-3d; will-change: transform; }
+.face3d { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 14px; }
+.face3d .card { width: 100%; height: 100%; cursor: default; box-shadow: none; }
+.face3d.avant { transform: translateZ(0.3px); }
+.face3d.arriere { transform: rotateY(180deg) translateZ(4.8px); background: var(--r, #888); padding: 6px; }
+.face3d.arriere[data-r="commun"] { --r: var(--commun); } .face3d.arriere[data-r="peu-commun"] { --r: var(--peu-commun); } .face3d.arriere[data-r="rare"] { --r: var(--rare); }
+.face3d.arriere[data-r="epique"] { --r: linear-gradient(135deg, #b47cf0, var(--epique), #6a2bb8); } .face3d.arriere[data-r="ultra-rare"] { --r: linear-gradient(135deg, #ff9a7a, var(--ultra-rare), #8e1b16); }
+.face3d.arriere[data-r="legendaire"] { --r: linear-gradient(135deg, #fff1a8, var(--legendaire), #b5790b); } .face3d.arriere[data-r="secrete"] { --r: conic-gradient(from 0deg, #e0458b, #e8a917, #3aa776, #3f7fe0, #9b51e0, #e0458b); }
+.dos3d { height: 100%; border-radius: 10px; display: grid; place-content: center; text-align: center; gap: 6px; color: #fff;
+  background: repeating-conic-gradient(from 0deg at 50% 50%, rgba(255,255,255,.05) 0 10deg, transparent 10deg 20deg), radial-gradient(circle at 50% 40%, #3b2f7a, #120d2b 75%); }
+.dos3d span { font-size: 74px; filter: drop-shadow(0 4px 16px rgba(120,160,255,.6)); }
+.dos3d b { font-size: 20px; letter-spacing: 1px; } .dos3d small { opacity: .8; }
+.tranche { position: absolute; inset: 0; border-radius: 14px; background: #d9d2c3; transform: translateZ(var(--z)); }
+.carte3d[data-r="legendaire"] .tranche { background: #c99a2e; } .carte3d[data-r="epique"] .tranche { background: #7a45c4; } .carte3d[data-r="ultra-rare"] .tranche { background: #b0321f; } .carte3d[data-r="rare"] .tranche { background: #3567c2; }
+.reflet3d { position: absolute; inset: 0; border-radius: 14px; pointer-events: none; transform: translateZ(0.6px); mix-blend-mode: screen; }
+.ombre3d { position: absolute; left: 10%; right: 10%; bottom: -30px; height: 18px; border-radius: 50%; background: radial-gradient(ellipse, rgba(0,0,0,.55), transparent 70%); filter: blur(2px); }
+.carte3d .face3d.arriere { display: none; transform: rotateY(180deg); }
+.carte3d.dos .face3d.arriere { display: block; }
+.carte3d.dos .face3d.avant { display: none; }
+.carte3d .face3d { backface-visibility: visible; -webkit-backface-visibility: visible; }
+.carte3d::after { content: ""; position: absolute; inset: 0; border-radius: 14px; transform: translateZ(-2px); background: rgba(0,0,0,.35); }
+.carte3d.dos::after { display: none; }
+.offres { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.offres .offre-premium { padding-top: 22px; }

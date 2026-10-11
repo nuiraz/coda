@@ -30,7 +30,7 @@ Une application web de cartes à collectionner sur le monde, avec un mode combat
 - **Boutique** : Classique (120 🪙), Argent (380 🪙), Or (900 🪙), Méga 10 cartes (1 000 🪙), Prestige (Premium), 12 boosters thématiques (par type ou par continent), une offre du jour à -40 % et un bouton « Tout ouvrir ».
 - **Quiz** : 10 questions par jour (20 en Premium), 25 🪙 par bonne réponse.
 
-## 💎 Premium (5,99 € par mois ou 39,99 € à vie)
+## 💎 Premium (3,99 € par mois, 29,99 € par an ou 89 € à vie)
 - Paiement par PayPal (paypal.me/noozoaa), pseudo dans la note, puis « J'ai payé » dans le jeu ; l'administrateur
   vérifie et active le Premium depuis *Administration → Premium* (le joueur reçoit une notification).
 - Avantages : +2 boosters par jour, boosters Prestige (un offert par semaine), Shiny ×2, 20 questions de quiz,

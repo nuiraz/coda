@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v14"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v15"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -607,9 +607,13 @@ function confirmer(message, libelle, action) {
    Interface générale
    ===================================================================== */
 function majCoins() { $("#coins").textContent = fmt(S.coins); }
+// Notifications discrètes : deux au maximum à l'écran, touchez pour fermer
 function toast(html, ms = 3200) {
+  const box = $("#toasts");
+  while (box.children.length >= 2) box.firstElementChild.remove();
   const t = document.createElement("div"); t.className = "toast"; t.innerHTML = html;
-  $("#toasts").appendChild(t); setTimeout(() => t.remove(), ms);
+  t.onclick = () => t.remove();
+  box.appendChild(t); setTimeout(() => { t.classList.add("sort"); setTimeout(() => t.remove(), 300); }, ms);
 }
 function ouvrirModal(html, onClose) {
   const m = $("#modal");
@@ -661,7 +665,7 @@ function aller(vue, opts) {
 // Clic sur n'importe quelle carte : fiche détaillée
 document.addEventListener("click", (e) => {
   const el = e.target.closest(".card[data-id]");
-  if (!el || el.closest(".opening") || el.closest(".poke") || el.closest(".detail") || el.closest(".reveal") || el.closest("[data-noclick]") || el.closest(".arene")) return;
+  if (!el || el.closest(".opening") || el.closest(".poke") || el.closest(".detail") || el.closest(".reveal") || el.closest("[data-noclick]") || el.closest(".arene") || el.closest(".vue3d")) return;
   if (BY_ID[el.dataset.id]) ficheCarte(BY_ID[el.dataset.id]);
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches?.(".card[data-id]")) e.target.click(); });
@@ -677,7 +681,7 @@ $("#installBtn").onclick = () => installer();
 const GRANDES = ".detail, .pk-carte, .reveal";
 document.addEventListener("pointermove", (e) => {
   const card = e.target.closest?.(".card");
-  if (!card || card.classList.contains("locked") || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (!card || card.classList.contains("locked") || card.closest(".vue3d") || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const grande = card.closest(GRANDES);
   const brillante = card.matches(".shiny, [data-r=legendaire], [data-r=ultra-rare], [data-r=secrete]");
   if (!grande && (!brillante || e.pointerType !== "mouse")) return;
@@ -737,6 +741,7 @@ function ficheCarte(c) {
         ${owned ? blocStats(c) : ""}
         <div class="row">
           ${!owned && !secretVerrou && prix ? `<button class="btn primary" id="craft" ${S.coins < prix ? "disabled" : ""}>Obtenir pour ${fmt(prix)} 🪙</button>` : ""}
+          ${owned ? `<button class="btn primary" id="voir3d">🧊 Voir en 3D</button>` : ""}
           ${owned ? `<button class="btn" id="deckBtn">${dansDeck ? "Retirer du deck" : "⚔️ Ajouter au deck"}</button>` : ""}
           ${owned && lieu ? `<button class="btn" id="voirAtlas">🗺️ Voir sur l'atlas</button>` : ""}
         </div>
@@ -750,8 +755,84 @@ function ficheCarte(c) {
     toast(`✨ <b>${esc(c.nom)}</b> rejoint votre collection !`);
     fermerModal(); verifierProgression(); aller(S.vue);
   });
+  $("#voir3d")?.addEventListener("click", () => voir3D(c));
   $("#deckBtn")?.addEventListener("click", () => { basculerDeck(c.id); fermerModal(); if (S.vue === "combat") aller("combat"); });
   $("#voirAtlas")?.addEventListener("click", () => { fermerModal(); aller("atlas", { focus: c }); });
+}
+/* =====================================================================
+   Carte en 3D : faites-la tourner du doigt, ou en inclinant le téléphone
+   ===================================================================== */
+function voir3D(c) {
+  const shiny = !!S.shiny?.[c.id];
+  const r = RARETES[c.rarete];
+  ouvrirModal(`<div class="vue3d">
+      <div class="vue3d-top"><b>🧊 ${esc(c.nom)}</b><span class="muted">Faites glisser pour tourner · double-tap pour retourner</span></div>
+      <div class="scene3d" id="scene3d">
+        <div class="carte3d" id="carte3d" data-r="${c.rarete}">
+          <div class="face3d avant">${cardHTML(c)}</div>
+          <div class="face3d arriere" data-r="${c.rarete}"><div class="dos3d"><span>${UNIVERS.monde.dos}</span><b>WorldCards</b><small>${r.gems} ${r.nom}${shiny ? " · ✨ Shiny" : ""}</small></div></div>
+          <div class="reflet3d" id="reflet3d"></div>
+        </div>
+        <div class="ombre3d" id="ombre3d"></div>
+      </div>
+      <div class="row" style="justify-content:center">
+        <button class="btn small" id="r3dTourner">🔄 Retourner</button>
+        <button class="btn small" id="r3dAuto">▶️ Rotation auto</button>
+        <button class="btn small" id="r3dGyro">📱 Gyroscope</button>
+        <button class="btn small" data-close>Fermer</button>
+      </div></div>`);
+  $("#modal").classList.add("plein", "sombre");
+  const carte = $("#carte3d"), reflet = $("#reflet3d"), scene = $("#scene3d"), ombre = $("#ombre3d");
+  let rx = -8, ry = 20, vx = 0, vy = 0, glisse = false, px = 0, py = 0, auto = true, gyro = false, dernierTap = 0, anim = 0, cible = null;
+  carte.regler = (x, y) => { rx = x; ry = y; auto = false; cible = null; vx = vy = 0; };
+  const appliquer = () => {
+    carte.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg)`;
+    // On affiche la face tournée vers nous (plus fiable que backface-visibility sur tous les navigateurs)
+    const dos = Math.cos(ry * Math.PI / 180) * Math.cos(rx * Math.PI / 180) < 0;
+    carte.classList.toggle("dos", dos);
+    const a = ((ry % 360) + 360) % 360;
+    reflet.style.background = `linear-gradient(${105 + ry * 0.6}deg, transparent 30%, rgba(255,255,255,${0.12 + Math.abs(Math.sin(a * Math.PI / 180)) * 0.25}) 48%, transparent 62%)`;
+    ombre.style.transform = `translateX(${Math.sin(ry * Math.PI / 180) * 18}px) scaleX(${0.55 + Math.abs(Math.cos(ry * Math.PI / 180)) * 0.45})`;
+  };
+  const boucle = () => {
+    if (!$("#carte3d")) return;
+    if (!glisse && !gyro) {
+      if (cible !== null) { ry += (cible - ry) * 0.12; if (Math.abs(cible - ry) < 0.3) { ry = cible; cible = null; } }
+      else if (auto) ry += 0.6;
+      else { ry += vy; rx += vx; vy *= 0.94; vx *= 0.94; }
+      rx += (-8 - rx) * (auto ? 0.04 : 0.01);
+    }
+    appliquer();
+    anim = requestAnimationFrame(boucle);
+  };
+  scene.addEventListener("pointerdown", (e) => {
+    const t = Date.now();
+    if (t - dernierTap < 300) { cible = Math.round((ry + 180) / 180) * 180; auto = false; }
+    dernierTap = t; glisse = true; auto = false; px = e.clientX; py = e.clientY; scene.setPointerCapture(e.pointerId);
+  });
+  scene.addEventListener("pointermove", (e) => {
+    if (!glisse) return;
+    vy = (e.clientX - px) * 0.5; vx = -(e.clientY - py) * 0.4;
+    ry += vy; rx = Math.max(-60, Math.min(60, rx + vx)); px = e.clientX; py = e.clientY;
+  });
+  const fin = () => { glisse = false; };
+  scene.addEventListener("pointerup", fin); scene.addEventListener("pointercancel", fin);
+  $("#r3dTourner").onclick = () => { auto = false; cible = Math.round(ry / 180) * 180 + 180; };
+  $("#r3dAuto").onclick = () => { auto = !auto; cible = null; };
+  const orientation = (e) => { if (!gyro || e.gamma == null) return; ry = e.gamma * 1.4; rx = Math.max(-50, Math.min(50, -(e.beta - 45) * 0.9)); };
+  $("#r3dGyro").onclick = async () => {
+    if (gyro) { gyro = false; $("#r3dGyro").classList.remove("on"); return; }
+    try {
+      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+        if ((await DeviceOrientationEvent.requestPermission()) !== "granted") return toast("Gyroscope refusé.");
+      }
+      gyro = true; auto = false; $("#r3dGyro").classList.add("on");
+      addEventListener("deviceorientation", orientation);
+      toast("📱 Inclinez votre téléphone pour faire tourner la carte.");
+    } catch { toast("Gyroscope indisponible sur cet appareil."); }
+  };
+  $("#modal")._onClose = () => { cancelAnimationFrame(anim); removeEventListener("deviceorientation", orientation); $("#modal").classList.remove("sombre"); };
+  boucle();
 }
 function basculerDeck(id) {
   if (S.deck.includes(id)) { S.deck = S.deck.filter((x) => x !== id); sauver(); toast("Carte retirée du deck."); return; }
@@ -778,7 +859,7 @@ function vueAccueil(v) {
     ${S.messageMigration ? `<div class="panel annonce">🌍 <b>WorldCards se concentre sur le monde !</b> Les univers Gaming et Objets ont été retirés. Vos anciennes cartes ont été échangées contre <b>${fmt(S.messageMigration.pieces)} 🪙</b>${S.messageMigration.boosters ? ` et vos boosters en <b>${S.messageMigration.boosters} boosters Classiques</b>` : ""}. <button class="btn small" id="okMigration">OK</button></div>` : ""}
     <div class="hero">
       <div class="panel">
-        <div class="row" style="justify-content:space-between"><h1 style="margin:0">${UNIVERS.monde.titre}</h1>${(() => { const n = niveauJoueur(); return `<span class="nivbloc">🎓 Niveau <b>${n.niveau}</b><span class="bar"><i style="width:${(n.xp / n.besoin) * 100}%"></i></span><small>${n.xp}/${n.besoin} XP</small></span>`; })()}</div>
+        <div class="hero-titre"><h1>${UNIVERS.monde.titre}</h1>${(() => { const n = niveauJoueur(); return `<span class="nivbloc">🎓 Niveau <b>${n.niveau}</b><span class="bar"><i style="width:${(n.xp / n.besoin) * 100}%"></i></span><small>${n.xp}/${n.besoin} XP</small></span>`; })()}</div>
         <p class="muted" style="margin:0">${UNIVERS.monde.intro}</p>
         <div class="statgrid">
           <div class="stat"><b>${count(of("monde", "pays").map((c) => c.id))}/${of("monde", "pays").length}</b><span>pays</span></div>

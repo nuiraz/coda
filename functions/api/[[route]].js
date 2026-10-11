@@ -518,11 +518,11 @@ async function prevenirAdmins(env, notif) {
    ===================================================================== */
 route("POST", "premium/demande", async ({ request, env, user, ctx }) => {
   const b = await corps(request);
-  const formule = b.formule === "vie" ? "vie" : "mois";
+  const formule = ["mois", "an", "vie"].includes(b.formule) ? b.formule : "mois";
   const attente = await env.DB.prepare("SELECT COUNT(*) AS n FROM demandes_premium WHERE user_id = ? AND traitee = 0").bind(user.id).first();
   if (attente.n >= 3) return erreur("Vous avez déjà des demandes en attente : l'administrateur va les traiter.", 429);
   await env.DB.prepare("INSERT INTO demandes_premium (user_id, formule, note, cree_le) VALUES (?, ?, ?, ?)").bind(user.id, formule, String(b.note || "").trim().slice(0, 120), maintenant()).run();
-  enArrierePlan(ctx, prevenirAdmins(env, { titre: "💎 Nouvelle demande Premium", texte: `${user.pseudo} : ${formule === "vie" ? "à vie (39,99 €)" : "1 mois (5,99 €)"}`, url: "./#compte" }));
+  enArrierePlan(ctx, prevenirAdmins(env, { titre: "💎 Nouvelle demande Premium", texte: `${user.pseudo} : ${{ mois: "1 mois (3,99 €)", an: "1 an (29,99 €)", vie: "à vie (89 €)" }[formule]}`, url: "./#compte" }));
   return json({ ok: true }, 201);
 }, { connecte: true });
 route("GET", "admin/premium", async ({ env }) => {
@@ -536,13 +536,13 @@ route("POST", "admin/premium", async ({ request, env, ctx }) => {
   const b = await corps(request);
   const u = await env.DB.prepare("SELECT id, premium_jusqu FROM users WHERE pseudo = ?").bind(String(b.pseudo || "").trim()).first();
   if (!u) return erreur("Joueur introuvable.", 404);
-  const formule = ["mois", "vie", "retirer"].includes(b.formule) ? b.formule : "mois";
-  const jusqu = formule === "retirer" ? 0 : formule === "vie" ? PREMIUM_VIE : Math.max(maintenant(), u.premium_jusqu || 0) + 31 * JOUR;
+  const formule = ["mois", "an", "vie", "retirer"].includes(b.formule) ? b.formule : "mois";
+  const jusqu = formule === "retirer" ? 0 : formule === "vie" ? PREMIUM_VIE : Math.max(maintenant(), u.premium_jusqu || 0) + (formule === "an" ? 365 : 31) * JOUR;
   const requetes = [env.DB.prepare("UPDATE users SET premium_jusqu = ? WHERE id = ?").bind(jusqu, u.id)];
   if (b.demande) requetes.push(env.DB.prepare("UPDATE demandes_premium SET traitee = 1 WHERE id = ? AND user_id = ?").bind(Number(b.demande), u.id));
   else if (formule !== "retirer") requetes.push(env.DB.prepare("UPDATE demandes_premium SET traitee = 1 WHERE user_id = ? AND traitee = 0").bind(u.id));
   await env.DB.batch(requetes);
-  if (formule !== "retirer") enArrierePlan(ctx, envoyerPush(env, u.id, { titre: "💎 Premium activé !", texte: formule === "vie" ? "Vous êtes Premium à vie. Merci pour votre soutien !" : "Votre Premium est actif pour 31 jours. Merci !", url: "./#premium" }));
+  if (formule !== "retirer") enArrierePlan(ctx, envoyerPush(env, u.id, { titre: "💎 Premium activé !", texte: formule === "vie" ? "Vous êtes Premium à vie. Merci pour votre soutien !" : `Votre Premium est actif pour ${formule === "an" ? "un an" : "31 jours"}. Merci !`, url: "./#premium" }));
   return json({ ok: true, premiumJusqu: jusqu });
 }, { admin: true });
 route("DELETE", "admin/premium/demandes/(\\d+)", async ({ env, p }) => {
