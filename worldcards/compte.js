@@ -7,8 +7,8 @@ const EDITEUR = "nuiraz";
 const CONTACT = "[skubisn@icloud.com]";
 const NOM_SITE = "WorldCards";
 // Vente du Premium : la loi impose d'indiquer l'identité réelle du vendeur et son adresse (ou son numéro SIRET)
-const ADRESSE = ""; // ex. : "Prénom Nom, 1 rue Exemple, 75000 Paris"
-const SIRET = "";   // ex. : "SIRET 123 456 789 00010 (micro-entreprise)"
+const ADRESSE = ""; // ex. : "nathan skbs  , chaussee de charleroi , 5030 gembloux "
+const SIRET = "";   // ex. : " (micro-entreprise)"
 const TVA_NON_APPLICABLE = true;
 
 let COMPTE = { etat: "inconnu", pseudo: null, admin: false, creeLe: null, premiumJusqu: 0 };
