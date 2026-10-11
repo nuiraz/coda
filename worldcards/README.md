@@ -35,7 +35,15 @@ La progression est enregistrée dans le navigateur ; exportez-la depuis ⚙︎ R
 
 Pour la publier en ligne, activez GitHub Pages sur ce dépôt (le dossier `worldcards/` est un site statique).
 
+## Vraies photos
+Les villes, monuments, merveilles, objets et cartes secrètes affichent la photo principale de leur article Wikipédia,
+chargée depuis Wikimedia Commons dans le navigateur du joueur, puis gardée en mémoire 30 jours. Les cartes non
+possédées montrent un aperçu flouté. La fiche de chaque carte indique l'auteur et la licence de la photo. Sans
+connexion, les cartes gardent leur dessin. Les photos se désactivent dans ⚙︎ Réglages. Les jeux vidéo n'ont pas
+de photo (les jaquettes sont protégées par le droit d'auteur) : ajoutez-y vos propres illustrations.
+
 ## Crédits
+- Photos : contributeurs de [Wikipédia](https://fr.wikipedia.org) et [Wikimedia Commons](https://commons.wikimedia.org), licences libres (auteur et licence sur chaque fiche)
 - Carte du monde : [Natural Earth](https://www.naturalearthdata.com) via [world-atlas](https://github.com/topojson/world-atlas) (domaine public)
 - Drapeaux : [flag-icons](https://github.com/lipis/flag-icons) (licence MIT)
 - [D3](https://d3js.org) et [TopoJSON](https://github.com/topojson/topojson-client) (licence ISC)

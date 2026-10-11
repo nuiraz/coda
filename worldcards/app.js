@@ -82,7 +82,7 @@ const nouvelleSauvegarde = () => ({
   coins: 200, owned: {}, nouveaux: {}, recents: [], badges: {},
   boosters: { monde: 3, gaming: 2, objets: 2 }, daily: {}, ouverts: 0,
   quiz: Object.fromEntries(["monde", "gaming", "objets"].map((u) => [u, { serie: 0, record: 0, bonnes: 0, total: 0 }])),
-  univers: "monde", vue: "accueil", theme: "",
+  univers: "monde", vue: "accueil", theme: "", photos: true,
 });
 function charger() {
   try {
@@ -179,6 +179,84 @@ function totalType(c) {
 }
 function illustrationDe(c) { return c.image || PERSO.illus[c.id] || null; }
 
+/* =====================================================================
+   Vraies photos : chargées depuis Wikipédia / Wikimedia Commons
+   ===================================================================== */
+const PHOTOS_KEY = "worldcards:photos:v1";
+let PHOTOS = (() => {
+  try { const j = JSON.parse(localStorage.getItem(PHOTOS_KEY)); if (j && Date.now() - j.t < 30 * 864e5) return j.data || {}; } catch {}
+  return {};
+})();
+const photoDe = (id) => (S.photos !== false ? PHOTOS[id]?.src : null);
+function photoHTML(c, locked) {
+  const src = photoDe(c.id);
+  if (!src || (locked && c.type === "secrete")) return "";
+  return `<img class="photo${locked ? " teaser" : ""}" src="${esc(src)}" alt="${locked ? "" : "Photo : " + esc(c.nom)}" loading="lazy">`;
+}
+// Ajoute les photos aux cartes déjà affichées, une fois chargées
+function rafraichirPhotos(root = document) {
+  for (const el of root.querySelectorAll(".card[data-id]")) {
+    const c = BY_ID[el.dataset.id], art = el.querySelector(".art");
+    if (!c || !art || art.querySelector(".photo")) continue;
+    const h = photoHTML(c, el.classList.contains("locked"));
+    if (h) art.insertAdjacentHTML("afterbegin", h);
+  }
+}
+document.addEventListener("error", (e) => { if (e.target.classList?.contains("photo")) e.target.remove(); }, true);
+async function requeteWiki(params) {
+  const u = new URL("https://fr.wikipedia.org/w/api.php");
+  for (const [k, v] of Object.entries({ action: "query", format: "json", formatversion: "2", origin: "*", ...params })) u.searchParams.set(k, v);
+  const r = await fetch(u);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+const pagePhoto = (p) => (p?.thumbnail?.source ? { src: p.thumbnail.source, file: p.pageimage || null, titre: p.title } : null);
+function memoriserPhotos() { try { localStorage.setItem(PHOTOS_KEY, JSON.stringify({ t: Date.now(), data: PHOTOS })); } catch {} }
+let chargementPhotos = null;
+function chargerPhotos() {
+  if (S.photos === false) return Promise.resolve();
+  return (chargementPhotos ||= (async () => {
+    const manquants = Object.keys(PHOTOS_WIKI).filter((id) => BY_ID[id] && !(id in PHOTOS));
+    if (!manquants.length) return;
+    try {
+      // Par lots de 45 articles : la photo principale de chaque article
+      for (let i = 0; i < manquants.length; i += 45) {
+        const lot = manquants.slice(i, i + 45);
+        const j = await requeteWiki({ redirects: "1", prop: "pageimages", piprop: "thumbnail|name", pithumbsize: "480", titles: lot.map((id) => PHOTOS_WIKI[id]).join("|") });
+        const alias = {};
+        for (const x of [...(j.query?.normalized || []), ...(j.query?.redirects || [])]) alias[x.from] = x.to;
+        const fin = (t) => { for (let k = 0; k < 4 && alias[t]; k++) t = alias[t]; return t; };
+        const pages = j.query?.pages || [];
+        for (const id of lot) { const ph = pagePhoto(pages.find((p) => p.title === fin(PHOTOS_WIKI[id]))); if (ph) PHOTOS[id] = ph; }
+      }
+      memoriserPhotos(); rafraichirPhotos();
+      // Article introuvable ou sans photo : on cherche l'article le plus proche
+      for (const id of manquants.filter((x) => !PHOTOS[x])) {
+        const j = await requeteWiki({ generator: "search", gsrsearch: PHOTOS_WIKI[id], gsrlimit: "1", prop: "pageimages", piprop: "thumbnail|name", pithumbsize: "480" });
+        PHOTOS[id] = pagePhoto(j.query?.pages?.[0]);
+      }
+      memoriserPhotos(); rafraichirPhotos();
+    } catch (e) {
+      console.info("Photos Wikipédia indisponibles :", e.message); // hors ligne : les cartes gardent leur dessin
+    }
+  })().finally(() => { chargementPhotos = null; }));
+}
+async function creditPhoto(c, el) {
+  const p = PHOTOS[c.id];
+  if (!p || S.photos === false) return;
+  el.innerHTML = `<a href="https://fr.wikipedia.org/wiki/${encodeURIComponent(p.titre.replace(/ /g, "_"))}" target="_blank" rel="noopener">📖 Lire l'article Wikipédia</a>`;
+  if (!p.file) return;
+  try {
+    const j = await requeteWiki({ prop: "imageinfo", iiprop: "extmetadata|url", titles: "Fichier:" + p.file });
+    const ii = j.query?.pages?.[0]?.imageinfo?.[0];
+    if (!ii) return;
+    const m = ii.extmetadata || {};
+    const texte = (h) => new DOMParser().parseFromString(h || "", "text/html").body.textContent.trim();
+    const auteur = texte(m.Artist?.value) || "auteur inconnu", licence = texte(m.LicenseShortName?.value);
+    el.insertAdjacentHTML("afterbegin", `📷 Photo : ${esc(auteur)}${licence ? " · " + esc(licence) : ""} · <a href="${esc(ii.descriptionurl)}" target="_blank" rel="noopener">Wikimedia Commons</a><br>`);
+  } catch {}
+}
+
 function cardHTML(c, opts = {}) {
   const locked = opts.locked ?? (c.type !== "perso" && !has(c.id));
   const r = c.rarete;
@@ -188,7 +266,7 @@ function cardHTML(c, opts = {}) {
     const sil = c.type === "pays" ? silhouette(c.code) : "";
     return `<div class="card locked${secret ? " secret-locked" : ""}" data-id="${esc(c.id)}" data-r="${r}" tabindex="0" role="button" aria-label="${esc(secret ? "Carte secrète" : c.nom)} (non possédée)">
       <div class="in"><div class="head"><span>${TYPES[c.type]}</span><span>#${String(c.num).padStart(3, "0")}</span></div>
-      <div class="art">${sil}<span class="q">${secret ? "✦" : "?"}</span></div>
+      <div class="art">${sil}${photoHTML(c, true)}<span class="q">${secret ? "✦" : "?"}</span></div>
       <div class="name">${secret ? "???" : esc(c.nom)}</div><div class="sub">${secret ? "Terminez une collection" : "Non découverte"}</div></div></div>`;
   }
   let art = "";
@@ -196,6 +274,7 @@ function cardHTML(c, opts = {}) {
   if (c.type === "pays") art = silhouette(c.code) + `<img class="flag" src="flags/${c.code.toLowerCase()}.svg" alt="Drapeau : ${esc(c.nom)}" loading="lazy">`;
   else if (["ville", "monument", "merveille"].includes(c.type)) art = silhouette(c.pays) + `<span class="emoji">${c.emoji}</span>`;
   else art = `<span class="emoji">${esc(c.emoji || "🃏")}</span>`;
+  art = photoHTML(c, false) + art;
   if (ill) art += `<img class="ill" src="${esc(ill)}" alt="Illustration : ${esc(c.nom)}" loading="lazy">`;
   if (c.type === "jeu") art += `<span class="corner">${c.annee}</span>`;
   const n = S.owned[c.id] || 0;
@@ -416,7 +495,9 @@ function ficheCarte(c) {
           ${(S.owned[c.id] || 0) > 1 ? `<span class="muted">Obtenue ${S.owned[c.id]} fois (doublons convertis en pièces)</span>` : ""}
         </div>
         ${!owned && !secretVerrou && S.coins < prix ? `<p class="muted" style="font-size:13px">Il vous manque ${fmt(prix - S.coins)} 🪙. Gagnez-en au quiz !</p>` : ""}
+        ${!secretVerrou && PHOTOS[c.id] && S.photos !== false ? `<p class="credit" id="credit"></p>` : ""}
       </div></div>`);
+  if ($("#credit")) creditPhoto(c, $("#credit"));
   $("#craft")?.addEventListener("click", () => {
     if (S.coins < prix) return;
     S.coins -= prix; gagner(c.id); sauver(); majCoins();
@@ -735,7 +816,7 @@ function questionMonde() {
   if (type === "lieu") {
     const c = pick(lieux);
     const voisins = pays.filter((x) => x.continent === c.continent).map((x) => x.nom);
-    return { q: `Dans quel pays se trouve : ${c.nom} ?`, media: `<div class="qemoji">${c.emoji}</div>`, bonne: NOM_PAYS[c.pays], choix: options(NOM_PAYS[c.pays], voisins), carte: c };
+    return { q: `Dans quel pays se trouve : ${c.nom} ?`, media: photoDe(c.id) ? `<img class="qphoto" src="${esc(photoDe(c.id))}" alt="Photo du lieu">` : `<div class="qemoji">${c.emoji}</div>`, bonne: NOM_PAYS[c.pays], choix: options(NOM_PAYS[c.pays], voisins), carte: c };
   }
   if (type === "continent") {
     const c = pick(pays);
@@ -979,10 +1060,12 @@ $("#settingsBtn").onclick = () => {
         <div class="row"><button class="btn small" id="sExport">⬇ Exporter</button><button class="btn small" id="sImport">⬆ Importer</button></div>
       </div>
       <button class="btn" id="sReset" style="color:var(--bad)">Recommencer à zéro</button>
-      <p class="muted" style="font-size:12.5px;margin:0">Carte : Natural Earth (domaine public). Drapeaux : flag-icons (licence MIT).</p>
+      <label style="display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" id="sPhotos" ${S.photos !== false ? "checked" : ""}> Afficher les vraies photos (Wikipédia)</label>
+      <p class="muted" style="font-size:12.5px;margin:0">Photos : Wikipédia et Wikimedia Commons, sous licences libres ; l'auteur et la licence de chaque photo sont indiqués sur la fiche de la carte. Carte : Natural Earth (domaine public). Drapeaux : flag-icons (licence MIT).</p>
     </div>`);
   $("#sTheme").value = S.theme;
   $("#sTheme").onchange = (e) => { S.theme = e.target.value; sauver(); appliquerTheme(); };
+  $("#sPhotos").onchange = (e) => { S.photos = e.target.checked; sauver(); aller(S.vue); if (S.photos) chargerPhotos(); };
   $("#sExport").onclick = () => {
     const blob = new Blob([JSON.stringify({ app: "worldcards", version: 1, sauvegarde: S, perso: PERSO })], { type: "application/json" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `worldcards-${today()}.json`; a.click();
@@ -1014,6 +1097,7 @@ async function demarrer() {
   try { PERSO = (await idb.get("perso")) || PERSO; } catch (e) { console.warn("IndexedDB indisponible", e); }
   aller(S.vue);
   verifierProgression();
+  chargerPhotos();
   if (!S.ouverts && !count(CARDS.map((c) => c.id))) {
     ouvrirModal(`<div style="text-align:center"><div style="font-size:56px">🌐</div><h2>Bienvenue dans WorldCards !</h2>
       <p>Collectionnez le monde : <b>195 pays</b>, des villes, des monuments, les <b>merveilles</b> du monde, les grands <b>jeux vidéo</b> et les <b>objets du quotidien</b>.</p>
