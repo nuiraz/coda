@@ -1255,3 +1255,5 @@ h1 { font-weight: 800; }
   .chat-fil { height: calc(100dvh - 330px); min-height: 260px; }
   .bulle { max-width: 94%; }
 }
+.btn.danger { background: var(--bad); color: #fff; border-color: transparent; }
+.btn.danger:disabled { opacity: .45; cursor: not-allowed; }

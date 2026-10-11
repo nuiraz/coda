@@ -80,6 +80,7 @@ const SCHEMA = [
 const MIGRATIONS = [
   `ALTER TABLE users ADD COLUMN premium_jusqu INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN temps_jeu INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE users ADD COLUMN reset_le INTEGER NOT NULL DEFAULT 0`,
 ];
 let schemaPret = false;
 async function preparerSchema(env) {
@@ -276,7 +277,7 @@ route("GET", "compte/export", async ({ env, user }) => {
 // ----- Sauvegarde -----
 route("GET", "sauvegarde", async ({ env, user }) => {
   const s = await env.DB.prepare("SELECT data, maj FROM sauvegardes WHERE user_id = ?").bind(user.id).first();
-  return json(s ? { data: JSON.parse(s.data), maj: s.maj } : { data: null });
+  return json(s ? { data: JSON.parse(s.data), maj: s.maj, reset: user.reset_le || 0 } : { data: null, reset: user.reset_le || 0 });
 }, { connecte: true });
 
 route("PUT", "sauvegarde", async ({ request, env, user }) => {
@@ -284,6 +285,8 @@ route("PUT", "sauvegarde", async ({ request, env, user }) => {
   if (texte.length > TAILLE_MAX_SAUVEGARDE) return erreur("Sauvegarde trop lourde : retirez quelques illustrations personnelles.", 413);
   let b; try { b = JSON.parse(texte); } catch { return erreur("Sauvegarde illisible."); }
   if (!b.data || typeof b.data !== "object") return erreur("Sauvegarde vide.");
+  // Compte réinitialisé par l'admin : on refuse toute ancienne sauvegarde (appareil resté sur l'ancienne progression)
+  if (user.reset_le && (Number(b.reset) || 0) < user.reset_le) return json({ erreur: "Votre compte a été réinitialisé par l'administrateur.", reinitialise: user.reset_le }, 409);
   const n = (x) => Math.max(0, Math.min(100000, Math.floor(Number(x) || 0)));
   const vitrine = (Array.isArray(b.vitrine) ? b.vitrine : []).filter((id) => typeof id === "string" && CARTE_RE.test(id)).slice(0, 5);
   await env.DB.prepare(`INSERT INTO sauvegardes (user_id, data, maj, cartes, secretes, badges, vitrine) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -405,6 +408,30 @@ route("POST", "admin/utilisateurs/(\\d+)/bannir", async ({ request, env, p }) =>
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(p[1]),
   ]);
   return json({ ok: true });
+}, { admin: true });
+
+// Réinitialisation complète de la progression d'un joueur (tricherie…) : il faut retaper son pseudo pour confirmer
+route("POST", "admin/utilisateurs/(\\d+)/reinitialiser", async ({ request, env, user, p, ctx }) => {
+  const b = await corps(request);
+  const cible = await env.DB.prepare("SELECT id, pseudo, admin FROM users WHERE id = ?").bind(p[1]).first();
+  if (!cible) return erreur("Joueur introuvable.", 404);
+  if (cible.admin) return erreur("Impossible de réinitialiser un administrateur.", 403);
+  if (String(b.confirmation || "").trim().toLowerCase() !== cible.pseudo.toLowerCase()) return erreur("Confirmation incorrecte : retapez exactement le pseudo du joueur.");
+  const id = cible.id, t = maintenant();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM sauvegardes WHERE user_id = ?").bind(id),
+    env.DB.prepare("DELETE FROM arene WHERE user_id = ?").bind(id),
+    env.DB.prepare("DELETE FROM tournoi_scores WHERE user_id = ?").bind(id),
+    env.DB.prepare("DELETE FROM hebdo WHERE user_id = ?").bind(id),
+    env.DB.prepare("DELETE FROM livraisons WHERE user_id = ?").bind(id),
+    env.DB.prepare("DELETE FROM echanges WHERE user_id = ? AND statut = 'ouvert'").bind(id),
+    env.DB.prepare("DELETE FROM cadeaux WHERE user_id = ?").bind(id),
+    env.DB.prepare("UPDATE users SET reset_le = ?, temps_jeu = 0 WHERE id = ?").bind(t, id),
+    env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(id),
+    env.DB.prepare("INSERT INTO securite_logs (ip, type, details, niveau, cree_le) VALUES ('admin', 'reinitialisation', ?, 'info', ?)").bind(`${user.pseudo} a réinitialisé le compte de ${cible.pseudo}${b.motif ? " : " + String(b.motif).slice(0, 200) : ""}`, t),
+  ]);
+  enArrierePlan(ctx, envoyerPush(env, id, { titre: "⚠️ Compte réinitialisé", texte: "Votre progression a été remise à zéro par l'administrateur (non-respect des règles).", url: "./" }));
+  return json({ ok: true, pseudo: cible.pseudo });
 }, { admin: true });
 
 route("POST", "admin/utilisateurs/(\\d+)/motdepasse", async ({ env, p }) => {

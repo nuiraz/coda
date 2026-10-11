@@ -60,7 +60,7 @@ async function api(chemin, { methode = "GET", corps, keepalive = false } = {}) {
   try { j = await r.json(); } catch {}
   if (!r.ok || !j) {
     const e = new Error(j?.erreur || (r.status === 404 || !j ? "Les comptes ne sont pas disponibles sur ce site." : `Erreur ${r.status}`));
-    e.status = !j ? 404 : r.status; throw e;
+    e.status = !j ? 404 : r.status; e.donnees = j; throw e;
   }
   return j;
 }
@@ -230,10 +230,11 @@ async function envoyerSauvegarde() {
   SYNC.enCours = true;
   try {
     S.compte = COMPTE.pseudo;
-    await api("sauvegarde", { methode: "PUT", corps: { data: { sauvegarde: S, perso: PERSO }, resume: resumeSauvegarde(), vitrine: S.vitrine || [] } });
+    await api("sauvegarde", { methode: "PUT", corps: { data: { sauvegarde: S, perso: PERSO }, resume: resumeSauvegarde(), vitrine: S.vitrine || [], reset: S.resetLe || 0 } });
     SYNC.etat = "ok";
   } catch (e) {
     SYNC.etat = "erreur";
+    if (e.status === 409 && e.donnees?.reinitialise) { appliquerReinitialisation(e.donnees.reinitialise); return; }
     if (e.status === 401) { COMPTE.etat = "anonyme"; oublierSession(); toast("Votre session a expiré : reconnectez-vous pour sauvegarder dans le cloud."); }
     else if (e.status === 413) toast("⚠ " + e.message, 6000);
   } finally {
@@ -243,10 +244,18 @@ async function envoyerSauvegarde() {
 }
 addEventListener("pagehide", () => {
   if (connecte() && SYNC.etat === "attente") {
-    const corps = { data: { sauvegarde: S, perso: PERSO }, resume: resumeSauvegarde(), vitrine: S.vitrine || [] };
+    const corps = { data: { sauvegarde: S, perso: PERSO }, resume: resumeSauvegarde(), vitrine: S.vitrine || [], reset: S.resetLe || 0 };
     if (JSON.stringify(corps).length < 60000) api("sauvegarde", { methode: "PUT", corps, keepalive: true }).catch(() => {});
   }
 });
+// Compte remis à zéro par l'admin : on efface aussi la progression gardée sur cet appareil
+function appliquerReinitialisation(resetLe) {
+  S = nouvelleSauvegarde(); S.compte = COMPTE.pseudo; S.resetLe = resetLe;
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch {}
+  majCoins(); fermerModal(); aller("accueil");
+  ouvrirModal(`<h2 style="margin-top:0">⚠️ Compte réinitialisé</h2><p>L'administrateur a remis votre progression à zéro (non-respect des règles du jeu). Vous repartez de zéro : bonne nouvelle partie !</p><button class="btn primary" data-close>Compris</button>`);
+  envoyerSauvegarde();
+}
 function appliquerSauvegardeCloud(data) {
   S = migrer(data.sauvegarde);
   PERSO = data.perso || PERSO;
@@ -256,7 +265,14 @@ function appliquerSauvegardeCloud(data) {
 // Après connexion : réunir la progression de cet appareil et celle du cloud
 async function apresConnexion(interactif) {
   let cloud = null;
-  try { cloud = (await api("sauvegarde")).data; } catch { SYNC.etat = "erreur"; majBoutonCompte(); return; }
+  let reset = 0;
+  try { const r = await api("sauvegarde"); cloud = r.data; reset = r.reset || 0; } catch { SYNC.etat = "erreur"; majBoutonCompte(); return; }
+  if (reset > (S.resetLe || 0)) {
+    // Compte réinitialisé depuis la dernière visite sur cet appareil : la progression locale n'est plus valable
+    if ((cloud?.sauvegarde?.resetLe || 0) >= reset) { appliquerSauvegardeCloud(cloud); aller(S.vue); }
+    else appliquerReinitialisation(reset);
+    SYNC.etat = "ok"; majBoutonCompte(); return;
+  }
   const local = nbCartes(S), distant = nbCartes(cloud?.sauvegarde);
   if (!cloud?.sauvegarde) { await envoyerSauvegarde(); }
   else if (S.compte === COMPTE.pseudo) {
@@ -962,7 +978,7 @@ async function adminJoueurs(el) {
         <td><button class="pseudo" data-profil="${esc(u.pseudo)}">${esc(u.pseudo)}${u.admin ? " 👑" : ""}${u.banni ? " ⛔" : ""}</button></td>
         <td>${new Date(u.cree_le).toLocaleDateString("fr-FR")}${u.premium_jusqu > Date.now() ? " 💎" : ""}</td><td>${u.derniere_co ? depuis(u.derniere_co) : "—"}</td><td>${fmt(u.cartes)}</td><td>${u.messages}</td>
         <td><div class="row" style="gap:4px;flex-wrap:nowrap">${u.admin ? "" : `<button class="btn small" data-ban>${u.banni ? "Réactiver" : "Bannir"}</button>
-          <button class="btn small" data-mdp>Nouveau mot de passe</button><button class="btn small" data-prem>💎</button><button class="btn small" data-cadeau>🎁</button><button class="btn small" data-del style="color:var(--bad)">Supprimer</button>`}</div></td></tr>`).join("") || `<tr><td colspan="6" class="muted">Aucun joueur.</td></tr>`;
+          <button class="btn small" data-mdp>Nouveau mot de passe</button><button class="btn small" data-prem>💎</button><button class="btn small" data-cadeau>🎁</button><button class="btn small" data-reset title="Remettre la progression à zéro">♻️ Reset</button><button class="btn small" data-del style="color:var(--bad)">Supprimer</button>`}</div></td></tr>`).join("") || `<tr><td colspan="6" class="muted">Aucun joueur.</td></tr>`;
       $$("#aj [data-profil]").forEach((b) => b.onclick = () => ouvrirProfil(b.dataset.profil));
       $$("#aj tr[data-u]").forEach((tr) => {
         const id = tr.dataset.u, pseudo = tr.dataset.p;
@@ -976,6 +992,20 @@ async function adminJoueurs(el) {
             ouvrirModal(`<h2 style="margin-top:0">Nouveau mot de passe de ${esc(pseudo)}</h2><p>Transmettez-le au joueur. Il pourra le changer depuis « Mon compte ».</p>
               <p class="code">${esc(r.motdepasse)}</p><button class="btn primary" data-close>Fermer</button>`);
           } catch (e) { toast("⚠ " + e.message); }
+        }));
+        tr.querySelector("[data-reset]")?.addEventListener("click", () => confirmer(`Réinitialiser complètement le compte de ${pseudo} ? Cartes, pièces, boosters, trophées, tournoi et échanges en cours seront effacés.`, "Continuer", () => {
+          // 2e vérification : retaper le pseudo
+          ouvrirModal(`<h2 style="margin-top:0">♻️ Confirmation finale</h2>
+            <p>Cette action est <b>définitive</b>. Pour confirmer, tapez le pseudo <b>${esc(pseudo)}</b> :</p>
+            <form class="form" id="fReset"><input id="resetPseudo" autocomplete="off" placeholder="${esc(pseudo)}" required>
+            <input id="resetMotif" maxlength="200" placeholder="Motif (facultatif, ex. : triche aux pièces)">
+            <button class="btn danger" id="resetOk" disabled>Réinitialiser ${esc(pseudo)}</button></form>`);
+          $("#resetPseudo").oninput = (e) => { $("#resetOk").disabled = e.target.value.trim().toLowerCase() !== pseudo.toLowerCase(); };
+          $("#fReset").onsubmit = async (e) => {
+            e.preventDefault();
+            try { await api(`admin/utilisateurs/${id}/reinitialiser`, { methode: "POST", corps: { confirmation: $("#resetPseudo").value, motif: $("#resetMotif").value } }); fermerModal(); toast(`♻️ Le compte de ${pseudo} a été réinitialisé.`); charger(); }
+            catch (err) { toast("⚠ " + err.message); }
+          };
         }));
         tr.querySelector("[data-prem]")?.addEventListener("click", () => { adminEtat.onglet = "premium"; adminEtat.pseudoPremium = pseudo; aller("admin"); });
         tr.querySelector("[data-cadeau]")?.addEventListener("click", () => { adminEtat.onglet = "cadeaux"; adminEtat.pseudoCadeau = pseudo; aller("admin"); });
