@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v16"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v17"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -427,12 +427,13 @@ function cardHTML(c, opts = {}) {
   const holo = !doree && !shiny && (opts.holo ?? !!S.holo?.[c.id]);
   const st = opts.stats ?? (n ? statsDe(c, S.qualite[c.id], n, shiny, doree) : statsDe(c, [0, 0, 0], 1, shiny, doree));
   const tal = COMBAT.TALENTS[st.talent || COMBAT.talentDe(c.id, c.type)];
-  return `<div class="card${doree ? " doree" : ""}${shiny ? " shiny" : ""}${holo ? " holo" : ""}" data-id="${esc(c.id)}" data-r="${r}" ${c.saisonnier ? `data-saisonnier="${c.saisonnier}"` : ""} tabindex="0" role="button" aria-label="${esc(c.nom)}">
+  return `<div class="card${doree ? " doree" : ""}${shiny ? " shiny" : ""}${holo ? " holo" : ""}" data-id="${esc(c.id)}" data-r="${r}" data-t="${c.type}" style="--g:${degrade(col)};--c:${col}" ${c.saisonnier ? `data-saisonnier="${c.saisonnier}"` : ""} tabindex="0" role="button" aria-label="${esc(c.nom)}">
     ${opts.compte && n > 1 ? `<span class="badge-count">×${n}</span>` : ""}${opts.compte && S.nouveaux[c.id] ? `<span class="badge-new">NEW</span>` : ""}
     <div class="in"><div class="head"><span>${TYPES[c.type]}${c.continent && c.type === "pays" ? " · " + CONTINENTS[c.continent].nom : ""}${c.saisonnier ? ` · ${c.saisonnier === "halloween" ? "🎃" : "🎄"}` : ""}</span><span class="gems" title="${RARETES[r].nom}${doree ? " · Version Dorée" : shiny ? " · Shiny" : holo ? " · Holo" : ""}">${doree ? "👑 " : shiny ? "✨ " : holo ? "🌈 " : ""}${RARETES[r].gems}</span></div>
     <div class="art" style="--g:${degrade(col)}">${art}${st.niveau > 1 ? `<span class="niv">Niv. ${st.niveau}</span>` : ""}${tal ? `<span class="talent" title="Talent : ${tal.nom} — ${esc(tal.desc)}">${tal.emoji}</span>` : ""}</div>
     <div class="name">${esc(c.nom)}</div><div class="sub">${esc(sousTitre(c))}</div>
-    <div class="cstats" title="Attaque · Défense · Points de vie"><span>⚔️${st.atk}</span><span>🛡️${st.def}</span><span>❤️${st.pv}</span></div></div></div>`;
+    <span class="cout-carte" title="Coût en deck">${coutDe(c)}</span><span class="type-carte" title="${TYPES[c.type]}">${EMOJI_TYPE[c.type] || ""}</span>
+    <div class="cstats" title="Attaque · Défense · Points de vie"><span class="s-atk">⚔️${st.atk}</span><span class="s-def">🛡️${st.def}</span><span class="s-pv">❤️${st.pv}</span></div></div></div>`;
 }
 
 /* =====================================================================
@@ -1166,6 +1167,7 @@ function ouvrirBooster(type) {
     : `<span class="tagdup">${niveauPlus ? "⬆ Niveau ! " : ameliore ? "📈 Stats ! " : court ? "" : "Doublon · "}+${bonus} 🪙</span>`;
   ouvrirModal(`<div class="poke">
       <div class="poke-top"><span id="pkCompte">${p.emoji} Booster ${p.nom}</span><button class="btn small" id="pkPasser">Tout voir ⏭</button></div>
+      <div class="poke-compteur" id="pkPoints"></div>
       <div class="poke-scene" id="pkScene" role="button" tabindex="0"></div>
       <p class="poke-indice" id="pkIndice"></p>
     </div>`, () => { verifierProgression(); aller(S.vue); });
@@ -1174,14 +1176,40 @@ function ouvrirBooster(type) {
   const scene = $("#pkScene"), indice = (t) => { $("#pkIndice").textContent = t; };
   const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  scene.innerHTML = `<div class="pack ${type} grand" id="pkPaquet" ${p.couleur ? `style="--pc:${p.couleur}"` : ""}><span class="big">${p.emoji}</span><b>Booster ${p.nom}</b><small>${p.cartes} cartes</small></div>`;
-  indice("Touchez le booster pour l'ouvrir");
+  scene.innerHTML = `<div class="pack ${type} grand" id="pkPaquet" ${p.couleur ? `style="--pc:${p.couleur}"` : ""}><span class="rabat"></span><span class="entaille"></span><span class="big">${p.emoji}</span><b>Booster ${p.nom}</b><small>${p.cartes} cartes</small></div>`;
+  indice("Glissez le doigt sur le haut du booster pour le déchirer, ou touchez-le");
+  // Déchirer le booster en glissant le doigt
+  let ignorerClic = false;
+  (() => {
+    const paquet = $("#pkPaquet");
+    let x0 = null;
+    paquet.addEventListener("pointerdown", (e) => { x0 = e.clientX; paquet.setPointerCapture(e.pointerId); });
+    paquet.addEventListener("pointermove", (e) => {
+      if (x0 === null || etape !== "paquet") return;
+      const prog = Math.min(1, Math.abs(e.clientX - x0) / (paquet.offsetWidth * 0.8));
+      paquet.style.setProperty("--dechirure", `${prog * 100}%`); paquet.style.setProperty("--dechirure-n", prog);
+      if (prog > 0.6) { x0 = null; ignorerClic = true; navigator.vibrate?.(25); toucher(); setTimeout(() => { ignorerClic = false; }, 400); }
+    });
+    const fin = () => { if (etape === "paquet") { paquet.style.setProperty("--dechirure", "0%"); paquet.style.setProperty("--dechirure-n", 0); } x0 = null; };
+    paquet.addEventListener("pointerup", fin); paquet.addEventListener("pointercancel", fin);
+  })();
+  const couleurRarete = { "commun": "#d6dbe0", "peu-commun": "#6ee0a6", "rare": "#8fb8ff", "epique": "#d1a2ff", "ultra-rare": "#ff8a7a", "legendaire": "#ffd34d" };
+  function etincelles(n, couleur) {
+    for (let k = 0; k < n; k++) {
+      const el = document.createElement("i"), a = Math.random() * Math.PI * 2, dist = 90 + Math.random() * 170;
+      el.className = "etincelle";
+      el.style.cssText = `--x:${Math.cos(a) * dist}px;--y:${Math.sin(a) * dist}px;--d:${0.6 + Math.random() * 0.7}s;--ec:${couleur === "shiny" ? `hsl(${Math.random() * 360} 95% 70%)` : couleur}`;
+      scene.appendChild(el); setTimeout(() => el.remove(), 1400);
+    }
+  }
+  const points = () => { $("#pkPoints").innerHTML = ordre.map((_, k) => `<i class="${k < i ? "vu" : k === i && etape !== "paquet" ? "courant" : ""}"></i>`).join(""); };
 
   function montrer() {
     const x = ordre[i], c = x.c;
     const rare = RARETES[c.rarete].ordre >= 2 || x.shiny;
     etape = "carte";
     $("#pkCompte").textContent = `Carte ${i + 1} / ${ordre.length}`;
+    delete scene.dataset.ambiance; points();
     scene.innerHTML = `<div class="pk-carte">
         <div class="flip grand">
           <div class="face back ${rare ? "glow-" + (x.shiny ? "shiny" : c.rarete) : ""}">${UNIVERS.monde.dos}</div>
@@ -1200,7 +1228,13 @@ function ouvrirBooster(type) {
     const lab = scene.querySelector(".pk-rarete");
     lab.dataset.r = x.shiny ? "shiny" : c.rarete;
     lab.textContent = x.shiny ? `✨ SHINY ! ✨` : x.nouveauHolo && r < 4 ? `🌈 ${RARETES[c.rarete].nom} Holo !` : r >= 4 ? `${RARETES[c.rarete].gems} ${RARETES[c.rarete].nom} ! ${RARETES[c.rarete].gems}` : RARETES[c.rarete].nom;
-    if (r >= 2) scene.querySelector(".pk-carte").classList.add("eclat");
+    if (r >= 2) {
+      scene.querySelector(".pk-carte").classList.add("eclat");
+      scene.dataset.ambiance = x.shiny ? "shiny" : c.rarete;
+      etincelles(8 + r * 7, x.shiny ? "shiny" : couleurRarete[c.rarete]);
+      navigator.vibrate?.(r >= 4 ? [30, 50, 80] : 20);
+      if (typeof son === "function") son(r >= 4 ? "niveau" : "badge");
+    }
     etape = "retournee";
     indice(i < ordre.length - 1 ? "Touchez pour la carte suivante" : "Touchez pour voir votre booster");
   }
@@ -1211,7 +1245,7 @@ function ouvrirBooster(type) {
     if (i < ordre.length) montrer(); else resume();
   }
   function resume() {
-    etape = "resume";
+    etape = "resume"; delete scene.dataset.ambiance; $("#pkPoints").innerHTML = "";
     $("#pkPasser").classList.add("hidden");
     $("#pkCompte").textContent = `${p.emoji} Votre booster ${p.nom}`;
     const neuves = res.filter((x) => x.neuf).length, pieces = res.reduce((t, x) => t + x.bonus, 0);
@@ -1229,7 +1263,8 @@ function ouvrirBooster(type) {
       if ($("#modal").classList.contains("hidden")) ouvrirBooster(encore); // sinon une carte secrète est en train d'être révélée
     });
   }
-  async function toucher() {
+  async function toucher(e) {
+    if (e?.type === "click" && ignorerClic) return;
     if (occupe || etape === "resume") return;
     occupe = true;
     try {
