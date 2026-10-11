@@ -351,3 +351,29 @@ table.classement tr.banni td { opacity: .55; }
 @media (max-width: 760px) { .poke .opening .flip { width: 100px; height: 147px; } }
 .card .in { color: var(--text); }
 .poke .btn:not(.primary) { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.25); color: #fff; }
+
+/* ---------- Cartes Shiny et effet holographique ---------- */
+.card.shiny { --r: linear-gradient(120deg, #ff6ad5, #c774e8, #8795e8, #94d0ff, #6effc6, #ffe66d, #ff9a6a, #ff6ad5); background-size: 300% 300%; animation: arcenciel 5s linear infinite; }
+@keyframes arcenciel { to { background-position: 300% 0; } }
+.card.shiny .in::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 6;
+  background: linear-gradient(115deg, transparent 25%, rgba(255,80,200,.38) 34%, rgba(255,240,80,.38) 42%, rgba(80,255,200,.38) 50%, rgba(80,170,255,.38) 58%, transparent 68%);
+  background-size: 250% 250%; animation: holo 2.6s linear infinite; mix-blend-mode: color-dodge; }
+.card.shiny .art::after { content: ""; position: absolute; inset: 0; z-index: 5; pointer-events: none; mix-blend-mode: screen;
+  background-image: radial-gradient(circle, #fff 0 1.2px, transparent 2px), radial-gradient(circle, #fff 0 1px, transparent 1.6px);
+  background-size: 37px 41px, 23px 29px; background-position: 0 0, 11px 17px; animation: scintille 1.4s ease-in-out infinite alternate; }
+@keyframes scintille { from { opacity: .2; } to { opacity: .95; } }
+.card.shiny .art { filter: saturate(1.3); }
+.shinytag { background: linear-gradient(90deg, #ff6ad5, #8795e8, #6effc6) !important; color: #fff !important; border: 0 !important; }
+.stat.shinystat b { background: linear-gradient(90deg, #ff6ad5, #8795e8, #2fbf8f); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.flip .back.glow-shiny { box-shadow: 0 0 30px #ff6ad5, 0 0 60px #6effc6; animation: pulse 1s infinite; }
+.pk-rarete[data-r="shiny"] { font-size: 30px; background: linear-gradient(90deg, #ff6ad5, #ffe66d, #6effc6, #94d0ff, #c774e8, #ff6ad5); background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent; animation: apparait .4s, defile 2s linear infinite; }
+@keyframes defile { to { background-position: 200% 0; } }
+.pk-carte.eclat:has(.shiny)::before { background: conic-gradient(from 0deg, #ff6ad588, transparent 8%, #ffe66d88 16%, transparent 24%, #6effc688 32%, transparent 40%, #94d0ff88 48%, transparent 56%, #c774e888 64%, transparent 72%, #ff6ad588 80%, transparent 88%); }
+/* Inclinaison 3D et reflet qui suivent le doigt ou la souris */
+.card.tilt { transform: perspective(800px) rotateX(var(--rx, 0)) rotateY(var(--ry, 0)) !important; transition: transform .08s; }
+.card.tilt .in::before { content: ""; position: absolute; inset: 0; z-index: 7; pointer-events: none; mix-blend-mode: soft-light;
+  background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,.6), transparent 50%); }
+.card.tilt[data-r="legendaire"] .in::after, .card.tilt[data-r="ultra-rare"] .in::after, .card.tilt[data-r="secrete"] .in::after, .card.tilt.shiny .in::after {
+  animation: none; background-position: var(--mx, 50%) var(--my, 50%); }
+.detail .card, .pk-carte .card, .reveal .card { touch-action: none; }

@@ -37,6 +37,7 @@ const TYPES = {
 };
 const PRIX_BOOSTER = 120;
 const CARTES_PAR_BOOSTER = 5;
+const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 
 const CARDS = [];
 const BY_ID = {};
@@ -79,7 +80,7 @@ const of = (u, type) => CARDS.filter((c) => c.univers === u && (!type || c.type 
    ===================================================================== */
 const SAVE_KEY = "worldcards:v1";
 const nouvelleSauvegarde = () => ({
-  coins: 200, owned: {}, nouveaux: {}, recents: [], badges: {},
+  coins: 200, owned: {}, shiny: {}, nouveaux: {}, recents: [], badges: {},
   boosters: { monde: 3, gaming: 2, objets: 2 }, daily: {}, ouverts: 0,
   quiz: Object.fromEntries(["monde", "gaming", "objets"].map((u) => [u, { serie: 0, record: 0, bonnes: 0, total: 0 }])),
   univers: "monde", vue: "accueil", theme: "", photos: true,
@@ -286,9 +287,10 @@ function cardHTML(c, opts = {}) {
   if (c.type === "jeu") art += `<span class="corner">${c.annee}</span>`;
   const n = S.owned[c.id] || 0;
   const tot = totalType(c);
-  return `<div class="card" data-id="${esc(c.id)}" data-r="${r}" tabindex="0" role="button" aria-label="${esc(c.nom)}">
+  const shiny = opts.shiny ?? !!S.shiny?.[c.id];
+  return `<div class="card${shiny ? " shiny" : ""}" data-id="${esc(c.id)}" data-r="${r}" tabindex="0" role="button" aria-label="${esc(c.nom)}">
     ${opts.compte && n > 1 ? `<span class="badge-count">×${n}</span>` : ""}${opts.compte && S.nouveaux[c.id] ? `<span class="badge-new">NEW</span>` : ""}
-    <div class="in"><div class="head"><span>${c.type === "objet" ? CATEGORIES[c.categorie].nom : TYPES[c.type]}${c.continent && c.type === "pays" ? " · " + CONTINENTS[c.continent].nom : ""}</span><span class="gems" title="${RARETES[r].nom}">${RARETES[r].gems}</span></div>
+    <div class="in"><div class="head"><span>${c.type === "objet" ? CATEGORIES[c.categorie].nom : TYPES[c.type]}${c.continent && c.type === "pays" ? " · " + CONTINENTS[c.continent].nom : ""}</span><span class="gems" title="${RARETES[r].nom}${shiny ? " · Shiny" : ""}">${shiny ? "✨" : ""}${RARETES[r].gems}</span></div>
     <div class="art" style="--g:${degrade(col)}">${art}</div>
     <div class="name">${esc(c.nom)}</div><div class="sub">${esc(sousTitre(c))}</div>
     ${tot ? `<span class="num">${c.num}/${tot}</span>` : ""}</div></div>`;
@@ -359,6 +361,9 @@ function badgesDe(u) {
     list.push({ id: "gsecret-1", nom: "Easter egg", emoji: "🥚", niveau: "bronze", desc: "Débloquer une carte secrète", prog: () => [Math.min(1, count(of("gaming", "secrete").map((c) => c.id))), 1], seuil: 1 });
     list.push({ id: "encyclo", nom: "Encyclopédiste", emoji: "📖", niveau: "or", desc: "Toute l'encyclopédie", prog: () => frac(idsCondition("tous-les-jeux")), seuil: 1 });
   }
+  const nbShiny = () => of(u).filter((c) => S.shiny?.[c.id]).length;
+  list.push({ id: `shiny1-${u}`, nom: "Premier Shiny", emoji: "✨", niveau: "bronze", desc: "Obtenir une carte Shiny", prog: () => [Math.min(1, nbShiny()), 1], seuil: 1 });
+  list.push({ id: `shiny10-${u}`, nom: "Collection brillante", emoji: "🌈", niveau: "or", desc: "10 cartes Shiny différentes", prog: () => [Math.min(10, nbShiny()), 10], seuil: 1 });
   return list.map((b) => { const [n, t] = b.prog(); return { ...b, n, t, ok: t > 0 && n / t >= b.seuil }; });
 }
 
@@ -479,6 +484,25 @@ $$("[data-pied]").forEach((a) => a.onclick = (e) => { e.preventDefault(); aller(
 $$("[data-pied-legal]").forEach((a) => a.onclick = (e) => { e.preventDefault(); aller("legal", { page: a.dataset.piedLegal }); });
 $("#installBtn").onclick = () => installer();
 
+// Effet holographique : la carte s'incline et son reflet suit le doigt ou la souris
+const GRANDES = ".detail, .pk-carte, .reveal";
+document.addEventListener("pointermove", (e) => {
+  const card = e.target.closest?.(".card");
+  if (!card || card.classList.contains("locked") || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const grande = card.closest(GRANDES);
+  const brillante = card.matches(".shiny, [data-r=legendaire], [data-r=ultra-rare], [data-r=secrete]");
+  if (!grande && (!brillante || e.pointerType !== "mouse")) return;
+  const r = card.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+  card.style.setProperty("--mx", `${x * 100}%`); card.style.setProperty("--my", `${y * 100}%`);
+  card.style.setProperty("--rx", `${(0.5 - y) * 18}deg`); card.style.setProperty("--ry", `${(x - 0.5) * 22}deg`);
+  card.classList.add("tilt");
+});
+document.addEventListener("pointerout", (e) => {
+  const card = e.target.closest?.(".card.tilt");
+  if (card && !card.contains(e.relatedTarget)) card.classList.remove("tilt");
+});
+
 /* =====================================================================
    Fiche détaillée
    ===================================================================== */
@@ -556,6 +580,7 @@ function vueAccueil(v) {
             ? (() => { const top = all.filter((c) => c.rarete === "ultra-rare" || c.rarete === "legendaire"); return `<div class="stat"><b>${count(top.map((c) => c.id))}/${top.length}</b><span>ultra rares & légendaires</span></div>`; })()
             : `<div class="stat"><b>${count(all.map((c) => c.id))}/${all.length}</b><span>cartes</span></div>`}
           <div class="stat"><b>${count(secrets.map((c) => c.id))}/${secrets.length}</b><span>cartes secrètes</span></div>
+          <div class="stat shinystat"><b>${of(u).filter((c) => S.shiny?.[c.id]).length}</b><span>✨ cartes Shiny</span></div>
           <div class="stat"><b>${badges.filter((b) => S.badges[b.id]).length}/${badges.length}</b><span>badges</span></div>
         </div>
         <div class="row" style="margin-top:16px">
@@ -608,7 +633,7 @@ function vueBoosters(v) {
       <h3 style="margin-top:0">Chances par carte</h3>
       <div class="row">${Object.entries(RARETES).filter(([r]) => of(u).some((c) => c.rarete === r && c.type !== "secrete"))
         .map(([r, x]) => `<span class="rbadge" data-r="${r}">${x.nom}</span>`).join(" ")}</div>
-      <p class="muted" style="margin-bottom:0;font-size:13.5px">Les cartes que vous n'avez pas encore sortent quatre fois plus souvent que vos doublons. Une carte précise vous manque ? Ouvrez-la dans l'album pour l'obtenir contre des pièces.</p>
+      <p class="muted" style="margin-bottom:0;font-size:13.5px">Les cartes que vous n'avez pas encore sortent quatre fois plus souvent que vos doublons. Environ une carte sur 45 sort en version ✨ Shiny, avec un reflet arc-en-ciel. Une carte précise vous manque ? Ouvrez-la dans l'album pour l'obtenir contre des pièces.</p>
     </div>`;
   $("#open").onclick = () => ouvrirBooster(u);
   $("#buy").onclick = () => { if (S.coins < PRIX_BOOSTER) return; S.coins -= PRIX_BOOSTER; S.boosters[u]++; sauver(); majCoins(); aller("boosters"); };
@@ -632,10 +657,24 @@ function ouvrirBooster(u) {
   if (!S.boosters[u]) return;
   S.boosters[u]--; S.ouverts++;
   const cartes = tirerBooster(u);
-  const res = cartes.map((c) => { const neuf = gagner(c.id); const bonus = neuf ? 0 : RARETES[c.rarete].doublon; S.coins += bonus; return { c, neuf, bonus }; });
+  const res = cartes.map((c) => {
+    const shiny = Math.random() < CHANCE_SHINY;
+    const neuf = gagner(c.id);
+    let bonus = neuf ? 0 : RARETES[c.rarete].doublon, nouveauShiny = false;
+    if (shiny) {
+      if (!S.shiny[c.id]) { S.shiny[c.id] = 1; nouveauShiny = true; }
+      else { S.shiny[c.id]++; bonus += RARETES[c.rarete].doublon * 3; }
+    }
+    S.coins += bonus;
+    return { c, neuf, bonus, shiny, nouveauShiny };
+  });
   sauver(); majCoins();
-  // Comme dans les jeux de cartes : la plus rare est révélée en dernier
-  const ordre = res.slice().sort((a, b) => RARETES[a.c.rarete].ordre - RARETES[b.c.rarete].ordre);
+  // Comme dans les jeux de cartes : la plus rare est révélée en dernier, et une Shiny après tout le reste
+  const poids = (x) => (x.shiny ? 10 : 0) + RARETES[x.c.rarete].ordre;
+  const ordre = res.slice().sort((a, b) => poids(a) - poids(b));
+  const etiquette = ({ neuf, bonus, shiny, nouveauShiny }, court) => shiny
+    ? `<span class="tagnew shinytag">✨ SHINY${nouveauShiny ? " NOUVELLE" : bonus ? ` · +${bonus} 🪙` : ""}</span>`
+    : neuf ? `<span class="tagnew">NOUVELLE</span>` : `<span class="tagdup">${court ? "" : "Doublon · "}+${bonus} 🪙</span>`;
   ouvrirModal(`<div class="poke">
       <div class="poke-top"><span id="pkCompte">${UNIVERS[u].emoji} Booster ${UNIVERS[u].nom}</span><button class="btn small" id="pkPasser">Tout voir ⏭</button></div>
       <div class="poke-scene" id="pkScene" role="button" tabindex="0"></div>
@@ -650,28 +689,28 @@ function ouvrirBooster(u) {
   indice("Touchez le booster pour l'ouvrir");
 
   function montrer() {
-    const { c, neuf, bonus } = ordre[i];
-    const rare = RARETES[c.rarete].ordre >= 2;
+    const x = ordre[i], c = x.c;
+    const rare = RARETES[c.rarete].ordre >= 2 || x.shiny;
     etape = "carte";
     $("#pkCompte").textContent = `Carte ${i + 1} / ${ordre.length}`;
     scene.innerHTML = `<div class="pk-carte">
         <div class="flip grand">
-          <div class="face back ${rare ? "glow-" + c.rarete : ""}">${UNIVERS[u].dos}</div>
-          <div class="face front">${neuf ? `<span class="tagnew">NOUVELLE</span>` : `<span class="tagdup">Doublon · +${bonus} 🪙</span>`}${cardHTML(c, { locked: false })}</div>
+          <div class="face back ${rare ? "glow-" + (x.shiny ? "shiny" : c.rarete) : ""}">${UNIVERS[u].dos}</div>
+          <div class="face front">${etiquette(x)}${cardHTML(c, { locked: false, shiny: x.shiny })}</div>
         </div></div>
       <div class="pk-rarete"></div>`;
     indice(rare ? "Ça brille… Touchez pour retourner !" : "Touchez pour retourner la carte");
   }
   async function retourner() {
-    const { c } = ordre[i];
-    const r = RARETES[c.rarete].ordre;
+    const x = ordre[i], c = x.c;
+    const r = x.shiny ? 6 : RARETES[c.rarete].ordre;
     const flip = scene.querySelector(".flip");
     if (r >= 2) { flip.classList.add("suspense"); await attendre(r >= 4 ? 1100 : 700); flip.classList.remove("suspense"); }
     flip.classList.add("done");
     await attendre(450);
     const lab = scene.querySelector(".pk-rarete");
-    lab.dataset.r = c.rarete;
-    lab.textContent = r >= 4 ? `${RARETES[c.rarete].gems} ${RARETES[c.rarete].nom} ! ${RARETES[c.rarete].gems}` : RARETES[c.rarete].nom;
+    lab.dataset.r = x.shiny ? "shiny" : c.rarete;
+    lab.textContent = x.shiny ? `✨ SHINY ! ✨` : r >= 4 ? `${RARETES[c.rarete].gems} ${RARETES[c.rarete].nom} ! ${RARETES[c.rarete].gems}` : RARETES[c.rarete].nom;
     if (r >= 2) scene.querySelector(".pk-carte").classList.add("eclat");
     etape = "retournee";
     indice(i < ordre.length - 1 ? "Touchez pour la carte suivante" : "Touchez pour voir votre booster");
@@ -688,8 +727,8 @@ function ouvrirBooster(u) {
     $("#pkCompte").textContent = `${UNIVERS[u].emoji} Votre booster`;
     const neuves = res.filter((x) => x.neuf).length, pieces = res.reduce((t, x) => t + x.bonus, 0);
     indice(`${neuves} nouvelle${neuves > 1 ? "s" : ""} carte${neuves > 1 ? "s" : ""}${pieces ? ` · +${pieces} 🪙 de doublons` : ""}`);
-    scene.innerHTML = `<div class="opening">${res.map(({ c, neuf, bonus }) => `<div class="flip done"><div class="face back"></div>
-        <div class="face front">${neuf ? `<span class="tagnew">NOUVELLE</span>` : `<span class="tagdup">+${bonus} 🪙</span>`}${cardHTML(c, { locked: false })}</div></div>`).join("")}</div>
+    scene.innerHTML = `<div class="opening">${res.map((x) => `<div class="flip done"><div class="face back"></div>
+        <div class="face front">${etiquette(x, true)}${cardHTML(x.c, { locked: false, shiny: x.shiny })}</div></div>`).join("")}</div>
       <div class="row" style="justify-content:center;margin-top:14px">
         ${S.boosters[u] ? `<button class="btn primary" id="again">Ouvrir un autre booster (${S.boosters[u]})</button>` : ""}
         <button class="btn" data-close>Terminer</button></div>`;
@@ -718,7 +757,7 @@ function ouvrirBooster(u) {
 /* =====================================================================
    Album / Encyclopédie
    ===================================================================== */
-const filtres = { monde: { type: "tout", cont: "tout", possedees: false, q: "" }, gaming: { epoque: "tout", possedees: false, q: "" }, objets: { cat: "tout", possedees: false, q: "" } };
+const filtres = { monde: { type: "tout", cont: "tout", possedees: false, shiny: false, q: "" }, gaming: { epoque: "tout", possedees: false, shiny: false, q: "" }, objets: { cat: "tout", possedees: false, shiny: false, q: "" } };
 const sansAccents = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 function vueAlbum(v) {
   const u = S.univers, f = filtres[u];
@@ -731,19 +770,21 @@ function vueAlbum(v) {
       ${chips.map(([k, l]) => `<button class="chip ${f[key] === k ? "on" : ""}" data-k="${k}">${l}</button>`).join("")}
       <input class="search" id="q" type="search" placeholder="Rechercher…" value="${esc(f.q)}">
       <label class="chip" style="cursor:pointer"><input type="checkbox" id="poss" ${f.possedees ? "checked" : ""}> Possédées</label>
+      <label class="chip" style="cursor:pointer"><input type="checkbox" id="filtreShiny" ${f.shiny ? "checked" : ""}> ✨ Shiny</label>
     </div>
     ${u === "monde" && f.type === "pays" ? `<div class="toolbar">${[["tout", "Tous les continents"], ...Object.entries(CONTINENTS).map(([k, c]) => [k, c.emoji + " " + c.nom])].map(([k, l]) => `<button class="chip ${f.cont === k ? "on" : ""}" data-cont="${k}">${l}</button>`).join("")}</div>` : ""}
     <div id="sections"></div>`;
   $$(".toolbar [data-k]", v).forEach((b) => b.onclick = () => { f[key] = b.dataset.k; aller("album"); });
   $$(".toolbar [data-cont]", v).forEach((b) => b.onclick = () => { f.cont = b.dataset.cont; aller("album"); });
   $("#poss").onchange = (e) => { f.possedees = e.target.checked; dessinerSections(); };
+  $("#filtreShiny").onchange = (e) => { f.shiny = e.target.checked; dessinerSections(); };
   $("#q").oninput = (e) => { f.q = e.target.value; dessinerSections(); };
   dessinerSections();
 }
 function dessinerSections() {
   const u = S.univers, f = filtres[u];
   const q = sansAccents(f.q.trim());
-  const ok = (c) => (!f.possedees || has(c.id)) && (!q || sansAccents(c.nom + " " + (c.capitale || "") + " " + (NOM_PAYS[c.pays] || "") + " " + (c.studio || "") + " " + (c.origine || "")).includes(q) && (c.type !== "secrete" || has(c.id)));
+  const ok = (c) => (!f.shiny || S.shiny?.[c.id]) && (!f.possedees || has(c.id)) && (!q || sansAccents(c.nom + " " + (c.capitale || "") + " " + (NOM_PAYS[c.pays] || "") + " " + (c.studio || "") + " " + (c.origine || "")).includes(q) && (c.type !== "secrete" || has(c.id)));
   const sections = [];
   if (u === "monde") {
     const T = f.type;
