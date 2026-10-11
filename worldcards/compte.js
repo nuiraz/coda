@@ -198,6 +198,7 @@ async function initCompte() {
 function majBoutonCompte() {
   const b = $("#compteBtn");
   if (!b) return;
+  if (typeof renderNav === "function" && $("#navSide")) try { renderNav(); } catch {}
   const icone = { "": "", attente: " ⋯", ok: " ✓", erreur: " ⚠" }[SYNC.etat] || "";
   b.innerHTML = connecte() ? `<span class="avatar">${esc(COMPTE.pseudo[0].toUpperCase())}</span><span class="lbl">${esc(COMPTE.pseudo)}</span>${COMPTE.admin ? "👑" : ""}${estPremium() ? "💎" : ""}<span class="sync">${icone}</span>` : "👤<span class='lbl'> Connexion</span>";
   b.title = connecte() ? `Mon compte (${SYNC.etat === "ok" ? "sauvegardé dans le cloud" : SYNC.etat === "erreur" ? "sauvegarde en échec" : "synchronisation"})` : "Se connecter ou créer un compte";

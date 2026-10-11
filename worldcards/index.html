@@ -28,8 +28,16 @@
 </head>
 <body>
 <div id="adminSecurityAlert" class="admin-sec-banner hidden" role="alert"></div>
+<!-- Menu latéral (ordinateur) -->
+<aside class="sidebar" id="sidebar" aria-label="Menu principal">
+  <div class="brand side-brand">🌐 <b><span>WorldCards</span></b></div>
+  <button class="joueur-bloc" id="joueurBloc" aria-label="Mon compte"></button>
+  <nav id="navSide"></nav>
+  <div class="side-bas" id="sideBas"></div>
+</aside>
 <header class="top">
   <div class="brand">🌐 <b><span>WorldCards</span></b></div>
+  <h2 class="titre-vue" id="titreVue"></h2>
   <div class="online-pill" id="onlinePill" title="Joueurs connectés en temps réel">
     <span class="dot-live"></span><span id="nbEnLigne">…</span><span class="lbl"> en ligne</span>
   </div>

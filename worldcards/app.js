@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v18"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v19"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -676,14 +676,14 @@ function toast(html, ms = 3200) {
 function ouvrirModal(html, onClose) {
   const m = $("#modal");
   m.innerHTML = `<div class="box"><button class="close" data-close aria-label="Fermer">✕</button>${html}</div>`;
-  m.classList.remove("hidden", "plein");
+  m.classList.remove("hidden", "plein", "feuille", "sombre");
   m._onClose = onClose;
   document.body.style.overflow = "hidden";
 }
 function fermerModal() {
   const m = $("#modal");
   if (m.classList.contains("hidden")) return;
-  m.classList.add("hidden"); m.classList.remove("plein"); m.innerHTML = "";
+  m.classList.add("hidden"); m.classList.remove("plein", "feuille", "sombre"); m.innerHTML = "";
   document.body.style.overflow = "";
   const cb = m._onClose; m._onClose = null;
   if (cb) cb();
@@ -700,13 +700,65 @@ const boostersEnStock = () => Object.values(S.boosters).reduce((a, b) => a + (b 
 const NAV = [["accueil", "🏠", "Accueil"], ["boosters", "🎁", "Boutique"], ["album", "📚", "Album"], ["combat", "⚔️", "Combat"], ["atlas", "🗺️", "Atlas"], ["quiz", "❓", "Quiz"], ["badges", "🏅", "Badges"]];
 // Vues hors menu (définies dans compte.js)
 const VUES_GLOBALES = ["compte", "hub", "admin", "legal", "premium"];
+// Toutes les destinations : menu latéral (ordinateur), onglets du bas et panneau « Plus » (mobile)
+const DESTINATIONS = [
+  ["accueil", "🏠", "Accueil"], ["boosters", "🎁", "Boutique"], ["album", "📚", "Album"], ["combat", "⚔️", "Combat"],
+  ["atlas", "🗺️", "Atlas"], ["quiz", "❓", "Quiz"], ["badges", "🏅", "Badges"], ["hub", "👥", "Communauté"], ["premium", "💎", "Premium"], ["compte", "👤", "Mon compte"],
+];
+const ONGLETS_MOBILE = ["accueil", "boosters", "album", "combat"];
+const TITRES = Object.fromEntries([...DESTINATIONS.map(([v, ic, l]) => [v, `${ic} ${l}`]), ["admin", "👑 Administration"], ["legal", "📄 Informations légales"]]);
 function renderNav() {
   if (!NAV.some(([v]) => v === S.vue) && !VUES_GLOBALES.includes(S.vue)) S.vue = "accueil";
   const pill = boostersEnStock() + (gratuitDans() === 0 ? 1 : 0) + (bonusPremiumDispo() ? 2 : 0);
-  $("#nav").innerHTML = NAV.map(([v, ic, label]) =>
-    `<button data-v="${v}" class="${S.vue === v ? "on" : ""}"><span class="ic">${ic}</span><span>${label}</span>${v === "boosters" && pill ? `<span class="pill">${pill}</span>` : ""}</button>`).join("");
-  $$("#nav button").forEach((b) => b.onclick = () => aller(b.dataset.v));
+  const badge = (v) => (v === "boosters" && pill ? `<span class="pill">${pill}</span>` : "");
+  const admin = typeof COMPTE !== "undefined" && COMPTE.admin;
+  const dest = admin ? [...DESTINATIONS, ["admin", "👑", "Administration"]] : DESTINATIONS;
+  // Onglets du bas (mobile) : 4 principaux + « Plus »
+  const dansPlus = !ONGLETS_MOBILE.includes(S.vue);
+  $("#nav").innerHTML = ONGLETS_MOBILE.map((v) => { const [, ic, label] = DESTINATIONS.find((d) => d[0] === v);
+    return `<button data-v="${v}" class="${S.vue === v ? "on" : ""}"><span class="ic">${ic}</span><span>${label}</span>${badge(v)}</button>`; }).join("")
+    + `<button data-plus class="${dansPlus ? "on" : ""}"><span class="ic">☰</span><span>Plus</span></button>`;
+  $$("#nav button[data-v]").forEach((b) => b.onclick = () => aller(b.dataset.v));
+  $("#nav [data-plus]").onclick = ouvrirMenuPlus;
+  // Menu latéral (ordinateur)
+  const nav = $("#navSide");
+  if (nav) {
+    nav.innerHTML = dest.map(([v, ic, label]) => `<button data-v="${v}" class="${S.vue === v ? "on" : ""}"><span class="ic">${ic}</span><span>${label}</span>${badge(v)}</button>`).join("");
+    $$("button", nav).forEach((b) => b.onclick = () => aller(b.dataset.v));
+    const n = niveauJoueur(), c = typeof COMPTE !== "undefined" && COMPTE.pseudo;
+    $("#joueurBloc").innerHTML = `<span class="avatar grand">${c ? esc(COMPTE.pseudo[0].toUpperCase()) : "🌐"}</span>
+      <span class="jb-infos"><b>${c ? esc(COMPTE.pseudo) : "Invité"}${premium() ? " 💎" : ""}</b><small>Niveau ${n.niveau} · ${fmt(S.coins)} 🪙</small>
+      <span class="bar"><i style="width:${(n.xp / n.besoin) * 100}%"></i></span></span>`;
+    $("#joueurBloc").onclick = () => aller("compte");
+    $("#sideBas").innerHTML = `<button data-act="feedback">💡 Idée ou bug ?</button><button data-act="reglages">⚙︎ Réglages</button>${typeof PWA !== "undefined" && !PWA.installee ? `<button data-act="installer">📲 Installer l'app</button>` : ""}`;
+    $$("#sideBas [data-act]").forEach((b) => b.onclick = () => actionMenu(b.dataset.act));
+  }
+  const t = $("#titreVue"); if (t) t.textContent = TITRES[S.vue] || "";
   $("#premiumBtn")?.classList.toggle("actif", premium());
+}
+function actionMenu(act) {
+  fermerModal();
+  if (act === "feedback" && typeof ouvrirModalFeedback === "function") ouvrirModalFeedback();
+  else if (act === "reglages") $("#settingsBtn").click();
+  else if (act === "installer" && typeof guideInstallation === "function") guideInstallation();
+  else if (act) aller(act);
+}
+// Panneau « Plus » (mobile) : tout ce qui n'est pas dans les onglets du bas
+function ouvrirMenuPlus() {
+  const admin = typeof COMPTE !== "undefined" && COMPTE.admin;
+  const n = niveauJoueur();
+  const autres = [...DESTINATIONS.filter(([v]) => !ONGLETS_MOBILE.includes(v)), ...(admin ? [["admin", "👑", "Admin"]] : [])];
+  ouvrirModal(`<div class="menu-plus">
+    <div class="mp-joueur"><span class="avatar grand">${typeof COMPTE !== "undefined" && COMPTE.pseudo ? esc(COMPTE.pseudo[0].toUpperCase()) : "🌐"}</span>
+      <div><b>${typeof COMPTE !== "undefined" && COMPTE.pseudo ? esc(COMPTE.pseudo) : "Invité"}${premium() ? " 💎" : ""}</b><br><small class="muted">Niveau ${n.niveau} · ${n.xp}/${n.besoin} XP · ${fmt(S.coins)} 🪙</small>
+      <div class="bar"><i style="width:${(n.xp / n.besoin) * 100}%"></i></div></div></div>
+    <div class="mp-grille">${autres.map(([v, ic, l]) => `<button data-mp="${v}" class="${S.vue === v ? "on" : ""}"><span>${ic}</span>${l}</button>`).join("")}
+      <button data-mp-act="feedback"><span>💡</span>Idée ou bug</button><button data-mp-act="reglages"><span>⚙︎</span>Réglages</button>
+      ${typeof PWA !== "undefined" && !PWA.installee ? `<button data-mp-act="installer"><span>📲</span>Installer</button>` : ""}</div>
+    <p class="muted mp-pied">🟢 ${$("#nbEnLigne")?.textContent || "…"} joueurs en ligne · ${VERSION_JEU}</p></div>`);
+  $("#modal").classList.add("feuille");
+  $$("[data-mp]").forEach((b) => b.onclick = () => { fermerModal(); aller(b.dataset.mp); });
+  $$("[data-mp-act]").forEach((b) => b.onclick = () => actionMenu(b.dataset.mpAct));
 }
 function aller(vue, opts) {
   if (typeof arreterCombat === "function") arreterCombat();
@@ -936,54 +988,68 @@ function vueAccueil(v) {
   const groupes = Object.entries(CONTINENTS).map(([k, ct]) => [ct.emoji + " " + ct.nom, of("monde", "pays").filter((c) => c.continent === k)])
     .concat([["🏙️ Villes", of("monde", "ville")], ["🏛️ Monuments", of("monde", "monument")], ["🏔️ Nature", of("monde", "nature")], ["🐾 Animaux", of("monde", "animal")], ["🍜 Gastronomie", of("monde", "plat")], ["🎭 Culture", of("monde", "culture")], ["🌟 Merveilles", of("monde", "merveille")]])
     .filter(([, l]) => l.length);
-  const recents = S.recents.map((id) => BY_ID[id]).filter(Boolean).slice(0, 6);
-  const attente = gratuitDans();
+  const recents = S.recents.map((id) => BY_ID[id]).filter(Boolean).slice(0, 12);
+  const attente = gratuitDans(), n = niveauJoueur(), D = defisDuJour();
+  const possedees = count(all.map((c) => c.id)), pct = Math.round((possedees / all.length) * 1000) / 10;
+  const etoilesSolo = Object.values(S.solo || {}).reduce((a, b) => a + b, 0);
+  const pseudo = typeof COMPTE !== "undefined" && COMPTE.pseudo;
+  const tuile = (id, ic, titre, sous, classe = "") => `<button class="tuile ${classe}" id="${id}"><span class="t-ic">${ic}</span><span class="t-txt"><b>${titre}</b><small>${sous}</small></span></button>`;
   v.innerHTML = `
-    ${S.messageMigration ? `<div class="panel annonce">🌍 <b>WorldCards se concentre sur le monde !</b> Les univers Gaming et Objets ont été retirés. Vos anciennes cartes ont été échangées contre <b>${fmt(S.messageMigration.pieces)} 🪙</b>${S.messageMigration.boosters ? ` et vos boosters en <b>${S.messageMigration.boosters} boosters Classiques</b>` : ""}. <button class="btn small" id="okMigration">OK</button></div>` : ""}
+    ${S.messageMigration ? `<div class="panel annonce">🌍 <b>WorldCards se concentre sur le monde !</b> Vos anciennes cartes Gaming et Objets ont été échangées contre <b>${fmt(S.messageMigration.pieces)} 🪙</b>. <button class="btn small" id="okMigration">OK</button></div>` : ""}
     ${EVENEMENT && EVENEMENTS_SAISONNIERS?.[EVENEMENT.cle] ? `<div class="panel bandeau-evenement" style="--ec:${EVENEMENTS_SAISONNIERS[EVENEMENT.cle].couleur}">
-      <span class="big">${EVENEMENTS_SAISONNIERS[EVENEMENT.cle].emoji}</span><div><b>Événement ${esc(EVENEMENTS_SAISONNIERS[EVENEMENT.cle].nom)} !</b><br><span>${CARDS.filter((c) => c.saisonnier === EVENEMENT.cle).length} cartes exclusives à collectionner jusqu'au ${new Date(EVENEMENT.fin).toLocaleDateString("fr-FR")}.</span></div>
+      <span class="big">${EVENEMENTS_SAISONNIERS[EVENEMENT.cle].emoji}</span><div><b>Événement ${esc(EVENEMENTS_SAISONNIERS[EVENEMENT.cle].nom)} !</b><br><span>${CARDS.filter((c) => c.saisonnier === EVENEMENT.cle).length} cartes exclusives jusqu'au ${new Date(EVENEMENT.fin).toLocaleDateString("fr-FR")}.</span></div>
       <button class="btn primary" data-aller-boutique>Voir le booster</button></div>` : ""}
-    <div class="hero">
-      <div class="panel">
-        <div class="hero-titre"><h1>${UNIVERS.monde.titre}</h1>${(() => { const n = niveauJoueur(); return `<span class="nivbloc">🎓 Niveau <b>${n.niveau}</b><span class="bar"><i style="width:${(n.xp / n.besoin) * 100}%"></i></span><small>${n.xp}/${n.besoin} XP</small></span>`; })()}</div>
-        <p class="muted" style="margin:0">${UNIVERS.monde.intro}</p>
-        <div class="statgrid">
-          <div class="stat"><b>${count(of("monde", "pays").map((c) => c.id))}/${of("monde", "pays").length}</b><span>pays</span></div>
-          <div class="stat"><b>${count(all.map((c) => c.id))}/${all.length}</b><span>cartes</span></div>
-          <div class="stat"><b>${count(secrets.map((c) => c.id))}/${secrets.length}</b><span>cartes secrètes</span></div>
-          <div class="stat shinystat"><b>${CARDS.filter((c) => S.shiny?.[c.id]).length}</b><span>✨ Shiny · 🌈 ${CARDS.filter((c) => S.holo?.[c.id]).length} Holo</span></div>
-          <div class="stat"><b>${S.combat.victoires}</b><span>⚔️ victoires</span></div>
-          <div class="stat"><b>${badges.filter((b) => S.badges[b.id]).length}/${badges.length}</b><span>badges</span></div>
-        </div>
-        <div class="row" style="margin-top:16px">
-          ${attente === 0 ? `<button class="btn primary" id="gratuit">🎁 Booster gratuit disponible !</button>` : `<button class="btn" disabled>🎁 Booster gratuit dans ${duree(attente)}</button>`}
-          ${bonusPremiumDispo() ? `<button class="btn primary premium" id="bonusPremium">💎 Bonus Premium : +2 boosters</button>` : ""}
-          <button class="btn" id="goBooster">🛍️ ${boostersEnStock() ? `Ouvrir mes boosters (${boostersEnStock()})` : "Boutique"}</button>
-          <button class="btn" id="goCombat">⚔️ Mode Solo & combats</button>
-          <button class="btn" id="goQuiz">❓ Quiz (${quizRestant()} restantes)</button>
-          ${typeof PWA !== "undefined" && !PWA.installee ? `<button class="btn" id="goInstall">📲 Installer l'app</button>` : ""}
-        </div>
-        ${premium() ? "" : `<p class="muted" style="margin:12px 0 0;font-size:13.5px">💎 <a href="#" id="voirPremium">Passez Premium</a> : 2 boosters de plus chaque jour, boosters Prestige, Shiny ×2, 20 questions de quiz…</p>`}
+    <section class="accueil-hero">
+      <div class="ah-gauche">
+        <div class="anneau" style="--p:${(n.xp / n.besoin) * 100}"><span><small>Niv.</small><b>${n.niveau}</b></span></div>
+        <div><p class="ah-salut">${pseudo ? `Bonjour, <b>${esc(pseudo)}</b> 👋` : "Bienvenue, explorateur 👋"}</p>
+          <h1>Collectionnez le monde</h1>
+          <p class="ah-sous">${fmt(possedees)} / ${fmt(all.length)} cartes · ${pct} % du monde · ${n.xp}/${n.besoin} XP</p></div>
       </div>
+      <div class="ah-chiffres">
+        <div><b>${count(of("monde", "pays").map((c) => c.id))}</b><span>pays</span></div>
+        <div><b>${S.combat.victoires}</b><span>victoires</span></div>
+        <div><b>${CARDS.filter((c) => S.shiny?.[c.id]).length}</b><span>✨ Shiny</span></div>
+        <div><b>${badges.filter((b) => S.badges[b.id]).length}</b><span>badges</span></div>
+      </div>
+    </section>
+    <section class="tuiles">
+      ${attente === 0 ? tuile("gratuit", "🎁", "Booster gratuit", "Disponible maintenant !", "chaude") : tuile("goBoutique2", "⏳", "Booster gratuit", `Dans ${duree(attente)}`)}
+      ${bonusPremiumDispo() ? tuile("bonusPremium", "💎", "Bonus Premium", "+2 boosters aujourd'hui", "premium") : ""}
+      ${tuile("goBooster", "🛍️", boostersEnStock() ? `Ouvrir mes boosters` : "Boutique", boostersEnStock() ? `${boostersEnStock()} en attente` : "Boosters Or, Méga, thématiques…", boostersEnStock() ? "chaude" : "")}
+      ${tuile("goCombat", "🗺️", "Mode Solo", `⭐ ${etoilesSolo} étoiles · tour du monde`)}
+      ${tuile("goArene", "⚔️", "Combat & Arène", "Contre l'ordinateur ou les joueurs")}
+      ${tuile("goQuiz", "❓", "Quiz du jour", `${quizRestant()} question${quizRestant() > 1 ? "s" : ""} restante${quizRestant() > 1 ? "s" : ""}`)}
+      ${tuile("goDefis", "📅", "Défis du jour", `${D.liste.filter((d) => d.prog >= d.n).length}/3 réussis`)}
+      ${tuile("goHub", "👥", "Communauté", "Échanges, tournoi, classement")}
+      ${premium() ? "" : tuile("voirPremium", "💎", "Premium", "Dès 3,99 € : +2 boosters/jour…", "premium")}
+      ${typeof PWA !== "undefined" && !PWA.installee ? tuile("goInstall", "📲", "Installer l'app", "Sur votre écran d'accueil") : ""}
+    </section>
+    ${recents.length ? `<div class="sectiontitle"><h3>🆕 Dernières découvertes</h3><a href="#" id="voirAlbum" class="muted">Tout l'album →</a></div><div class="carrousel">${recents.map((c) => cardHTML(c, { compte: true })).join("")}</div>` : ""}
+    <div class="accueil-grille">
+      <div id="blocDefis">${blocDefis()}</div>
       <div class="panel progress-list">
-        <h3 style="margin-top:0">Progression</h3>
-        ${groupes.map(([nom, list]) => { const n = count(list.map((c) => c.id)); return `<div class="p"><span>${nom}</span><div class="bar"><i style="width:${(n / list.length) * 100}%"></i></div><span>${n}/${list.length}</span></div>`; }).join("")}
+        <h3 style="margin-top:0">🌍 Progression</h3>
+        ${groupes.map(([nom, list]) => { const k = count(list.map((c) => c.id)); return `<div class="p"><span>${nom}</span><div class="bar"><i style="width:${(k / list.length) * 100}%"></i></div><span>${k}/${list.length}</span></div>`; }).join("")}
       </div>
     </div>
-    <div style="margin-top:16px">${blocDefis()}</div>
-    ${recents.length ? `<div class="sectiontitle"><h3>Dernières découvertes</h3></div><div class="cards">${recents.map((c) => cardHTML(c, { compte: true })).join("")}</div>` : ""}
     <div class="sectiontitle"><h3>✦ Cartes secrètes</h3><span class="muted">Terminez une collection entière pour les débloquer</span></div>
-    <div class="cards">${secrets.map((c) => cardHTML(c)).join("")}</div>`;
+    <div class="carrousel">${secrets.map((c) => cardHTML(c)).join("")}</div>`;
   $$("[data-defi-recu]", v).forEach((b) => b.onclick = () => recupererDefi(Number(b.dataset.defiRecu)));
   $("[data-aller-boutique]", v)?.addEventListener("click", () => aller("boosters"));
   $("#okMigration")?.addEventListener("click", () => { delete S.messageMigration; aller("accueil"); });
   $("#gratuit")?.addEventListener("click", recupererGratuit);
   $("#bonusPremium")?.addEventListener("click", recupererBonusPremium);
+  $("#goBoutique2")?.addEventListener("click", () => aller("boosters"));
   $("#goBooster").onclick = () => aller("boosters");
   $("#goCombat").onclick = () => aller("combat");
+  $("#goArene").onclick = () => aller("combat");
   $("#goQuiz").onclick = () => aller("quiz");
+  $("#goDefis").onclick = () => $("#blocDefis").scrollIntoView({ behavior: "smooth", block: "center" });
+  $("#goHub").onclick = () => aller("hub");
+  $("#voirAlbum")?.addEventListener("click", (e) => { e.preventDefault(); aller("album"); });
   $("#goInstall")?.addEventListener("click", () => guideInstallation());
-  $("#voirPremium")?.addEventListener("click", (e) => { e.preventDefault(); aller("premium"); });
+  $("#voirPremium")?.addEventListener("click", () => aller("premium"));
 }
 function recupererGratuit() {
   if (gratuitDans() > 0) return;
