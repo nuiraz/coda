@@ -36,9 +36,10 @@ const RARETES = {
   "legendaire": { nom: "Légendaire",   gems: "★",    ordre: 5, poids: 0.7, doublon: 150, prix: 1500 },
   "secrete":    { nom: "Secrète",      gems: "✦",    ordre: 6 },
 };
-const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", merveille: "Merveille", secrete: "Secrète" };
-const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", merveille: "🌟", secrete: "✦" };
-const VERSION_JEU = "v13"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
+const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
+const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
+const VERSION_JEU = "v14"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -85,23 +86,28 @@ for (const [i, [id, nom, pays, lat, lon, emoji, anecdote, wiki]] of extra("VILLE
   if (wiki && !PHOTOS_WIKI["ville:" + id]) PHOTOS_WIKI["ville:" + id] = wiki;
   RECHERCHE_PHOTO["ville:" + id] = `${nom} ${NOM_PAYS[pays]}`;
 }
-const monuments = [...MONUMENTS_BRUTS, ...(typeof MONUMENTS_EXTRA !== "undefined" ? MONUMENTS_EXTRA : []), ...extra("MONUMENTS_EXTRA2")];
+const monuments = [...MONUMENTS_BRUTS, ...(typeof MONUMENTS_EXTRA !== "undefined" ? MONUMENTS_EXTRA : []), ...extra("MONUMENTS_EXTRA2"), ...extra("MONUMENTS_EXTRA3")];
 monuments.forEach(([id, nom, pays, lat, lon, emoji, rarete, anecdote, wiki], i) => {
   add({ id: "monu:" + id, univers: "monde", type: "monument", rarete, num: i + 1, nom, pays, lat, lon, emoji, anecdote, continent: CONT_PAYS[pays] });
   if (wiki && !PHOTOS_WIKI["monu:" + id]) PHOTOS_WIKI["monu:" + id] = wiki;
   RECHERCHE_PHOTO["monu:" + id] = nom;
 });
-extra("NATURE_BRUTS").forEach(([id, nom, pays, lat, lon, emoji, rarete, anecdote, wiki], i) => {
+[...extra("NATURE_BRUTS"), ...extra("NATURE_BRUTS2")].forEach(([id, nom, pays, lat, lon, emoji, rarete, anecdote, wiki], i) => {
   add({ id: "nat:" + id, univers: "monde", type: "nature", rarete, num: i + 1, nom, pays, lat, lon, emoji, anecdote, continent: CONT_PAYS[pays] });
   if (wiki) PHOTOS_WIKI["nat:" + id] = wiki;
   RECHERCHE_PHOTO["nat:" + id] = nom;
 });
-extra("ANIMAUX_BRUTS").forEach(([id, nom, pays, emoji, rarete, anecdote, wiki], i) => {
+[...extra("ANIMAUX_BRUTS"), ...extra("ANIMAUX_BRUTS2")].forEach(([id, nom, pays, emoji, rarete, anecdote, wiki], i) => {
   add({ id: "ani:" + id, univers: "monde", type: "animal", rarete, num: i + 1, nom, pays, emoji, anecdote, continent: CONT_PAYS[pays] });
   if (wiki) PHOTOS_WIKI["ani:" + id] = wiki;
   RECHERCHE_PHOTO["ani:" + id] = nom;
 });
-extra("PLATS_BRUTS").forEach(([id, nom, pays, emoji, rarete, anecdote, wiki], i) => {
+extra("CULTURE_BRUTS").forEach(([id, nom, pays, emoji, rarete, anecdote, wiki], i) => {
+  add({ id: "cult:" + id, univers: "monde", type: "culture", rarete, num: i + 1, nom, pays, emoji, anecdote, continent: CONT_PAYS[pays] });
+  if (wiki) PHOTOS_WIKI["cult:" + id] = wiki;
+  RECHERCHE_PHOTO["cult:" + id] = nom;
+});
+[...extra("PLATS_BRUTS"), ...extra("PLATS_BRUTS2")].forEach(([id, nom, pays, emoji, rarete, anecdote, wiki], i) => {
   add({ id: "plat:" + id, univers: "monde", type: "plat", rarete, num: i + 1, nom, pays, emoji, anecdote, continent: CONT_PAYS[pays] });
   if (wiki) PHOTOS_WIKI["plat:" + id] = wiki;
   RECHERCHE_PHOTO["plat:" + id] = nom;
@@ -118,13 +124,31 @@ const UNIVERS = {
 };
 const of = (u, type) => CARDS.filter((c) => c.univers === u && (!type || c.type === type));
 
+// Boosters supplémentaires : le Méga (10 cartes) et les boosters thématiques (un type ou un continent)
+PACKS.mega = { nom: "Méga", emoji: "📦", prix: 1000, cartes: 10, garanties: [2, 2, 3], shiny: 1.5,
+  poids: { "commun": 40, "peu-commun": 33, "rare": 17, "epique": 6.5, "ultra-rare": 2.4, "legendaire": 1.1 },
+  desc: "10 cartes d'un coup ! Deux rares et une épique ou mieux garanties." };
+for (const t of ["ville", "monument", "nature", "animal", "plat", "culture"]) {
+  if (!of("monde", t).length) continue;
+  PACKS["theme-" + t] = { nom: PLURIEL[t], emoji: EMOJI_TYPE[t], prix: 260, cartes: 5, garanties: [2], shiny: 1, theme: true,
+    filtre: (c) => c.type === t, desc: `5 cartes « ${TYPES[t]} », dont une rare ou mieux.` };
+}
+for (const [k, ct] of Object.entries(CONTINENTS)) {
+  PACKS["cont-" + k] = { nom: ct.nom, emoji: ct.emoji, prix: 260, cartes: 5, garanties: [2], shiny: 1, theme: true, couleur: ct.couleur,
+    filtre: (c) => c.continent === k, desc: `5 cartes d'${ct.nom}, dont une rare ou mieux.` };
+}
+const PACKS_PRINCIPAUX = ["monde", "argent", "or", "mega", "prestige"];
+// Offre du jour : un booster à -40 %, une fois par jour
+const offreDuJour = () => { const cles = Object.keys(PACKS).filter((k) => k !== "monde" && k !== "prestige"); return cles[COMBAT.hash(today()) % cles.length]; };
+const prixOffre = (k) => Math.round(PACKS[k].prix * 0.6 / 10) * 10;
+
 /* =====================================================================
    Sauvegarde
    ===================================================================== */
 const SAVE_KEY = "worldcards:v1";
 const nouvelleSauvegarde = () => ({
   coins: 200, owned: {}, shiny: {}, holo: {}, qualite: {}, nouveaux: {}, recents: [], badges: {},
-  boosters: { monde: 3, argent: 0, or: 0, prestige: 0 }, gratuitLe: 0, premiumJour: "", prestigeSemaine: "", ouverts: 0,
+  boosters: { monde: 3, argent: 0, or: 0, prestige: 0 }, gratuitLe: 0, xp: 0, defisFaits: 0, son: true, premiumJour: "", prestigeSemaine: "", ouverts: 0,
   quiz: { monde: { serie: 0, record: 0, bonnes: 0, total: 0 } }, quizJour: { d: "", n: 0 },
   deck: [], combat: { victoires: 0, defaites: 0, jour: "", recompenses: 0 }, solo: {},
   univers: "monde", vue: "accueil", theme: "", photos: true,
@@ -230,6 +254,7 @@ function sousTitre(c) {
     case "nature": return "📍 " + NOM_PAYS[c.pays];
     case "animal": return "🐾 " + NOM_PAYS[c.pays];
     case "plat": return "🍽️ " + NOM_PAYS[c.pays];
+    case "culture": return "🎭 " + NOM_PAYS[c.pays];
     case "merveille": return c.groupe === "antiques" ? "🏺 Merveille antique" : "🌟 Merveille moderne";
     case "secrete": return "Carte secrète";
   }
@@ -374,48 +399,151 @@ function libelleCondition(cond) {
 }
 
 const RECOMPENSE = { bronze: 50, argent: 120, or: 300 };
-function badgesDe() {
+const CATEGORIES_BADGES = { collection: "📚 Collection", continent: "🌍 Continents", pays: "🏳️ Pays", combat: "⚔️ Combat", joueur: "⭐ Joueur", special: "✨ Spécial" };
+// Cartes liées à chaque pays (le pays lui-même, ses villes, monuments, animaux, plats…)
+const CARTES_PAR_PAYS = {};
+for (const c of CARDS) { const k = c.type === "pays" ? c.code : c.pays; if (k) (CARTES_PAR_PAYS[k] ||= []).push(c.id); }
+const TYPES_COLLECTION = ["ville", "monument", "nature", "animal", "plat", "culture"];
+let BADGES_DEF = null;
+function definirBadges() {
   const list = [];
-  const frac = (ids) => [count(ids), ids.length];
+  const frac = (ids) => () => [count(ids), ids.length];
   const palier = (n, max) => () => [Math.min(max, n()), max];
+  const ajoute = (b) => list.push({ seuil: 1, ...b });
+  // Continents : pays
   for (const [k, ct] of Object.entries(CONTINENTS)) {
     const ids = of("monde", "pays").filter((c) => c.continent === k).map((c) => c.id);
-    [["bronze", 0.25], ["argent", 0.5], ["or", 1]].forEach(([niv, s]) =>
-      list.push({ id: `cont-${k}-${niv}`, nom: `${ct.nom} — ${niv}`, emoji: ct.emoji, niveau: niv, desc: `${Math.round(s * 100)} % des pays d'${ct.nom}`, prog: () => frac(ids), seuil: s }));
+    [["bronze", 0.25], ["argent", 0.5], ["or", 1]].forEach(([niv, sv]) =>
+      ajoute({ id: `cont-${k}-${niv}`, cat: "continent", nom: `${ct.nom} — ${niv}`, emoji: ct.emoji, niveau: niv, desc: `${Math.round(sv * 100)} % des pays d'${ct.nom}`, prog: frac(ids), seuil: sv }));
+    // Chaque type de carte sur chaque continent
+    for (const t of TYPES_COLLECTION) {
+      const idsT = of("monde", t).filter((c) => c.continent === k).map((c) => c.id);
+      if (idsT.length >= 3) ajoute({ id: `ct-${k}-${t}`, cat: "continent", nom: `${PLURIEL[t]} : ${ct.nom}`, emoji: EMOJI_TYPE[t], niveau: "argent", desc: `Toutes les cartes « ${TYPES[t]} » d'${ct.nom} (${idsT.length})`, prog: frac(idsT) });
+    }
   }
-  const villesIds = of("monde", "ville").map((c) => c.id), monuIds = of("monde", "monument").map((c) => c.id);
-  list.push({ id: "villes-50", nom: "Voyageur", emoji: "🧳", niveau: "bronze", desc: "50 villes", prog: palier(() => count(villesIds), 50), seuil: 1 });
-  list.push({ id: "villes", nom: "Globe-trotteur", emoji: "🌆", niveau: "or", desc: "Toutes les villes", prog: () => frac(villesIds), seuil: 1 });
-  list.push({ id: "monuments-50", nom: "Guide touristique", emoji: "📸", niveau: "argent", desc: "50 monuments", prog: palier(() => count(monuIds), 50), seuil: 1 });
-  list.push({ id: "monuments", nom: "Bâtisseur", emoji: "🏗️", niveau: "or", desc: "Tous les monuments", prog: () => frac(monuIds), seuil: 1 });
-  list.push({ id: "merv-mod", nom: "Merveilles modernes", emoji: "🌟", niveau: "or", desc: "Les 7 merveilles du monde moderne", prog: () => frac(idsCondition("merveilles:modernes")), seuil: 1 });
-  list.push({ id: "merv-ant", nom: "Merveilles antiques", emoji: "🏺", niveau: "or", desc: "Les 7 merveilles du monde antique", prog: () => frac(idsCondition("merveilles:antiques")), seuil: 1 });
-  for (const [t, nom, emoji] of [["nature", "Explorateur", "🧗"], ["animal", "Naturaliste", "🦁"], ["plat", "Gastronome", "👨‍🍳"]]) {
+  // Collections par type
+  const noms = { ville: ["Voyageur", "Globe-trotteur"], monument: ["Guide touristique", "Bâtisseur"], nature: ["Randonneur", "Explorateur"], animal: ["Observateur", "Naturaliste"], plat: ["Gourmand", "Grand chef"], culture: ["Curieux", "Ambassadeur"] };
+  for (const t of TYPES_COLLECTION) {
     const ids = of("monde", t).map((c) => c.id);
     if (!ids.length) continue;
-    list.push({ id: `${t}-25`, nom: `${nom} débutant`, emoji, niveau: "bronze", desc: `25 cartes « ${TYPES[t]} »`, prog: palier(() => count(ids), Math.min(25, ids.length)), seuil: 1 });
-    list.push({ id: `${t}-tout`, nom, emoji, niveau: "or", desc: `Toutes les cartes « ${TYPES[t]} »`, prog: () => frac(ids), seuil: 1 });
+    const [debut, fin] = noms[t];
+    for (const [n, niv] of [[10, "bronze"], [50, "argent"]]) if (ids.length > n) ajoute({ id: `${t}-${n}`, cat: "collection", nom: `${debut} ${n === 10 ? "débutant" : "confirmé"}`, emoji: EMOJI_TYPE[t], niveau: niv, desc: `${n} cartes « ${TYPES[t]} »`, prog: palier(() => count(ids), n) });
+    ajoute({ id: t === "ville" ? "villes" : t === "monument" ? "monuments" : `${t}-tout`, cat: "collection", nom: fin, emoji: EMOJI_TYPE[t], niveau: "or", desc: `Toutes les cartes « ${TYPES[t]} » (${ids.length})`, prog: frac(ids) });
   }
-  const toutes = of("monde").map((c) => c.id);
-  list.push({ id: "collec-100", nom: "Collectionneur", emoji: "📚", niveau: "argent", desc: "100 cartes différentes", prog: palier(() => count(toutes), 100), seuil: 1 });
-  list.push({ id: "collec-300", nom: "Grand collectionneur", emoji: "🗃️", niveau: "or", desc: "300 cartes différentes", prog: palier(() => count(toutes), 300), seuil: 1 });
-  list.push({ id: "collec-600", nom: "Encyclopédie vivante", emoji: "📖", niveau: "or", desc: "600 cartes différentes", prog: palier(() => count(toutes), 600), seuil: 1 });
-  list.push({ id: "collec-1000", nom: "Le monde entier", emoji: "🌐", niveau: "or", desc: "1 000 cartes différentes", prog: palier(() => count(toutes), 1000), seuil: 1 });
-  const nbHolo = () => CARDS.filter((c) => S.holo?.[c.id]).length;
-  list.push({ id: "holo-10", nom: "Reflets irisés", emoji: "🌈", niveau: "bronze", desc: "10 cartes Holo", prog: palier(nbHolo, 10), seuil: 1 });
-  list.push({ id: "holo-50", nom: "Arc-en-ciel", emoji: "🎆", niveau: "argent", desc: "50 cartes Holo", prog: palier(nbHolo, 50), seuil: 1 });
-  list.push({ id: "secret-1", nom: "Chasseur de secrets", emoji: "🔮", niveau: "bronze", desc: "Débloquer une carte secrète", prog: palier(() => count(of("monde", "secrete").map((c) => c.id)), 1), seuil: 1 });
-  list.push({ id: "maitre", nom: "Maître du monde", emoji: "👑", niveau: "or", desc: "Les 195 pays", prog: () => frac(idsCondition("tous-les-pays")), seuil: 1 });
-  const nbShiny = () => CARDS.filter((c) => S.shiny?.[c.id]).length;
-  list.push({ id: "shiny1-monde", nom: "Premier Shiny", emoji: "✨", niveau: "bronze", desc: "Obtenir une carte Shiny", prog: palier(nbShiny, 1), seuil: 1 });
-  list.push({ id: "shiny10-monde", nom: "Collection brillante", emoji: "🌈", niveau: "or", desc: "10 cartes Shiny différentes", prog: palier(nbShiny, 10), seuil: 1 });
+  ajoute({ id: "merv-mod", cat: "collection", nom: "Merveilles modernes", emoji: "🌟", niveau: "or", desc: "Les 7 merveilles du monde moderne", prog: frac(idsCondition("merveilles:modernes")) });
+  ajoute({ id: "merv-ant", cat: "collection", nom: "Merveilles antiques", emoji: "🏺", niveau: "or", desc: "Les 7 merveilles du monde antique", prog: frac(idsCondition("merveilles:antiques")) });
+  ajoute({ id: "maitre", cat: "collection", nom: "Maître du monde", emoji: "👑", niveau: "or", desc: "Les 195 pays", prog: frac(idsCondition("tous-les-pays")) });
+  for (const r of ["epique", "ultra-rare", "legendaire"]) {
+    const ids = CARDS.filter((c) => c.rarete === r).map((c) => c.id);
+    ajoute({ id: `rar-${r}-10`, cat: "collection", nom: `10 ${RARETES[r].nom.toLowerCase()}s`, emoji: RARETES[r].gems.slice(0, 2), niveau: "argent", desc: `10 cartes ${RARETES[r].nom.toLowerCase()}s différentes`, prog: palier(() => count(ids), 10) });
+    ajoute({ id: `rar-${r}`, cat: "collection", nom: `Toutes les ${RARETES[r].nom.toLowerCase()}s`, emoji: RARETES[r].gems.slice(0, 2), niveau: "or", desc: `Les ${ids.length} cartes ${RARETES[r].nom.toLowerCase()}s`, prog: frac(ids) });
+  }
+  const toutes = CARDS.map((c) => c.id);
+  const paliers = [[25, "bronze", "Premiers pas", "🎒"], [100, "argent", "Collectionneur", "📚"], [300, "or", "Grand collectionneur", "🗃️"], [600, "or", "Encyclopédie vivante", "📖"], [1000, "or", "Le monde entier", "🌐"], [1500, "or", "Légende vivante", "🏆"]];
+  for (const [n, niv, nom, emoji] of paliers) if (toutes.length >= n) ajoute({ id: n === 100 ? "collec-100" : n === 300 ? "collec-300" : n === 600 ? "collec-600" : n === 1000 ? "collec-1000" : `collec-${n}`, cat: "collection", nom, emoji, niveau: niv, desc: `${fmt(n)} cartes différentes`, prog: palier(() => count(toutes), n) });
+  // Pays : toutes les cartes liées à un pays
+  for (const [code, ids] of Object.entries(CARTES_PAR_PAYS)) {
+    if (ids.length < 3) continue;
+    ajoute({ id: `pays-${code}`, cat: "pays", nom: `Ambassadeur : ${NOM_PAYS[code]}`, emoji: `<img class="bdrap" src="flags/${code.toLowerCase()}.svg" alt="">`, niveau: ids.length >= 6 ? "argent" : "bronze", desc: `Les ${ids.length} cartes liées à ce pays`, prog: frac(ids) });
+  }
+  // Combat
   const vic = () => S.combat.victoires;
-  list.push({ id: "combat-1", nom: "Premier combat", emoji: "⚔️", niveau: "bronze", desc: "Gagner un combat", prog: palier(vic, 1), seuil: 1 });
-  list.push({ id: "combat-25", nom: "Stratège", emoji: "🛡️", niveau: "argent", desc: "Gagner 25 combats", prog: palier(vic, 25), seuil: 1 });
-  list.push({ id: "combat-100", nom: "Conquérant", emoji: "🏆", niveau: "or", desc: "Gagner 100 combats", prog: palier(vic, 100), seuil: 1 });
+  for (const [n, niv, nom, emoji] of [[1, "bronze", "Premier combat", "⚔️"], [10, "bronze", "Combattant", "🥊"], [25, "argent", "Stratège", "🛡️"], [100, "or", "Conquérant", "🏆"], [250, "or", "Seigneur de guerre", "🗡️"], [500, "or", "Invincible", "💪"]])
+    ajoute({ id: n === 1 ? "combat-1" : `combat-${n}`, cat: "combat", nom, emoji, niveau: niv, desc: `Gagner ${n} combat${n > 1 ? "s" : ""}`, prog: palier(vic, n) });
+  const etoilesSolo = () => Object.values(S.solo || {}).reduce((a, b) => a + b, 0);
+  for (const [n, niv, nom] of [[3, "bronze", "Aventurier"], [15, "argent", "Grand voyageur"], [45, "or", "Tour du monde"], [90, "or", "Perfection mondiale"]])
+    ajoute({ id: `solo-${n}`, cat: "combat", nom, emoji: "⭐", niveau: niv, desc: `${n} étoiles en mode Solo`, prog: palier(etoilesSolo, n) });
+  for (const k of Object.keys(CONTINENTS)) ajoute({ id: `boss-${k}`, cat: "combat", nom: `Boss vaincu : ${CONTINENTS[k].nom}`, emoji: "👑", niveau: "argent", desc: `Battre le boss d'${CONTINENTS[k].nom} en mode Solo`, prog: palier(() => ((S.solo || {})[`${k}-4`] ? 1 : 0), 1) });
   const niv5 = () => CARDS.filter((c) => (S.owned[c.id] || 0) >= 16).length;
-  list.push({ id: "niveau-max", nom: "Carte au maximum", emoji: "⭐", niveau: "argent", desc: "Une carte au niveau 5 (16 exemplaires)", prog: palier(niv5, 1), seuil: 1 });
-  return list.map((b) => { const [n, t] = b.prog(); return { ...b, n, t, ok: t > 0 && n / t >= b.seuil }; });
+  ajoute({ id: "niveau-max", cat: "combat", nom: "Carte au maximum", emoji: "⭐", niveau: "argent", desc: "Une carte au niveau 5 (16 exemplaires)", prog: palier(niv5, 1) });
+  ajoute({ id: "niveau-max-10", cat: "combat", nom: "Armée d'élite", emoji: "🎖️", niveau: "or", desc: "10 cartes au niveau 5", prog: palier(niv5, 10) });
+  // Joueur
+  const nivJ = () => niveauJoueur().niveau;
+  for (const [n, niv] of [[5, "bronze"], [10, "argent"], [25, "or"], [50, "or"], [100, "or"]]) ajoute({ id: `joueur-${n}`, cat: "joueur", nom: `Niveau ${n}`, emoji: "🎓", niveau: niv, desc: `Atteindre le niveau ${n}`, prog: palier(nivJ, n) });
+  for (const [n, niv] of [[10, "bronze"], [50, "argent"], [200, "or"], [500, "or"]]) ajoute({ id: `boosters-${n}`, cat: "joueur", nom: `${n} boosters ouverts`, emoji: "🎁", niveau: niv, desc: `Ouvrir ${n} boosters`, prog: palier(() => S.ouverts, n) });
+  const bonnes = () => S.quiz.monde.bonnes || 0, record = () => S.quiz.monde.record || 0;
+  for (const [n, niv] of [[10, "bronze"], [100, "argent"], [500, "or"]]) ajoute({ id: `quiz-${n}`, cat: "joueur", nom: `Érudit ${n}`, emoji: "🧠", niveau: niv, desc: `${n} bonnes réponses au quiz`, prog: palier(bonnes, n) });
+  for (const [n, niv] of [[5, "bronze"], [10, "argent"], [20, "or"]]) ajoute({ id: `serie-${n}`, cat: "joueur", nom: `Série de ${n}`, emoji: "🔥", niveau: niv, desc: `${n} bonnes réponses d'affilée`, prog: palier(record, n) });
+  for (const [n, niv] of [[1, "bronze"], [10, "argent"], [30, "or"]]) ajoute({ id: `defis-${n}`, cat: "joueur", nom: `${n} défi${n > 1 ? "s" : ""} du jour`, emoji: "📅", niveau: niv, desc: `Réussir ${n} défi${n > 1 ? "s" : ""} du jour`, prog: palier(() => S.defisFaits || 0, n) });
+  // Spécial
+  ajoute({ id: "secret-1", cat: "special", nom: "Chasseur de secrets", emoji: "🔮", niveau: "bronze", desc: "Débloquer une carte secrète", prog: palier(() => count(of("monde", "secrete").map((c) => c.id)), 1) });
+  ajoute({ id: "secret-tout", cat: "special", nom: "Gardien des mystères", emoji: "🗝️", niveau: "or", desc: "Toutes les cartes secrètes", prog: frac(of("monde", "secrete").map((c) => c.id)) });
+  const nbShiny = () => CARDS.filter((c) => S.shiny?.[c.id]).length, nbHolo = () => CARDS.filter((c) => S.holo?.[c.id]).length;
+  for (const [n, niv, nom, id] of [[1, "bronze", "Premier Shiny", "shiny1-monde"], [3, "bronze", "Brillant", "shiny3"], [10, "or", "Collection brillante", "shiny10-monde"], [25, "or", "Éblouissant", "shiny25"]]) ajoute({ id, cat: "special", nom, emoji: "✨", niveau: niv, desc: `${n} carte${n > 1 ? "s" : ""} Shiny`, prog: palier(nbShiny, n) });
+  for (const [n, niv, nom, id] of [[10, "bronze", "Reflets irisés", "holo-10"], [50, "argent", "Arc-en-ciel", "holo-50"], [150, "or", "Prisme", "holo-150"]]) ajoute({ id, cat: "special", nom, emoji: "🌈", niveau: niv, desc: `${n} cartes Holo`, prog: palier(nbHolo, n) });
+  return list;
+}
+function badgesDe() {
+  BADGES_DEF ||= definirBadges();
+  return BADGES_DEF.map((b) => { const [n, t] = b.prog(); return { ...b, n, t, ok: t > 0 && n / t >= b.seuil }; });
+}
+
+/* =====================================================================
+   Niveau du joueur (XP) et défis du jour
+   ===================================================================== */
+const xpPourNiveau = (n) => 80 + n * 40; // XP nécessaire pour passer du niveau n au suivant
+function niveauJoueur(xp = S.xp || 0) {
+  let n = 1;
+  while (xp >= xpPourNiveau(n)) { xp -= xpPourNiveau(n); n++; }
+  return { niveau: n, xp, besoin: xpPourNiveau(n) };
+}
+function gagnerXP(n, pourquoi) {
+  const avant = niveauJoueur().niveau;
+  S.xp = (S.xp || 0) + n;
+  const apres = niveauJoueur().niveau;
+  for (let niv = avant + 1; niv <= apres; niv++) {
+    const pieces = 100 + niv * 20;
+    S.coins += pieces;
+    const booster = niv % 10 === 0 ? "or" : niv % 5 === 0 ? "argent" : null;
+    if (booster) S.boosters[booster] = (S.boosters[booster] || 0) + 1;
+    toast(`🎓 <b>Niveau ${niv} !</b> +${pieces} 🪙${booster ? ` et un booster ${PACKS[booster].nom}` : ""}`, 5000);
+    if (typeof son === "function") son("niveau");
+  }
+  majCoins(); majNiveau();
+}
+function majNiveau() {
+  const n = niveauJoueur(), el = $("#niveauJoueur");
+  if (el) { el.innerHTML = `<b>Niv. ${n.niveau}</b><i style="width:${(n.xp / n.besoin) * 100}%"></i>`; el.title = `Niveau ${n.niveau} · ${n.xp}/${n.besoin} XP`; }
+}
+// Trois défis différents chaque jour
+const MODELES_DEFIS = [
+  { id: "boosters", nom: "Ouvrir {n} boosters", cibles: [2, 3, 4], emoji: "🎁" },
+  { id: "victoires", nom: "Gagner {n} combats", cibles: [2, 3, 5], emoji: "⚔️" },
+  { id: "solo", nom: "Gagner {n} étapes en mode Solo", cibles: [1, 2], emoji: "🗺️" },
+  { id: "quiz", nom: "Donner {n} bonnes réponses au quiz", cibles: [3, 5, 7], emoji: "❓" },
+  { id: "nouvelles", nom: "Découvrir {n} nouvelles cartes", cibles: [5, 8, 12], emoji: "🆕" },
+  { id: "speciaux", nom: "Utiliser {n} attaques spéciales", cibles: [3, 5, 8], emoji: "✨" },
+  { id: "ko", nom: "Mettre {n} cartes K.O.", cibles: [5, 8, 12], emoji: "💥" },
+];
+function defisDuJour() {
+  if (S.defis?.d === today()) return S.defis;
+  const r = COMBAT.rng(COMBAT.hash(today() + (S.compte || "")));
+  const modeles = MODELES_DEFIS.slice().sort(() => r() - 0.5).slice(0, 3);
+  S.defis = { d: today(), bonus: false, liste: modeles.map((m) => { const n = m.cibles[Math.floor(r() * m.cibles.length)]; return { id: m.id, n, prog: 0, recu: false }; }) };
+  return S.defis;
+}
+const recompenseDefi = (d) => 60 + d.n * 10;
+function progresDefi(id, n = 1) {
+  const D = defisDuJour();
+  for (const d of D.liste) {
+    if (d.id !== id || d.prog >= d.n) continue;
+    d.prog = Math.min(d.n, d.prog + n);
+    if (d.prog >= d.n) toast(`📅 Défi réussi : ${MODELES_DEFIS.find((m) => m.id === id).nom.replace("{n}", d.n)} ! Récupérez la récompense sur l'accueil.`, 4500);
+  }
+}
+function recupererDefi(i) {
+  const D = defisDuJour(), d = D.liste[i];
+  if (!d || d.prog < d.n || d.recu) return;
+  d.recu = true; S.coins += recompenseDefi(d); S.defisFaits = (S.defisFaits || 0) + 1; gagnerXP(30);
+  if (!D.bonus && D.liste.every((x) => x.recu)) { D.bonus = true; S.boosters.argent = (S.boosters.argent || 0) + 1; toast("🏅 Tous les défis du jour réussis : un booster Argent offert !", 5000); }
+  sauver(); majCoins(); verifierProgression(); aller(S.vue);
+}
+function blocDefis() {
+  const D = defisDuJour();
+  return `<div class="panel defis"><div class="row" style="justify-content:space-between"><h3 style="margin:0">📅 Défis du jour</h3><span class="muted">Tous réussis : un booster Argent ${D.bonus ? "✓" : ""}</span></div>
+    ${D.liste.map((d, i) => { const m = MODELES_DEFIS.find((x) => x.id === d.id); return `<div class="defi ${d.recu ? "fait" : ""}"><span class="em">${m.emoji}</span>
+      <div style="flex:1;min-width:0"><b>${m.nom.replace("{n}", d.n)}</b><div class="bar"><i style="width:${(d.prog / d.n) * 100}%"></i></div><small class="muted">${d.prog}/${d.n} · +${recompenseDefi(d)} 🪙 +30 XP</small></div>
+      ${d.recu ? "✅" : `<button class="btn small ${d.prog >= d.n ? "primary" : ""}" data-defi-recu="${i}" ${d.prog >= d.n ? "" : "disabled"}>Récupérer</button>`}</div>`; }).join("")}</div>`;
 }
 
 const aReveler = [];
@@ -432,6 +560,10 @@ function verifierProgression() {
   const obtenus = [];
   for (const b of badgesDe()) {
     if (b.ok && !S.badges[b.id]) { S.badges[b.id] = today(); S.coins += RECOMPENSE[b.niveau]; obtenus.push(b); changed = true; }
+  }
+  if (obtenus.length) {
+    S.xp = (S.xp || 0) + 20 * obtenus.length; majNiveau();
+    if (typeof son === "function") son("badge");
   }
   const gain = obtenus.reduce((t, b) => t + RECOMPENSE[b.niveau], 0);
   if (obtenus.length === 1) toast(`🏅 Badge obtenu : <b>${esc(obtenus[0].nom)}</b> · +${gain} 🪙`);
@@ -583,7 +715,7 @@ function ficheCarte(c) {
   if (S.nouveaux[c.id]) { delete S.nouveaux[c.id]; sauver(); }
   const rows = [];
   if (c.type === "pays") rows.push(["Capitale", c.capitale], ["Continent", CONTINENTS[c.continent].nom]);
-  if (["animal", "plat"].includes(c.type)) rows.push([c.type === "plat" ? "Origine" : "Pays emblème", NOM_PAYS[c.pays]], ["Continent", CONTINENTS[c.continent].nom]);
+  if (["animal", "plat", "culture"].includes(c.type)) rows.push([c.type === "animal" ? "Pays emblème" : "Origine", NOM_PAYS[c.pays]], ["Continent", CONTINENTS[c.continent].nom]);
   if (["ville", "monument", "merveille", "nature"].includes(c.type)) rows.push(["Pays", NOM_PAYS[c.pays]], ["Continent", CONTINENTS[c.continent].nom], ["Coordonnées", `${Math.abs(c.lat).toFixed(2)}° ${c.lat >= 0 ? "N" : "S"}, ${Math.abs(c.lon).toFixed(2)}° ${c.lon >= 0 ? "E" : "O"}`]);
   if (c.type === "merveille") rows.push(["Liste", c.groupe === "antiques" ? "Sept merveilles du monde antique" : "Sept nouvelles merveilles du monde (2007)"]);
   if (c.type === "secrete" && !owned) rows.push(["Pour la débloquer", libelleCondition(c.condition)]);
@@ -638,7 +770,7 @@ function vueAccueil(v) {
   const secrets = of("monde", "secrete");
   const badges = badgesDe();
   const groupes = Object.entries(CONTINENTS).map(([k, ct]) => [ct.emoji + " " + ct.nom, of("monde", "pays").filter((c) => c.continent === k)])
-    .concat([["🏙️ Villes", of("monde", "ville")], ["🏛️ Monuments", of("monde", "monument")], ["🏔️ Nature", of("monde", "nature")], ["🐾 Animaux", of("monde", "animal")], ["🍜 Gastronomie", of("monde", "plat")], ["🌟 Merveilles", of("monde", "merveille")]])
+    .concat([["🏙️ Villes", of("monde", "ville")], ["🏛️ Monuments", of("monde", "monument")], ["🏔️ Nature", of("monde", "nature")], ["🐾 Animaux", of("monde", "animal")], ["🍜 Gastronomie", of("monde", "plat")], ["🎭 Culture", of("monde", "culture")], ["🌟 Merveilles", of("monde", "merveille")]])
     .filter(([, l]) => l.length);
   const recents = S.recents.map((id) => BY_ID[id]).filter(Boolean).slice(0, 6);
   const attente = gratuitDans();
@@ -646,7 +778,7 @@ function vueAccueil(v) {
     ${S.messageMigration ? `<div class="panel annonce">🌍 <b>WorldCards se concentre sur le monde !</b> Les univers Gaming et Objets ont été retirés. Vos anciennes cartes ont été échangées contre <b>${fmt(S.messageMigration.pieces)} 🪙</b>${S.messageMigration.boosters ? ` et vos boosters en <b>${S.messageMigration.boosters} boosters Classiques</b>` : ""}. <button class="btn small" id="okMigration">OK</button></div>` : ""}
     <div class="hero">
       <div class="panel">
-        <h1>${UNIVERS.monde.titre}</h1>
+        <div class="row" style="justify-content:space-between"><h1 style="margin:0">${UNIVERS.monde.titre}</h1>${(() => { const n = niveauJoueur(); return `<span class="nivbloc">🎓 Niveau <b>${n.niveau}</b><span class="bar"><i style="width:${(n.xp / n.besoin) * 100}%"></i></span><small>${n.xp}/${n.besoin} XP</small></span>`; })()}</div>
         <p class="muted" style="margin:0">${UNIVERS.monde.intro}</p>
         <div class="statgrid">
           <div class="stat"><b>${count(of("monde", "pays").map((c) => c.id))}/${of("monde", "pays").length}</b><span>pays</span></div>
@@ -671,9 +803,11 @@ function vueAccueil(v) {
         ${groupes.map(([nom, list]) => { const n = count(list.map((c) => c.id)); return `<div class="p"><span>${nom}</span><div class="bar"><i style="width:${(n / list.length) * 100}%"></i></div><span>${n}/${list.length}</span></div>`; }).join("")}
       </div>
     </div>
+    <div style="margin-top:16px">${blocDefis()}</div>
     ${recents.length ? `<div class="sectiontitle"><h3>Dernières découvertes</h3></div><div class="cards">${recents.map((c) => cardHTML(c, { compte: true })).join("")}</div>` : ""}
     <div class="sectiontitle"><h3>✦ Cartes secrètes</h3><span class="muted">Terminez une collection entière pour les débloquer</span></div>
     <div class="cards">${secrets.map((c) => cardHTML(c)).join("")}</div>`;
+  $$("[data-defi-recu]", v).forEach((b) => b.onclick = () => recupererDefi(Number(b.dataset.defiRecu)));
   $("#okMigration")?.addEventListener("click", () => { delete S.messageMigration; aller("accueil"); });
   $("#gratuit")?.addEventListener("click", recupererGratuit);
   $("#bonusPremium")?.addEventListener("click", recupererBonusPremium);
@@ -705,11 +839,21 @@ setInterval(() => { if (gratuitDans() === 0 && ["accueil", "boosters"].includes(
 function vueBoosters(v) {
   const attente = gratuitDans();
   const stock = Object.entries(PACKS).filter(([k]) => S.boosters[k] > 0);
+  const nbStock = stock.reduce((t, [k]) => t + S.boosters[k], 0);
+  const offre = offreDuJour(), offreDispo = S.offreJour !== today();
+  const carteOffre = (k, p) => {
+    const bloque = p.premium && !premium();
+    return `<div class="offre ${k}">
+      <div class="pack ${k} mini" ${p.couleur ? `style="--pc:${p.couleur}"` : ""}><span class="big">${p.emoji}</span><b>${p.nom}</b></div>
+      <div><b>Booster ${p.nom}</b>${p.premium ? ` <span class="rbadge premium">💎 Premium</span>` : ""}${p.cartes > 5 ? ` <span class="rbadge" data-r="rare">${p.cartes} cartes</span>` : ""}<p class="muted">${p.desc}</p>
+      <button class="btn ${bloque ? "" : "primary"}" data-acheter="${k}" ${!bloque && S.coins < p.prix ? "disabled" : ""}>${bloque ? "💎 Devenir Premium" : `Acheter · ${fmt(p.prix)} 🪙`}</button></div></div>`;
+  };
   v.innerHTML = `
     <div class="panel" style="text-align:center">
-      <h2 style="margin-top:0">🎁 Mes boosters</h2>
-      ${stock.length ? `<div class="packs">${stock.map(([k, p]) => `<button class="pack ${k}" data-ouvrir="${k}">
-          <span class="count">×${S.boosters[k]}</span><span class="big">${p.emoji}</span><b>${p.nom}</b><small>Touchez pour ouvrir</small></button>`).join("")}</div>`
+      <h2 style="margin-top:0">🎁 Mes boosters ${nbStock ? `(${nbStock})` : ""}</h2>
+      ${stock.length ? `<div class="packs">${stock.map(([k, p]) => `<button class="pack ${k}" data-ouvrir="${k}" ${p.couleur ? `style="--pc:${p.couleur}"` : ""}>
+          <span class="count">×${S.boosters[k]}</span><span class="big">${p.emoji}</span><b>${p.nom}</b><small>Touchez pour ouvrir</small></button>`).join("")}</div>
+          ${nbStock > 1 ? `<button class="btn primary" id="toutOuvrir" style="margin-top:12px">⚡ Tout ouvrir d'un coup (${nbStock})</button>` : ""}`
         : `<p class="muted">Aucun booster pour l'instant. Récupérez le booster gratuit ou achetez-en un ci-dessous.</p>`}
       <div class="row" style="justify-content:center;margin-top:10px">
         ${attente === 0 ? `<button class="btn primary" id="gratuit">🎁 Récupérer le booster gratuit</button>` : `<span class="muted">⏳ Prochain booster gratuit dans <b>${duree(attente)}</b></span>`}
@@ -717,19 +861,21 @@ function vueBoosters(v) {
         ${prestigeSemaineDispo() ? `<button class="btn primary premium" id="prestigeOffert">💎 Prestige offert de la semaine</button>` : ""}
       </div>
     </div>
+    <div class="panel offre-jour" style="margin-top:16px">
+      <div class="pack ${offre} mini" ${PACKS[offre].couleur ? `style="--pc:${PACKS[offre].couleur}"` : ""}><span class="big">${PACKS[offre].emoji}</span><b>${PACKS[offre].nom}</b></div>
+      <div><span class="rbadge" data-r="ultra-rare">🔥 OFFRE DU JOUR -40 %</span><h3 style="margin:6px 0">Booster ${PACKS[offre].nom}</h3>
+      <p class="muted" style="margin:0 0 8px">${PACKS[offre].desc}</p>
+      ${offreDispo ? `<button class="btn primary" id="acheterOffre" ${S.coins < prixOffre(offre) ? "disabled" : ""}><s>${fmt(PACKS[offre].prix)}</s> ${fmt(prixOffre(offre))} 🪙</button>` : `<span class="muted">✓ Déjà profité aujourd'hui. Nouvelle offre demain !</span>`}</div>
+    </div>
     <div class="sectiontitle"><h3>🛍️ Boutique</h3><span class="muted">Plus le booster est cher, plus les cartes sont rares</span></div>
-    <div class="boutique">${Object.entries(PACKS).map(([k, p]) => {
-      const bloque = p.premium && !premium();
-      return `<div class="offre ${k}">
-        <div class="pack ${k} mini"><span class="big">${p.emoji}</span><b>${p.nom}</b></div>
-        <div><b>Booster ${p.nom}</b>${p.premium ? ` <span class="rbadge premium">💎 Premium</span>` : ""}<p class="muted">${p.desc}</p>
-        <button class="btn ${bloque ? "" : "primary"}" data-acheter="${k}" ${!bloque && S.coins < p.prix ? "disabled" : ""}>${bloque ? "💎 Devenir Premium" : `Acheter · ${fmt(p.prix)} 🪙`}</button></div></div>`;
-    }).join("")}</div>
-    ${S.coins < PACKS.monde.prix ? `<p class="muted">Pas assez de pièces ? <a href="#" id="toQuiz">Jouez au quiz</a> ou <a href="#" id="toCombat">combattez</a>.</p>` : ""}
+    <div class="boutique">${PACKS_PRINCIPAUX.map((k) => carteOffre(k, PACKS[k])).join("")}</div>
+    <div class="sectiontitle"><h3>🎯 Boosters thématiques</h3><span class="muted">Ciblez la catégorie ou le continent qui vous manque</span></div>
+    <div class="boutique themes">${Object.entries(PACKS).filter(([, p]) => p.theme).map(([k, p]) => carteOffre(k, p)).join("")}</div>
+    ${S.coins < PACKS.monde.prix ? `<p class="muted">Pas assez de pièces ? <a href="#" id="toQuiz">Jouez au quiz</a>, <a href="#" id="toCombat">combattez</a> ou réussissez les défis du jour.</p>` : ""}
     <div class="panel" style="margin-top:16px">
       <h3 style="margin-top:0">Chances par carte (booster Classique)</h3>
       <div class="row">${Object.entries(RARETES).filter(([r]) => r !== "secrete").map(([r, x]) => `<span class="rbadge" data-r="${r}">${x.nom} · ${x.poids} %</span>`).join(" ")}</div>
-      <p class="muted" style="margin-bottom:0;font-size:13.5px">Les cartes que vous n'avez pas encore sortent quatre fois plus souvent que vos doublons. Environ une carte sur 45 sort en version ✨ Shiny (deux fois plus en Premium). Un doublon rapporte des pièces, fait monter la carte de niveau et peut améliorer ses statistiques.</p>
+      <p class="muted" style="margin-bottom:0;font-size:13.5px">Les cartes que vous n'avez pas encore sortent quatre fois plus souvent que vos doublons. Environ une carte sur 10 sort en 🌈 Holo et une sur 45 en ✨ Shiny (deux fois plus en Premium). Un doublon rapporte des pièces, fait monter la carte de niveau et peut améliorer ses statistiques.</p>
     </div>`;
   $$("[data-ouvrir]", v).forEach((b) => b.onclick = () => ouvrirBooster(b.dataset.ouvrir));
   $$("[data-acheter]", v).forEach((b) => b.onclick = () => {
@@ -739,15 +885,36 @@ function vueBoosters(v) {
     S.coins -= p.prix; S.boosters[k] = (S.boosters[k] || 0) + 1; sauver(); majCoins();
     ouvrirBooster(k);
   });
+  $("#acheterOffre")?.addEventListener("click", () => {
+    if (S.coins < prixOffre(offre) || S.offreJour === today()) return;
+    S.coins -= prixOffre(offre); S.offreJour = today(); S.boosters[offre] = (S.boosters[offre] || 0) + 1; sauver(); majCoins();
+    ouvrirBooster(offre);
+  });
+  $("#toutOuvrir")?.addEventListener("click", toutOuvrir);
   $("#gratuit")?.addEventListener("click", recupererGratuit);
   $("#bonusPremium")?.addEventListener("click", recupererBonusPremium);
   $("#prestigeOffert")?.addEventListener("click", () => { S.prestigeSemaine = semaine(); S.boosters.prestige++; sauver(); toast("💎 Booster Prestige offert !"); aller("boosters"); });
   $("#toQuiz")?.addEventListener("click", (e) => { e.preventDefault(); aller("quiz"); });
   $("#toCombat")?.addEventListener("click", (e) => { e.preventDefault(); aller("combat"); });
 }
+// Ouvre tous les boosters en stock d'un coup, avec un résumé
+function toutOuvrir() {
+  const tout = [];
+  let pieces = 0, n = 0;
+  for (const k of Object.keys(PACKS)) while (S.boosters[k] > 0 && n < 200) { const r = deballer(k); tout.push(...r); pieces += r.reduce((t, x) => t + x.bonus, 0); n++; }
+  sauver(); majCoins();
+  const neuves = tout.filter((x) => x.neuf), brillantes = tout.filter((x) => x.shiny || x.nouveauHolo);
+  const vus = new Set(), aMontrer = [...brillantes, ...neuves.sort((a, b) => RARETES[b.c.rarete].ordre - RARETES[a.c.rarete].ordre)].filter((x) => !vus.has(x.c.id) && vus.add(x.c.id));
+  ouvrirModal(`<div class="poke"><div class="poke-top"><span>⚡ ${n} boosters ouverts</span></div>
+    <p class="poke-indice">${neuves.length} nouvelle${neuves.length > 1 ? "s" : ""} carte${neuves.length > 1 ? "s" : ""} · ${tout.filter((x) => x.shiny).length} ✨ Shiny · ${tout.filter((x) => x.nouveauHolo).length} 🌈 Holo · +${fmt(pieces)} 🪙 de doublons</p>
+    <div class="opening tout">${aMontrer.slice(0, 120).map((x) => `<div>${x.shiny ? `<span class="tagnew shinytag">✨</span>` : x.nouveauHolo ? `<span class="tagnew holotag">🌈</span>` : x.neuf ? `<span class="tagnew">NEW</span>` : ""}${cardHTML(x.c, { locked: false, shiny: x.shiny, holo: x.holo })}</div>`).join("")}</div>
+    ${aMontrer.length > 120 ? `<p class="poke-indice">… et ${aMontrer.length - 120} autres : retrouvez-les dans l'album.</p>` : ""}
+    <div class="row" style="justify-content:center;margin-top:14px"><button class="btn primary" data-close>Super !</button></div></div>`, () => { verifierProgression(); aller(S.vue); });
+  $("#modal").classList.add("plein");
+}
 function tirerBooster(type) {
   const p = PACKS[type];
-  const pool = of("monde").filter((c) => c.type !== "secrete");
+  const pool = of("monde").filter((c) => c.type !== "secrete" && (!p.filtre || p.filtre(c)));
   const poids = (r) => (p.poids ? p.poids[r] : RARETES[r].poids) || 0;
   const rars = Object.keys(RARETES).filter((r) => pool.some((c) => c.rarete === r) && poids(r) > 0);
   const out = [];
@@ -762,8 +929,8 @@ function tirerBooster(type) {
   }
   return out;
 }
-function ouvrirBooster(type) {
-  if (!S.boosters[type]) return;
+// Retire un booster du stock et ajoute ses cartes à la collection
+function deballer(type) {
   const p = PACKS[type];
   S.boosters[type]--; S.ouverts++;
   const chance = CHANCE_SHINY * p.shiny * (premium() ? 2 : 1);
@@ -782,7 +949,17 @@ function ouvrirBooster(type) {
     S.coins += bonus;
     return { c, ...g, bonus, shiny, nouveauShiny, holo, nouveauHolo };
   });
+  const neuves = res.filter((x) => x.neuf).length;
+  progresDefi("boosters"); if (neuves) progresDefi("nouvelles", neuves);
+  gagnerXP(8 + neuves * 2);
+  return res;
+}
+function ouvrirBooster(type) {
+  if (!S.boosters[type]) return;
+  const p = PACKS[type];
+  const res = deballer(type);
   sauver(); majCoins();
+  if (typeof son === "function") son("booster");
   // Comme dans les jeux de cartes : la plus rare est révélée en dernier, et une Shiny après tout le reste
   const poidsOrdre = (x) => (x.shiny ? 10 : 0) + RARETES[x.c.rarete].ordre;
   const ordre = res.slice().sort((a, b) => poidsOrdre(a) - poidsOrdre(b));
@@ -801,7 +978,7 @@ function ouvrirBooster(type) {
   const scene = $("#pkScene"), indice = (t) => { $("#pkIndice").textContent = t; };
   const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  scene.innerHTML = `<div class="pack ${type} grand" id="pkPaquet"><span class="big">${p.emoji}</span><b>Booster ${p.nom}</b><small>${p.cartes} cartes</small></div>`;
+  scene.innerHTML = `<div class="pack ${type} grand" id="pkPaquet" ${p.couleur ? `style="--pc:${p.couleur}"` : ""}><span class="big">${p.emoji}</span><b>Booster ${p.nom}</b><small>${p.cartes} cartes</small></div>`;
   indice("Touchez le booster pour l'ouvrir");
 
   function montrer() {
@@ -878,7 +1055,7 @@ const filtres = { type: "tout", cont: "tout", possedees: false, shiny: false, tr
 const sansAccents = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 function vueAlbum(v) {
   const f = filtres;
-  const chips = [["tout", "Tout"], ["pays", "Pays"], ["ville", "Villes"], ["monument", "Monuments"], ["nature", "Nature"], ["animal", "Animaux"], ["plat", "Gastronomie"], ["merveille", "Merveilles"], ["secrete", "Secrètes"]].filter(([k]) => k === "tout" || of("monde", k).length);
+  const chips = [["tout", "Tout"], ["pays", "Pays"], ["ville", "Villes"], ["monument", "Monuments"], ["nature", "Nature"], ["animal", "Animaux"], ["plat", "Gastronomie"], ["culture", "Culture"], ["merveille", "Merveilles"], ["secrete", "Secrètes"]].filter(([k]) => k === "tout" || of("monde", k).length);
   v.innerHTML = `<div class="toolbar">
       ${chips.map(([k, l]) => `<button class="chip ${f.type === k ? "on" : ""}" data-k="${k}">${l}</button>`).join("")}
       <input class="search" id="q" type="search" placeholder="Rechercher…" value="${esc(f.q)}">
@@ -919,6 +1096,7 @@ function dessinerSections() {
   if (T === "tout" || T === "nature") sections.push(["🏔️ Nature", of("monde", "nature")]);
   if (T === "tout" || T === "animal") sections.push(["🐾 Animaux", of("monde", "animal")]);
   if (T === "tout" || T === "plat") sections.push(["🍜 Gastronomie", of("monde", "plat")]);
+  if (T === "tout" || T === "culture") sections.push(["🎭 Culture", of("monde", "culture")]);
   if (T === "tout" || T === "merveille") sections.push(["🌟 Merveilles du monde moderne", of("monde", "merveille").filter((c) => c.groupe === "modernes")], ["🏺 Merveilles du monde antique", of("monde", "merveille").filter((c) => c.groupe === "antiques")]);
   if (T === "tout" || T === "secrete") sections.push(["✦ Cartes secrètes", of("monde", "secrete")]);
   const html = sections.map(([titre, list]) => {
@@ -1012,14 +1190,21 @@ function vueAtlas(v, opts = {}) {
 /* =====================================================================
    Badges
    ===================================================================== */
+const filtreBadges = { cat: "tout", etat: "tout" };
 function vueBadges(v) {
-  const list = badgesDe();
-  v.innerHTML = `<div class="sectiontitle"><h3>🏅 Badges</h3><span class="muted">${list.filter((b) => S.badges[b.id]).length}/${list.length} · bronze +${RECOMPENSE.bronze} 🪙, argent +${RECOMPENSE.argent} 🪙, or +${RECOMPENSE.or} 🪙</span></div>
-    <div class="badges">${list.map((b) => `<div class="badge ${b.niveau} ${S.badges[b.id] ? "got" : ""}">
+  const list = badgesDe(), f = filtreBadges;
+  const vis = list.filter((b) => (f.cat === "tout" || b.cat === f.cat) && (f.etat === "tout" || (f.etat === "obtenus" ? S.badges[b.id] : !S.badges[b.id])))
+    .sort((a, b) => (f.etat === "encours" ? (b.n / b.t / b.seuil) - (a.n / a.t / a.seuil) : 0));
+  v.innerHTML = `<div class="sectiontitle"><h3>🏅 Badges</h3><span class="muted">${list.filter((b) => S.badges[b.id]).length}/${list.length} obtenus · bronze +${RECOMPENSE.bronze} 🪙, argent +${RECOMPENSE.argent} 🪙, or +${RECOMPENSE.or} 🪙, +20 XP chacun</span></div>
+    <div class="toolbar">${[["tout", "Tous"], ...Object.entries(CATEGORIES_BADGES)].map(([k, l]) => `<button class="chip ${f.cat === k ? "on" : ""}" data-bc="${k}">${l} <small>${list.filter((b) => (k === "tout" || b.cat === k) && S.badges[b.id]).length}/${list.filter((b) => k === "tout" || b.cat === k).length}</small></button>`).join("")}</div>
+    <div class="toolbar">${[["tout", "Tous"], ["encours", "Les plus proches"], ["obtenus", "Obtenus"]].map(([k, l]) => `<button class="chip ${f.etat === k ? "on" : ""}" data-be="${k}">${l}</button>`).join("")}</div>
+    <div class="badges">${vis.map((b) => `<div class="badge ${b.niveau} ${S.badges[b.id] ? "got" : ""}">
       <div class="medal">${b.emoji}</div>
       <div style="flex:1;min-width:0"><b>${esc(b.nom)}</b><small>${esc(b.desc)}</small>
       <div class="bar"><i style="width:${Math.min(100, (b.n / b.t / b.seuil) * 100)}%"></i></div>
-      <small>${S.badges[b.id] ? "Obtenu ✓" : `${b.n}/${Math.ceil(b.t * b.seuil)}`}</small></div></div>`).join("")}</div>`;
+      <small>${S.badges[b.id] ? "Obtenu ✓" : `${b.n}/${Math.ceil(b.t * b.seuil)}`}</small></div></div>`).join("") || `<p class="muted">Aucun badge ici.</p>`}</div>`;
+  $$("[data-bc]", v).forEach((b) => b.onclick = () => { f.cat = b.dataset.bc; aller("badges"); });
+  $$("[data-be]", v).forEach((b) => b.onclick = () => { f.etat = b.dataset.be; aller("badges"); });
 }
 
 /* =====================================================================
@@ -1035,12 +1220,12 @@ function options(bonne, pool, n = 4) {
 function questionMonde() {
   const pays = of("monde", "pays");
   const lieux = [...of("monde", "ville"), ...of("monde", "monument"), ...of("monde", "nature"), ...of("monde", "merveille")];
-  const plats = of("monde", "plat"), animaux = of("monde", "animal");
-  const type = pick(["capitale", "capitale", "drapeau", "drapeau", "lieu", "lieu", "continent", "anecdote", ...(plats.length ? ["plat", "plat"] : []), ...(animaux.length ? ["animal", "animal"] : [])]);
-  if (type === "plat" || type === "animal") {
-    const c = pick(type === "plat" ? plats : animaux);
+  const plats = of("monde", "plat"), animaux = of("monde", "animal"), cultures = of("monde", "culture");
+  const type = pick(["capitale", "capitale", "drapeau", "drapeau", "lieu", "lieu", "continent", "anecdote", ...(plats.length ? ["plat", "plat"] : []), ...(animaux.length ? ["animal", "animal"] : []), ...(cultures.length ? ["culture", "culture"] : [])]);
+  if (type === "plat" || type === "animal" || type === "culture") {
+    const c = pick(type === "plat" ? plats : type === "culture" ? cultures : animaux);
     const voisins = pays.filter((x) => x.continent === c.continent).map((x) => x.nom);
-    return { q: type === "plat" ? `De quel pays vient cette spécialité : ${c.nom} ?` : `À quel pays cet animal est-il associé : ${c.nom} ?`,
+    return { q: type === "plat" ? `De quel pays vient cette spécialité : ${c.nom} ?` : type === "culture" ? `De quel pays vient cette tradition : ${c.nom} ?` : `À quel pays cet animal est-il associé : ${c.nom} ?`,
       media: photoDe(c.id) ? `<img class="qphoto" src="${esc(photoDe(c.id))}" alt="">` : `<div class="qemoji">${c.emoji}</div>`, bonne: NOM_PAYS[c.pays], choix: options(NOM_PAYS[c.pays], voisins), carte: c };
   }
   if (type === "capitale") {
@@ -1093,6 +1278,7 @@ function vueQuiz(v) {
     let gain = 0;
     if (bon) {
       st.bonnes++; st.serie++; st.record = Math.max(st.record, st.serie); gain = 25;
+      progresDefi("quiz"); gagnerXP(6);
       if (st.serie % 5 === 0) gain += 50;
     } else { b.classList.add("bad"); st.serie = 0; }
     S.coins += gain; sauver(); majCoins();
@@ -1103,6 +1289,27 @@ function vueQuiz(v) {
     $("#next").onclick = () => aller("quiz");
     $("#next").focus();
   });
+}
+
+/* =====================================================================
+   Effets sonores (synthétisés, sans fichier audio)
+   ===================================================================== */
+let audioCtx = null;
+function son(type) {
+  if (S.son === false) return;
+  try {
+    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+    const notes = { coup: [[180, 0.06, "square"]], crit: [[260, 0.05, "sawtooth"], [520, 0.08, "sawtooth"]], ko: [[300, 0.08, "triangle"], [150, 0.25, "triangle"]],
+      victoire: [[523, 0.12, "triangle"], [659, 0.12, "triangle"], [784, 0.25, "triangle"]], defaite: [[392, 0.15, "sine"], [311, 0.3, "sine"]],
+      booster: [[440, 0.06, "triangle"], [880, 0.1, "triangle"]], badge: [[784, 0.08, "sine"], [1047, 0.15, "sine"]], niveau: [[523, 0.1, "square"], [784, 0.1, "square"], [1047, 0.2, "square"]],
+      soin: [[660, 0.08, "sine"], [880, 0.1, "sine"]], special: [[330, 0.05, "sawtooth"], [440, 0.05, "sawtooth"], [660, 0.12, "sawtooth"]] }[type] || [[440, 0.05, "sine"]];
+    let t = audioCtx.currentTime;
+    for (const [f, d, forme] of notes) {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = forme; o.frequency.value = f; g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t + d); t += d * 0.9;
+    }
+  } catch {}
 }
 
 /* =====================================================================
@@ -1119,11 +1326,13 @@ $("#settingsBtn").onclick = () => {
         <div class="row"><button class="btn small" id="sExport">⬇ Exporter</button><button class="btn small" id="sImport">⬆ Importer</button></div>
       </div>
       <button class="btn" id="sReset" style="color:var(--bad)">Recommencer à zéro</button>
+      <label style="display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" id="sSon" ${S.son !== false ? "checked" : ""}> Effets sonores</label>
       <label style="display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" id="sPhotos" ${S.photos !== false ? "checked" : ""}> Afficher les vraies photos (Wikipédia)</label>
       <p class="muted" style="font-size:12.5px;margin:0">Photos : Wikipédia et Wikimedia Commons, sous licences libres ; l'auteur et la licence de chaque photo sont indiqués sur la fiche de la carte. Carte : Natural Earth (domaine public). Drapeaux : flag-icons (licence MIT).</p>
     </div>`);
   $("#sTheme").value = S.theme;
   $("#sTheme").onchange = (e) => { S.theme = e.target.value; sauver(); appliquerTheme(); };
+  $("#sSon").onchange = (e) => { S.son = e.target.checked; sauver(); if (S.son) son("badge"); };
   $("#sPhotos").onchange = (e) => { S.photos = e.target.checked; sauver(); aller(S.vue); if (S.photos) chargerPhotos(); };
   $("#sExport").onclick = () => {
     const blob = new Blob([JSON.stringify({ app: "worldcards", version: 2, sauvegarde: S })], { type: "application/json" });
@@ -1152,7 +1361,7 @@ $("#settingsBtn").onclick = () => {
    Démarrage (une fois tous les scripts chargés)
    ===================================================================== */
 async function demarrer() {
-  appliquerTheme(); majCoins();
+  appliquerTheme(); majCoins(); majNiveau();
   const pv = $("#versionJeu"); if (pv) pv.textContent = `${VERSION_JEU} · ${fmt(CARDS.length)} cartes`;
   // Raccourcis de l'app installée et des notifications (ex. ./#boosters, ./#combat)
   const ancre = location.hash.slice(1);

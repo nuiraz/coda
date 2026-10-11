@@ -11,6 +11,11 @@ import MONUMENTS3 from "../../worldcards/data/monuments3.js";
 import NATURE from "../../worldcards/data/nature.js";
 import ANIMAUX from "../../worldcards/data/animaux.js";
 import PLATS from "../../worldcards/data/plats.js";
+import MONUMENTS4 from "../../worldcards/data/monuments4.js";
+import NATURE2 from "../../worldcards/data/nature2.js";
+import ANIMAUX2 from "../../worldcards/data/animaux2.js";
+import PLATS2 from "../../worldcards/data/plats2.js";
+import CULTURE from "../../worldcards/data/culture.js";
 
 const JOUR = 864e5;
 const SESSION_JOURS = 365; // on reste connecté un an (la session est prolongée à chaque visite)
@@ -554,10 +559,11 @@ const CATALOGUE = (() => {
   const ajouter = (id, x) => { if (!m[id]) m[id] = x; };
   for (const p of MONDE.PAYS_BRUTS) ajouter("pays:" + p[0], { type: "pays", rarete: "commun", nom: p[1] });
   for (const v of [...MONDE.VILLES_BRUTES, ...VILLES2.VILLES_EXTRA, ...VILLES3.VILLES_EXTRA2]) ajouter("ville:" + v[0], { type: "ville", rarete: "peu-commun", nom: v[1] });
-  for (const x of NATURE.NATURE_BRUTS) ajouter("nat:" + x[0], { type: "nature", rarete: x[6], nom: x[1] });
-  for (const x of ANIMAUX.ANIMAUX_BRUTS) ajouter("ani:" + x[0], { type: "animal", rarete: x[4], nom: x[1] });
-  for (const x of PLATS.PLATS_BRUTS) ajouter("plat:" + x[0], { type: "plat", rarete: x[4], nom: x[1] });
-  for (const x of [...MONDE.MONUMENTS_BRUTS, ...MONUMENTS2.MONUMENTS_EXTRA, ...MONUMENTS3.MONUMENTS_EXTRA2]) ajouter("monu:" + x[0], { type: "monument", rarete: x[6], nom: x[1] });
+  for (const x of CULTURE.CULTURE_BRUTS) ajouter("cult:" + x[0], { type: "culture", rarete: x[4], nom: x[1] });
+  for (const x of [...NATURE.NATURE_BRUTS, ...NATURE2.NATURE_BRUTS2]) ajouter("nat:" + x[0], { type: "nature", rarete: x[6], nom: x[1] });
+  for (const x of [...ANIMAUX.ANIMAUX_BRUTS, ...ANIMAUX2.ANIMAUX_BRUTS2]) ajouter("ani:" + x[0], { type: "animal", rarete: x[4], nom: x[1] });
+  for (const x of [...PLATS.PLATS_BRUTS, ...PLATS2.PLATS_BRUTS2]) ajouter("plat:" + x[0], { type: "plat", rarete: x[4], nom: x[1] });
+  for (const x of [...MONDE.MONUMENTS_BRUTS, ...MONUMENTS2.MONUMENTS_EXTRA, ...MONUMENTS3.MONUMENTS_EXTRA2, ...MONUMENTS4.MONUMENTS_EXTRA3]) ajouter("monu:" + x[0], { type: "monument", rarete: x[6], nom: x[1] });
   for (const x of MONDE.MERVEILLES_BRUTES) ajouter("merv:" + x[0], { type: "merveille", rarete: "legendaire", nom: x[1] });
   for (const x of MONDE.SECRETES_MONDE) ajouter("secret:" + x[0], { type: "secrete", rarete: "secrete", nom: x[1] });
   return m;

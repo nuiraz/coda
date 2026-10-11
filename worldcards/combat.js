@@ -12,16 +12,29 @@
   const PROFILS = {
     pays: [1, 1, 1],
     ville: [1.08, 0.93, 0.99],
-    monument: [0.93, 1.08, 1.0],
+    monument: [0.97, 1.08, 1.02],
     merveille: [1.04, 1.04, 1.04],
     secrete: [1.06, 1.06, 1.06],
     nature: [0.95, 1.06, 1.06],
     animal: [1.08, 0.95, 1.0],
     plat: [1.0, 0.97, 1.04],
+    culture: [1.02, 1.0, 1.0],
   };
   // Cycle des types : chacun l'emporte sur le suivant
-  // Ville › Monument › Nature › Animal › Plat › Pays › Ville
-  const CYCLE = ["ville", "monument", "nature", "animal", "plat", "pays"];
+  // Ville › Monument › Nature › Animal › Plat › Culture › Pays › Ville
+  const CYCLE = ["ville", "monument", "nature", "animal", "plat", "culture", "pays"];
+  // Attaque spéciale propre à chaque type (une fois par carte)
+  const SPECIAUX = {
+    pays: { nom: "Union nationale", mult: 1.6, desc: "×1,6 et soigne 15 % de la vie" },
+    ville: { nom: "Heure de pointe", mult: 1.6, desc: "×1,6 de dégâts" },
+    monument: { nom: "Rempart", mult: 1.55, desc: "×1,55 et divise par deux les dégâts subis jusqu'au tour suivant" },
+    nature: { nom: "Tempête", mult: 1.45, desc: "×1,45 et 30 % des dégâts sur tout le banc adverse" },
+    animal: { nom: "Double morsure", mult: 0.7, desc: "Deux attaques à ×0,7" },
+    plat: { nom: "Festin", mult: 1.3, desc: "×1,3 et soigne 18 % de la vie" },
+    culture: { nom: "Fête populaire", mult: 1.25, desc: "×1,25 et baisse l'attaque adverse de 15 %" },
+    merveille: { nom: "Merveille du monde", mult: 1.9, desc: "×1,9 de dégâts" },
+    secrete: { nom: "Mystère", mult: 1.8, desc: "×1,8 et ignore la moitié de la défense" },
+  };
   const AVANTAGE = Object.fromEntries(CYCLE.map((t, i) => [t, CYCLE[(i + 1) % CYCLE.length]]));
   // Talents : chaque carte a un pouvoir, tiré parmi ceux de son type
   const TALENTS = {
@@ -45,6 +58,7 @@
     nature: ["colosse", "endurance", "riposte", "agilite"],
     animal: ["agilite", "rage", "vitesse", "vampire"],
     plat: ["vampire", "endurance", "precision", "agilite"],
+    culture: ["precision", "riposte", "colosse", "vitesse"],
   };
   const BONUS_AVANTAGE = 1.12;
   const VARIATION = 8;     // chaque exemplaire varie de -8 % à +8 % par statistique
@@ -153,9 +167,10 @@
   const actionValide = (a) => ["attaque", "special", "garde"].includes(a) || /^changer:[0-9]$/.test(a);
 
   function degats(etat, att, def, action) {
-    let d = att.atk * 600 / (600 + def.def * (att.talent === "perforant" ? 0.78 : 1));
+    const sp = action === "special" ? (SPECIAUX[att.type] || SPECIAUX.ville) : null;
+    let d = att.atk * (att.affaibli ? 0.85 : 1) * 600 / (600 + def.def * (att.talent === "perforant" ? 0.78 : 1) * (sp && att.type === "secrete" ? 0.5 : 1));
     if (AVANTAGE[att.type] === def.type) d *= BONUS_AVANTAGE;
-    if (action === "special") d *= 1.7;
+    if (sp) d *= sp.mult;
     if (att.talent === "rage" && att.pv / att.pvMax < 0.5) d *= 1.32;
     d *= 0.6 + etat.r() * 0.8;
     const esquive = etat.r() < (def.talent === "agilite" ? 0.22 : 0.12);
@@ -164,6 +179,7 @@
     if (esquive) return { d: 0, critique: false, esquive: true };
     if (def.garde) d *= def.talent === "endurance" ? 0.3 : 0.4;
     if (def.talent === "bouclier") d *= 0.89;
+    if (def.rempart >= etat.tour) d *= 0.5;
     return { d: Math.max(1, Math.round(d)), critique, esquive: false };
   }
 
@@ -199,10 +215,27 @@
       if (actions[c] === "garde" || actions[c] === "changer") continue;
       const att = actif(etat, c), cible = actif(etat, 1 - c);
       if (att.pv <= 0 || cible.pv <= 0) continue;
-      if (actions[c] === "special") att.special = false;
-      const { d, critique, esquive } = degats(etat, att, cible, actions[c]);
-      cible.pv = Math.max(0, cible.pv - d);
-      ev.push({ t: actions[c], cote: c, degats: d, critique, esquive, avantage: AVANTAGE[att.type] === cible.type });
+      const special = actions[c] === "special";
+      if (special) att.special = false;
+      const coups = special && att.type === "animal" ? 2 : 1;
+      let d = 0, critique = false, esquive = false;
+      for (let k = 0; k < coups && cible.pv > 0; k++) {
+        const x = degats(etat, att, cible, actions[c]);
+        cible.pv = Math.max(0, cible.pv - x.d);
+        d += x.d; critique ||= x.critique; esquive = x.esquive && (k === 0 || esquive);
+        ev.push({ t: actions[c], cote: c, degats: x.d, critique: x.critique, esquive: x.esquive, avantage: AVANTAGE[att.type] === cible.type, nomSpecial: special ? (SPECIAUX[att.type] || SPECIAUX.ville).nom : null });
+      }
+      if (special) {
+        // Effets des attaques spéciales selon le type
+        if (att.type === "pays" || att.type === "plat") { const soin = Math.round(att.pvMax * (att.type === "pays" ? 0.15 : 0.18)); att.pv = Math.min(att.pvMax, att.pv + soin); ev.push({ t: "effet", cote: c, effet: "soin", valeur: soin }); }
+        if (att.type === "monument") { att.rempart = etat.tour + 1; ev.push({ t: "effet", cote: c, effet: "rempart" }); }
+        if (att.type === "culture" && !cible.affaibli && cible.pv > 0) { cible.affaibli = true; ev.push({ t: "effet", cote: c, effet: "affaibli" }); }
+        if (att.type === "nature" && d > 0) {
+          const eclat = Math.round(d * 0.3);
+          for (const u of etat.equipes[1 - c]) if (u !== cible && u.pv > 0) u.pv = Math.max(1, u.pv - eclat);
+          ev.push({ t: "effet", cote: c, effet: "tempete", valeur: eclat });
+        }
+      }
       if (d > 0 && att.talent === "vampire") { const soin = Math.round(d * 0.18); att.pv = Math.min(att.pvMax, att.pv + soin); ev.push({ t: "talent", cote: c, talent: "vampire", valeur: soin }); }
       if (d > 0 && cible.talent === "riposte" && cible.pv > 0) { const r = Math.round(d * 0.15); att.pv = Math.max(0, att.pv - r); ev.push({ t: "talent", cote: 1 - c, talent: "riposte", valeur: r }); if (att.pv <= 0) ev.push({ t: "ko", cote: c, id: att.id }); }
       if (cible.pv <= 0) ev.push({ t: "ko", cote: 1 - c, id: cible.id });
@@ -239,6 +272,6 @@
     return etat;
   }
 
-  return { TALENTS, TALENTS_TYPE, CYCLE, talentDe, COUT, BUDGET, TAILLE_DECK, PUISSANCE, PROFILS, AVANTAGE, VARIATION, NIVEAU_MAX, BONUS_SHINY, TOURS_MAX,
+  return { SPECIAUX, TALENTS, TALENTS_TYPE, CYCLE, talentDe, COUT, BUDGET, TAILLE_DECK, PUISSANCE, PROFILS, AVANTAGE, VARIATION, NIVEAU_MAX, BONUS_SHINY, TOURS_MAX,
     hash, rng, base, niveau, tirerQualite, borne, noteQualite, stats, puissance, creer, jouer, rejouer, actif, vivants };
 });

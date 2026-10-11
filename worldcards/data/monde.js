@@ -417,6 +417,7 @@ const SECRETES_MONDE = [
   ["shambhala", "Shambhala", "☸️", "type:monument", "Ce royaume caché est décrit dans les textes bouddhistes du Kalachakra, apparus au XIe siècle."],
   ["eden", "Le jardin d'Éden", "🌳", "type:nature", "Selon la Genèse, un fleuve en sortait pour se diviser en quatre bras, dont le Tigre et l'Euphrate."],
   ["arche-noe", "L'Arche de Noé", "🛶", "type:animal", "Selon la Genèse, elle mesurait 300 coudées de long et abritait un couple de chaque espèce."],
+  ["muses", "Les Neuf Muses", "🎼", "type:culture", "Dans la mythologie grecque, ces neuf filles de Zeus et de Mnémosyne inspiraient les arts et les sciences."],
   ["ambroisie", "L'Ambroisie", "🍯", "type:plat", "Dans la mythologie grecque, c'était la nourriture des dieux de l'Olympe, qui leur donnait l'immortalité."],
   ["gaia", "Gaïa — la Terre entière", "🌐", "tous-les-pays", "Vous avez collectionné les 195 pays ! Selon l'ONU, il existe 193 États membres, plus deux observateurs : le Vatican et la Palestine."],
 ];
