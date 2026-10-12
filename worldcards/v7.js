@@ -151,3 +151,133 @@ vueAccueil = function (v) {
   }
   return r;
 };
+
+/* =====================================================================
+   Devinettes : devinez un pays, une ville, un monument, un plat, un animal…
+   On choisit la catégorie et le mode ; les indices se dévoilent un par un (moins d'indices = plus de points).
+   ===================================================================== */
+const CATS_DEVINE = [
+  ["tout", "🎲", "Tout mélangé"], ["pays", "🏳️", "Pays"], ["ville", "🏙️", "Villes"], ["monument", "🏛️", "Monuments"],
+  ["nature", "🏔️", "Nature"], ["animal", "🐾", "Animaux"], ["plat", "🍜", "Plats"], ["culture", "🎭", "Culture"],
+];
+const PIECES_DEVINE_JOUR = 400, QUESTIONS_DEVINE = 10, DUREE_CHRONO = 60;
+const devine = { cat: "tout", mode: "classique", partie: null };
+const poolDevine = (cat) => CARDS.filter((c) => !c.saisonnier && !["secrete", "merveille"].includes(c.type) && (cat === "tout" || c.type === cat) && (c.anecdote || c.type === "pays"));
+const masquerNom = (texte, c) => {
+  let t = String(texte || "");
+  for (const mot of [c.nom, ...c.nom.split(/[\s'’-]+/).filter((m) => m.length > 3)]) t = t.replace(new RegExp(mot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "…");
+  return t;
+};
+function indicesDevine(c) {
+  const cont = CONTINENTS[c.continent], pays = c.pays && NOM_PAYS[c.pays];
+  const photo = typeof photoDe === "function" && photoDe(c.id);
+  const premier = c.type === "pays"
+    ? `<div class="dv-sil">${silhouette(c.code) || "🗺️"}</div><p>Un pays d'${esc(cont?.nom || "?")}</p>`
+    : `<div class="dv-gros garder-emoji">${esc(c.emoji || "❔")}</div><p>${esc(TYPES[c.type])}${pays ? ` · ${drapeau(c.pays)} ${esc(pays)}` : ""}</p>`;
+  const anecdote = `<p class="dv-anecdote">« ${esc(masquerNom(c.anecdote, c))} »</p>`;
+  const troisieme = c.type === "pays" ? `<p>Sa capitale : <b>${esc(c.capitale || "?")}</b></p>`
+    : photo ? `<div class="dv-photo"><img src="${esc(photo)}" alt=""></div>` : `<p>Première lettre : <b>${esc(c.nom[0])}</b> · ${c.nom.length} lettres</p>`;
+  return [premier, anecdote, troisieme];
+}
+function questionDevine(cat, deja) {
+  const pool = poolDevine(cat);
+  const libres = pool.filter((c) => !deja.has(c.id)), c = pick(libres.length ? libres : pool);
+  // Les mauvaises réponses : même type, de préférence du même continent (plus difficile)
+  const memeType = pool.filter((x) => x.type === c.type && x.id !== c.id && x.nom !== c.nom);
+  const proches = memeType.filter((x) => x.continent === c.continent);
+  const leurres = [];
+  for (const l of [proches, memeType]) while (leurres.length < 3 && l.length > leurres.length) { const x = pick(l); if (!leurres.includes(x) && x.nom !== c.nom) leurres.push(x); }
+  return { c, choix: [c, ...leurres.slice(0, 3)].sort(() => Math.random() - 0.5) };
+}
+function piecesDevine(n) {
+  const j = today();
+  if (!S.devineJour || S.devineJour.d !== j) S.devineJour = { d: j, pieces: 0 };
+  const g = Math.max(0, Math.min(n, PIECES_DEVINE_JOUR - S.devineJour.pieces));
+  S.devineJour.pieces += g; S.coins += g; return g;
+}
+function vueDevine(v) {
+  const p = devine.partie;
+  if (!p) {
+    const rec = S.devineRecords || {};
+    v.innerHTML = `<header class="page-tete"><h1>🧠 Devinettes</h1><p>Devinez la carte grâce aux indices : silhouette ou dessin, anecdote, puis photo. Moins vous utilisez d'indices, plus vous marquez de points.</p></header>
+      <section class="panel dv-choix"><h3 style="margin-top:0">1. Choisissez une catégorie</h3>
+        <div class="dv-cats">${CATS_DEVINE.map(([k, ic, n]) => `<button class="dv-cat ${devine.cat === k ? "on" : ""}" data-cat="${k}"><span>${ic}</span><b>${n}</b><small>${poolDevine(k).length} cartes${rec[`classique:${k}`] ? ` · record ${rec[`classique:${k}`]}` : ""}</small></button>`).join("")}</div>
+        <h3>2. Choisissez le mode</h3>
+        <div class="dv-modes"><button class="dv-mode ${devine.mode === "classique" ? "on" : ""}" data-mode="classique"><b>🎯 Classique</b><small>${QUESTIONS_DEVINE} questions, jusqu'à 3 indices chacune</small></button>
+          <button class="dv-mode ${devine.mode === "chrono" ? "on" : ""}" data-mode="chrono"><b>⏱️ Contre la montre</b><small>${DUREE_CHRONO} secondes, un maximum de bonnes réponses</small></button></div>
+        <button class="btn primary" id="dvGo" style="margin-top:16px;width:100%">C'est parti !</button>
+        <p class="muted" style="font-size:13px;margin-bottom:0">Jusqu'à ${PIECES_DEVINE_JOUR} 🪙 à gagner par jour aux Devinettes${S.devineJour?.d === today() ? ` (déjà ${S.devineJour.pieces} aujourd'hui)` : ""}.</p></section>`;
+    $$("[data-cat]", v).forEach((b) => b.onclick = () => { devine.cat = b.dataset.cat; aller("devine"); });
+    $$("[data-mode]", v).forEach((b) => b.onclick = () => { devine.mode = b.dataset.mode; aller("devine"); });
+    $("#dvGo").onclick = () => {
+      devine.partie = { cat: devine.cat, mode: devine.mode, n: 0, score: 0, bonnes: 0, serie: 0, deja: new Set(), fin: devine.mode === "chrono" ? Date.now() + DUREE_CHRONO * 1000 : 0, q: null, indice: 1 };
+      aller("devine");
+    };
+    return;
+  }
+  const finie = p.mode === "classique" ? p.n >= QUESTIONS_DEVINE : Date.now() >= p.fin;
+  if (finie) {
+    const cle = `${p.mode}:${p.cat}`, rec = (S.devineRecords ||= {}), record = p.score > (rec[cle] || 0);
+    if (record) rec[cle] = p.score;
+    sauver();
+    v.innerHTML = `<section class="panel dv-fin"><div style="font-size:52px;color:var(--accent)">${record ? "🏆" : "🧠"}</div><h2>${p.score} points${record ? " · nouveau record !" : ""}</h2>
+      <p>${p.bonnes} bonne${p.bonnes > 1 ? "s" : ""} réponse${p.bonnes > 1 ? "s" : ""} sur ${p.n} · ${CATS_DEVINE.find((x) => x[0] === p.cat)[2]} · ${p.mode === "chrono" ? "Contre la montre" : "Classique"}</p>
+      <p class="muted">Record : ${rec[cle] || p.score} points</p>
+      <div class="row" style="justify-content:center"><button class="btn primary" id="dvRejouer">Rejouer</button><button class="btn" id="dvMenu">Changer de catégorie</button>
+      <button class="btn" id="dvPartager">📤 Partager</button></div></section>`;
+    $("#dvRejouer").onclick = () => { devine.partie = { cat: p.cat, mode: p.mode, n: 0, score: 0, bonnes: 0, serie: 0, deja: new Set(), fin: p.mode === "chrono" ? Date.now() + DUREE_CHRONO * 1000 : 0, q: null, indice: 1 }; aller("devine"); };
+    $("#dvMenu").onclick = () => { devine.partie = null; aller("devine"); };
+    $("#dvPartager").onclick = () => { const t = `🧠 Play2F1 · Devinettes ${CATS_DEVINE.find((x) => x[0] === p.cat)[2]} : ${p.score} points (${p.bonnes}/${p.n})\nhttps://play2f1.com/#devine`; (navigator.share ? navigator.share({ text: t }) : navigator.clipboard.writeText(t).then(() => toast("📋 Copié !"))).catch(() => {}); };
+    return;
+  }
+  if (!p.q) { p.q = questionDevine(p.cat, p.deja); p.indice = p.mode === "chrono" ? 2 : 1; p.deja.add(p.q.c.id); }
+  const { c, choix } = p.q, indices = indicesDevine(c);
+  const points = p.mode === "chrono" ? 2 : [0, 3, 2, 1][p.indice];
+  v.innerHTML = `<section class="panel dv-jeu">
+      <div class="dv-tete"><span>${CATS_DEVINE.find((x) => x[0] === p.cat)[1]} ${p.mode === "chrono" ? `<b class="dv-chrono" id="dvChrono">${Math.ceil((p.fin - Date.now()) / 1000)} s</b>` : `Question ${p.n + 1}/${QUESTIONS_DEVINE}`}</span>
+        <span>Score <b>${p.score}</b>${p.serie >= 3 ? ` · 🔥 ${p.serie}` : ""}</span></div>
+      <div class="dv-indices">${indices.slice(0, p.indice).map((h, i) => `<div class="dv-indice"><small>Indice ${i + 1}</small>${h}</div>`).join("")}</div>
+      ${p.mode === "classique" && p.indice < 3 ? `<button class="lien-chances" id="dvIndice">💡 Indice suivant (la réponse vaudra ${[0, 3, 2, 1][p.indice + 1]} point${p.indice + 1 < 3 ? "s" : ""})</button>` : ""}
+      <div class="answers dv-reps">${choix.map((x) => `<button data-rep="${esc(x.id)}">${esc(x.nom)}</button>`).join("")}</div>
+      <div id="dvFb" class="feedback"></div>
+      <button class="lien-chances" id="dvQuitter">Arrêter la partie</button></section>`;
+  $("#dvIndice")?.addEventListener("click", () => { p.indice++; aller("devine"); });
+  $("#dvQuitter").onclick = () => { if (p.mode === "chrono") p.fin = 0; else p.n = QUESTIONS_DEVINE; p.q = null; aller("devine"); };
+  if (p.mode === "chrono") {
+    const t = setInterval(() => { const el = $("#dvChrono"); if (!el || devine.partie !== p) { clearInterval(t); return; } const s = Math.ceil((p.fin - Date.now()) / 1000); el.textContent = `${Math.max(0, s)} s`; if (s <= 0) { clearInterval(t); p.q = null; aller("devine"); } }, 250);
+  }
+  $$("[data-rep]", v).forEach((b) => b.onclick = () => {
+    const bon = b.dataset.rep === c.id;
+    $$("[data-rep]", v).forEach((x) => { x.disabled = true; if (x.dataset.rep === c.id) x.classList.add("good"); });
+    if (!bon) b.classList.add("bad");
+    p.n++;
+    let gain = 0;
+    if (bon) { p.bonnes++; p.serie++; const pts = points + (p.serie >= 3 ? 1 : 0); p.score += pts; gain = piecesDevine(pts * 4); gagnerXP?.(2); }
+    else p.serie = 0;
+    majCoins(); sauver();
+    $("#dvFb").innerHTML = `<p style="font-weight:700;margin:6px 0">${bon ? `✅ Bravo ! +${points + (p.serie >= 3 ? 1 : 0)} pt${gain ? ` · +${gain} 🪙` : ""}` : `❌ C'était <b>${esc(c.nom)}</b>`}</p>${!bon || p.mode === "classique" ? `<p class="muted" style="margin:4px 0">${esc(c.anecdote || "")}</p>` : ""}
+      ${p.mode === "classique" ? `<button class="btn primary" id="dvSuite">${p.n >= QUESTIONS_DEVINE ? "Voir le résultat" : "Question suivante →"}</button>` : ""}`;
+    p.q = null;
+    if (p.mode === "chrono") setTimeout(() => { if (devine.partie === p && S.vue === "devine") aller("devine"); }, bon ? 450 : 1100);
+    else { $("#dvSuite").onclick = () => aller("devine"); $("#dvSuite").focus(); }
+  });
+}
+ajouterPage("devine", "🧠", "Devinettes", vueDevine);
+if (typeof GROUPES_PLUS !== "undefined") GROUPES_PLUS[0][1].splice(1, 0, "devine");
+// Le quiz du jour propose aussi les Devinettes (illimitées, par catégorie)
+const _vueQuizV7 = vueQuiz;
+vueQuiz = function (v) {
+  const r = _vueQuizV7.apply(this, arguments);
+  v.insertAdjacentHTML("afterbegin", `<button class="panel dv-pub" id="dvPub"><span>🧠</span><div><b>Nouveau : les Devinettes</b><small class="muted">Choisissez la catégorie (pays, villes, plats, animaux…) et jouez sans limite, en classique ou contre la montre.</small></div><span class="btn primary small">Jouer</span></button>`);
+  $("#dvPub").onclick = () => aller("devine");
+  return r;
+};
+const _vueAccueilV7b = vueAccueil;
+vueAccueil = function (v) {
+  const r = _vueAccueilV7b.apply(this, arguments);
+  if ($("#tuileExpress", v) && !$("#tuileDevine", v)) {
+    $("#tuileExpress", v).insertAdjacentHTML("afterend", `<button class="tuile" id="tuileDevine"><span class="t-ic">🧠</span><span class="t-txt"><b>Devinettes</b><small>Pays, villes, plats… au choix</small></span></button>`);
+    $("#tuileDevine").onclick = () => aller("devine");
+  }
+  return r;
+};

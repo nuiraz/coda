@@ -260,3 +260,32 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .ex-u { display: grid; gap: 4px; padding: 8px; border-radius: 12px; background: var(--panel2); } .ex-u small { color: var(--muted); }
 .ex-action { margin-top: 14px; text-align: center; }
 .ph-cadre { max-width: 680px; margin: 0 auto; width: 100%; } .ph-erreur { padding: 40px 16px; text-align: center; }
+/* ---------- Devinettes ---------- */
+.dv-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.dv-cat, .dv-mode { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 16px; background: var(--panel2); border: 2px solid transparent; }
+.dv-cat span { font-size: 26px; } .dv-cat small, .dv-mode small { color: var(--muted); font-size: 12.5px; }
+.dv-cat.on, .dv-mode.on { border-color: var(--accent); background: color-mix(in srgb, var(--rose-clair) 60%, var(--panel)); }
+.dv-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.dv-jeu { max-width: 720px; margin: 0 auto; display: grid; gap: 12px; }
+.dv-tete { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-weight: 600; }
+.dv-chrono { color: var(--accent-2); font-size: 20px; font-variant-numeric: tabular-nums; }
+.dv-indices { display: grid; gap: 8px; }
+.dv-indice { padding: 12px 14px; border-radius: 16px; background: var(--panel2); text-align: center; animation: apparait .3s; }
+.dv-indice small { display: block; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em; }
+.dv-indice p { margin: 6px 0 0; }
+.dv-gros { font-size: 54px; line-height: 1.2; }
+.dv-sil svg { width: 160px; height: 160px; } .dv-sil path { fill: var(--text); }
+.dv-anecdote { font-family: var(--titre); font-style: italic; font-size: 17px; }
+.dv-photo img { width: 100%; max-height: 260px; object-fit: cover; border-radius: 12px; display: block; }
+.dv-reps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+.dv-fin { max-width: 560px; margin: 0 auto; text-align: center; }
+.dv-pub { all: unset; cursor: pointer; display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 12px 16px; border-radius: 18px; background: color-mix(in srgb, var(--rose-clair) 55%, var(--panel)); border: 1px solid var(--rose); }
+.dv-pub > span:first-child { font-size: 30px; } .dv-pub div { flex: 1; display: flex; flex-direction: column; }
+
+/* Icônes au trait à la place des emoji */
+svg.ico-e { width: 1.15em; height: 1.15em; vertical-align: -0.2em; display: inline-block; flex: none; }
+.ico-or { color: #c9971c; } .ico-argent { color: #8e96a3; } .ico-bronze { color: #b06d3b; }
+.ico-ok { color: #2f9e6a; } .ico-ko { color: #d9534f; } .ico-alerte { color: #d48a06; } .ico-rose { color: var(--accent, #e0567f); } .ico-feu { color: #e8642c; }
+.pastille-e { display: inline-block; width: .75em; height: .75em; border-radius: 50%; vertical-align: -.05em; }
+.t-ic svg.ico-e, .page-tete h1 svg.ico-e, .sectiontitle h3 svg.ico-e, .mp-emoji svg.ico-e { color: var(--accent); }
+.mp-emoji svg.ico-e { width: 22px; height: 22px; }
