@@ -217,7 +217,7 @@ function forger(v, cible) {
 ajouterPage("forge", "🔥", "Forge", vueForge);
 
 /* ---------- Le Codex : l'encyclopédie vivante de toutes les cartes ---------- */
-const codexEtat = { q: "", rarete: null, info: null };
+const codexEtat = { q: "", rarete: null, info: null, filtre: "toutes", type: null, nb: 60 };
 async function vueCodex(v) {
   const toutes = CARDS.filter((c) => c.univers === "monde" && c.type !== "secrete");
   const miennes = toutes.filter((c) => has(c.id));
@@ -225,24 +225,31 @@ async function vueCodex(v) {
   v.innerHTML = `<section class="codex-tete">
       <div style="flex:1;min-width:0"><span class="codex-badge">${svgIcone("codex")} Codex mondial</span>
         <h1>L'encyclopédie vivante</h1>
-        <p>Toutes les cartes du jeu, celles que vous avez trouvées et celles qui restent à découvrir. Chaque carte porte le nom du premier joueur qui l'a découverte.</p></div>
+        <p>Toutes les cartes du jeu, même celles que vous n'avez pas encore : explorez-les, voyez à quoi elles ressemblent et partez à leur recherche. Chaque carte porte le nom du premier joueur qui l'a découverte.</p></div>
       <div class="codex-monde"><small>Découvertes mondiales</small><b id="cxMonde">…</b><span class="muted">/ ${fmt(toutes.length)} cartes</span><em>${fmt(miennes.length)} découvertes par vous</em></div>
       <div class="codex-raretes">${parRarete.map(([r, n, t]) => `<div class="r-${r}"><small>${RARETES[r].nom}</small><b>${n}</b><span>/ ${t}</span></div>`).join("")}</div></section>
     <div class="codex-recherche"><input id="cxQ" type="search" placeholder="Rechercher une carte, un pays, une ville…" value="${esc(codexEtat.q)}"><button class="btn" id="cxHasard">Au hasard</button></div>
+    <div class="toolbar">${[["toutes", "Toutes les cartes"], ["manquantes", "À découvrir"], ["miennes", "Ma collection"]].map(([k, n]) => `<button class="chip ${codexEtat.filtre === k ? "on" : ""}" data-cf="${k}">${n}</button>`).join("")}</div>
     <div class="toolbar">${ORDRE_FORGE.map((r) => `<button class="chip ${codexEtat.rarete === r ? "on" : ""}" data-cr="${r}">${RARETES[r].nom}</button>`).join("")}</div>
+    <div class="toolbar">${[...new Set(toutes.map((c) => c.type))].map((ty) => `<button class="chip ${codexEtat.type === ty ? "on" : ""}" data-ct="${ty}">${esc(TYPES[ty] || ty)}</button>`).join("")}</div>
     <div id="cxRes"></div>
     <div class="grid2" style="margin-top:16px"><section class="panel"><h3 style="margin-top:0">Dernières découvertes</h3><div id="cxRecentes" class="muted">Chargement…</div></section>
       <section class="panel"><h3 style="margin-top:0">Grands explorateurs</h3><div id="cxTop" class="muted">Chargement…</div></section></div>`;
   const dessiner = () => {
     const q = sansAccents(codexEtat.q.trim());
-    const res = toutes.filter((c) => (!codexEtat.rarete || c.rarete === codexEtat.rarete) && (!q || sansAccents(`${c.nom} ${NOM_PAYS[c.pays] || ""} ${c.capitale || ""}`).includes(q)));
-    $("#cxRes").innerHTML = `<p class="muted">${fmt(res.length)} carte${res.length > 1 ? "s" : ""}${res.length > 90 ? " · affinez la recherche pour tout voir" : ""}</p>
-      <div class="codex-grille">${res.slice(0, 90).map((c) => has(c.id) ? `<div class="codex-c" data-cx="${c.id}">${cardHTML(c, { locked: false })}</div>`
-        : `<button class="codex-c inconnue r-${c.rarete}" data-cx="${c.id}"><span class="cx-q">?</span><b>${esc(c.nom)}</b><small>${esc(TYPES[c.type] || "")} · ${esc(RARETES[c.rarete].nom)}</small></button>`).join("")}</div>`;
+    const res = toutes.filter((c) => (!codexEtat.rarete || c.rarete === codexEtat.rarete) && (!codexEtat.type || c.type === codexEtat.type)
+      && (codexEtat.filtre === "toutes" || (codexEtat.filtre === "miennes") === has(c.id))
+      && (!q || sansAccents(`${c.nom} ${NOM_PAYS[c.pays] || ""} ${c.capitale || ""}`).includes(q)));
+    $("#cxRes").innerHTML = `<p class="muted">${fmt(res.length)} carte${res.length > 1 ? "s" : ""} · ${fmt(res.filter((c) => has(c.id)).length)} dans votre collection</p>
+      <div class="codex-grille">${res.slice(0, codexEtat.nb).map((c) => `<div class="codex-c${has(c.id) ? " possedee" : " manquante"}" data-cx="${c.id}">${cardHTML(c, { locked: false })}${has(c.id) ? `<span class="cx-etiq ok">✓ Possédée</span>` : `<span class="cx-etiq">À découvrir</span>`}</div>`).join("")}</div>
+      ${res.length > codexEtat.nb ? `<button class="btn" id="cxPlus" style="display:block;margin:16px auto 0">Voir plus (${fmt(res.length - codexEtat.nb)} restantes)</button>` : ""}`;
     $$("[data-cx]", $("#cxRes")).forEach((b) => b.onclick = (e) => { e.stopPropagation(); ficheCodex(BY_ID[b.dataset.cx]); });
+    const plus = $("#cxPlus"); if (plus) plus.onclick = () => { codexEtat.nb += 60; dessiner(); };
   };
-  let t; $("#cxQ").oninput = (e) => { codexEtat.q = e.target.value; clearTimeout(t); t = setTimeout(dessiner, 150); };
-  $$("[data-cr]", v).forEach((b) => b.onclick = () => { codexEtat.rarete = codexEtat.rarete === b.dataset.cr ? null : b.dataset.cr; vueCodex(v); });
+  let t; $("#cxQ").oninput = (e) => { codexEtat.q = e.target.value; codexEtat.nb = 60; clearTimeout(t); t = setTimeout(dessiner, 150); };
+  $$("[data-cr]", v).forEach((b) => b.onclick = () => { codexEtat.rarete = codexEtat.rarete === b.dataset.cr ? null : b.dataset.cr; codexEtat.nb = 60; vueCodex(v); });
+  $$("[data-ct]", v).forEach((b) => b.onclick = () => { codexEtat.type = codexEtat.type === b.dataset.ct ? null : b.dataset.ct; codexEtat.nb = 60; vueCodex(v); });
+  $$("[data-cf]", v).forEach((b) => b.onclick = () => { codexEtat.filtre = b.dataset.cf; codexEtat.nb = 60; vueCodex(v); });
   $("#cxHasard").onclick = () => ficheCodex(toutes[Math.floor(Math.random() * toutes.length)]);
   dessiner();
   try {
@@ -255,7 +262,7 @@ async function vueCodex(v) {
 async function ficheCodex(c) {
   if (!c) return;
   if (has(c.id)) return ficheCarte(c);
-  ouvrirModal(`<div class="codex-fiche"><span class="cx-q grand">?</span><h2 style="margin:8px 0 2px">${esc(c.nom)}</h2>
+  ouvrirModal(`<div class="codex-fiche"><div class="cx-grande">${cardHTML(c, { locked: false })}</div><h2 style="margin:8px 0 2px">${esc(c.nom)}</h2>
     <p class="muted" style="margin:0">${esc(TYPES[c.type] || "")} · <span class="r-${c.rarete}">${esc(RARETES[c.rarete].nom)}</span>${c.pays && NOM_PAYS[c.pays] ? ` · ${esc(NOM_PAYS[c.pays])}` : ""}</p>
     <p>Vous n'avez pas encore cette carte. Ouvrez des boosters${c.saisonnier ? " (carte d'événement ou de saison)" : ""} ou fabriquez-la avec de la poussière.</p>
     <p class="muted" id="cxPremier">Recherche du premier découvreur…</p></div>`);

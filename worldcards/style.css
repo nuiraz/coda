@@ -1680,3 +1680,10 @@ body.ecran-connexion #nav, body.ecran-connexion .pied { display: none !important
 .tag-num { white-space: nowrap; }
 @media (max-width: 560px) { .forge-haut { gap: 10px; } .forge-haut > .forge-txt { flex: 1 1 calc(100% - 60px); min-width: 0; } .forge-haut .btn { flex: 1 1 40%; } .page-tete h1 { font-size: 30px; } }
 .forge-slots .slot .card .head, .forge-slots .slot .card .sub { display: none; }
+.codex-c { position: relative; }
+.codex-c.manquante .card { filter: saturate(.35) brightness(.7); transition: filter .2s; }
+.codex-c.manquante:hover .card { filter: none; }
+.cx-etiq { position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%); z-index: 8; white-space: nowrap; font-size: 11px; font-weight: 800; padding: 2px 9px; border-radius: 999px; background: var(--panel2); color: var(--muted); border: 1px solid var(--border); }
+.cx-etiq.ok { background: color-mix(in srgb, var(--good, #22c55e) 18%, var(--panel)); color: var(--good, #22c55e); border-color: color-mix(in srgb, var(--good, #22c55e) 45%, transparent); }
+.codex-grille { row-gap: 20px; }
+.cx-grande { width: 220px; margin: 0 auto; pointer-events: none; }
