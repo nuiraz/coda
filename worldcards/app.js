@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v29"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v30"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -173,6 +173,18 @@ if (typeof EVENEMENTS_SAISONNIERS !== "undefined") {
   }
 }
 
+// Saisons de cartes : une série par mois ; la 1re carte de chaque série est une carte animée
+const MOIS_SAISON = new Date().toISOString().slice(0, 7);
+const SAISONS = extra("SAISONS_CARTES") || {};
+for (const [mois, sa] of Object.entries(SAISONS)) {
+  sa.cartes.forEach(([id, nom, pays, emoji, rarete, anecdote, wiki], i) => {
+    const cid = "saison:" + id.replace(/_/g, "-");
+    add({ id: cid, univers: "monde", type: "monument", rarete, saisonnier: "saison-" + mois, num: i + 1, nom, pays, emoji, anecdote, animee: i === 0, continent: CONT_PAYS[pays] || { PF: "OC", PR: "NA" }[pays] || "OC" });
+    if (wiki) PHOTOS_WIKI[cid] = wiki;
+    RECHERCHE_PHOTO[cid] = nom;
+  });
+}
+
 // Un seul univers : le monde (gardé sous cette forme pour compte.js)
 const UNIVERS = {
   monde: { nom: "Monde", emoji: "🌍", dos: "🌐", titre: "Collectionner le monde",
@@ -195,6 +207,13 @@ if (typeof EVENEMENTS_SAISONNIERS !== "undefined") for (const [cle, ev] of Objec
     desc: `Événement limité : 2 cartes exclusives « ${ev.theme} » par booster, Shiny ×2.` };
 }
 
+// Booster de la série du mois (disponible seulement pendant le mois)
+if (SAISONS[MOIS_SAISON]) {
+  const sa = SAISONS[MOIS_SAISON];
+  PACKS["saison-" + MOIS_SAISON] = { nom: sa.nom, emoji: sa.emoji, prix: 320, cartes: 5, garanties: [2], shiny: 1.5, evenement: "saison-" + MOIS_SAISON, couleur: sa.couleur, saison: true,
+    poids: { "commun": 25, "peu-commun": 35, "rare": 24, "epique": 11, "ultra-rare": 3.5, "legendaire": 1.5 },
+    desc: `Série du mois : 2 cartes « ${sa.nom} » par booster, dont la carte animée exclusive !` };
+}
 for (const t of ["ville", "monument", "nature", "animal", "plat", "culture"]) {
   if (!of("monde", t).length) continue;
   PACKS["theme-" + t] = { nom: PLURIEL[t], emoji: EMOJI_TYPE[t], prix: 260, cartes: 5, garanties: [2], shiny: 1, theme: true,
@@ -206,7 +225,7 @@ for (const [k, ct] of Object.entries(CONTINENTS)) {
 }
 const PACKS_PRINCIPAUX = ["monde", "argent", "or", "mega", "prestige"];
 // Offre du jour : un booster à -40 %, une fois par jour
-const offreDuJour = () => { const cles = Object.keys(PACKS).filter((k) => k !== "monde" && k !== "prestige" && !PACKS[k].evenement); return cles[COMBAT.hash(today()) % cles.length]; };
+const offreDuJour = () => { const cles = Object.keys(PACKS).filter((k) => k !== "monde" && k !== "prestige" && !PACKS[k].evenement && !PACKS[k].saison); return cles[COMBAT.hash(today()) % cles.length]; };
 const prixOffre = (k) => Math.round(PACKS[k].prix * 0.6 / 10) * 10;
 
 /* =====================================================================
@@ -444,7 +463,7 @@ function cardHTML(c, opts = {}) {
   const holo = !doree && !shiny && (opts.holo ?? !!S.holo?.[c.id]);
   const st = opts.stats ?? (n ? statsDe(c, S.qualite[c.id], n, shiny, doree) : statsDe(c, [0, 0, 0], 1, shiny, doree));
   const tal = COMBAT.TALENTS[st.talent || COMBAT.talentDe(c.id, c.type)];
-  return `<div class="card${doree ? " doree" : ""}${shiny ? " shiny" : ""}${holo ? " holo" : ""}" data-id="${esc(c.id)}" data-r="${r}" data-t="${c.type}" style="--g:${degrade(col)};--c:${col}" ${c.saisonnier ? `data-saisonnier="${c.saisonnier}"` : ""} tabindex="0" role="button" aria-label="${esc(c.nom)}">
+  return `<div class="card${doree ? " doree" : ""}${shiny ? " shiny" : ""}${holo ? " holo" : ""}${c.animee ? " animee" : ""}" data-id="${esc(c.id)}" data-r="${r}" data-t="${c.type}" style="--g:${degrade(col)};--c:${col}" ${c.saisonnier ? `data-saisonnier="${c.saisonnier}"` : ""} tabindex="0" role="button" aria-label="${esc(c.nom)}">
     ${opts.compte && n > 1 ? `<span class="badge-count">×${n}</span>` : ""}${opts.compte && S.nouveaux[c.id] ? `<span class="badge-new">NEW</span>` : ""}
     <div class="in"><div class="head"><span>${TYPES[c.type]}${c.continent && c.type === "pays" ? " · " + CONTINENTS[c.continent].nom : ""}${c.saisonnier ? ` · ${c.saisonnier === "halloween" ? "🎃" : "🎄"}` : ""}</span><span class="gems" title="${RARETES[r].nom}${doree ? " · Version Dorée" : shiny ? " · Shiny" : holo ? " · Holo" : ""}">${doree ? "👑 " : shiny ? "✨ " : holo ? "🌈 " : ""}${RARETES[r].gems}</span></div>
     <div class="art" style="--g:${degrade(col)}">${art}${st.niveau > 1 ? `<span class="niv">Niv. ${st.niveau}</span>` : ""}${tal ? `<span class="talent" title="Talent : ${tal.nom} — ${esc(tal.desc)}">${tal.emoji}</span>` : ""}</div>

@@ -22,6 +22,7 @@ import PAYS_EUAS from "../../worldcards/data/pays-euas.js";
 import PAYS_AMOC from "../../worldcards/data/pays-amoc.js";
 import PAYS_MOYENS from "../../worldcards/data/pays-moyens.js";
 import PAYS_PLUS from "../../worldcards/data/pays-plus.js";
+import SAISONS_DATA from "../../worldcards/data/saisons.js";
 import EVENEMENTS_DATA from "../../worldcards/data/evenements.js";
 
 const JOUR = 864e5;
@@ -93,6 +94,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS raid_recompenses ( user_id INTEGER NOT NULL, semaine TEXT NOT NULL, PRIMARY KEY (user_id, semaine) )`,
   `CREATE TABLE IF NOT EXISTS tdirect ( semaine TEXT PRIMARY KEY, statut TEXT NOT NULL, taille INTEGER NOT NULL DEFAULT 0, tableau TEXT, tour INTEGER NOT NULL DEFAULT 0, prochain INTEGER, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS tdirect_inscrits ( semaine TEXT NOT NULL, user_id INTEGER NOT NULL, pseudo TEXT NOT NULL, deck TEXT NOT NULL, trophees INTEGER NOT NULL DEFAULT 1000, cree_le INTEGER NOT NULL, PRIMARY KEY (semaine, user_id) )`,
+  `CREATE TABLE IF NOT EXISTS credits ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, pieces INTEGER NOT NULL DEFAULT 0, cartes INTEGER NOT NULL DEFAULT 0, boosters INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
+  `CREATE INDEX IF NOT EXISTS credits_user ON credits (user_id, cree_le)`,
   `CREATE TABLE IF NOT EXISTS bloques ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, bloque_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (user_id, bloque_id) )`,
   `CREATE TABLE IF NOT EXISTS combats ( id INTEGER PRIMARY KEY AUTOINCREMENT, attaquant INTEGER NOT NULL, defenseur INTEGER NOT NULL, graine INTEGER NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, cree_le INTEGER NOT NULL, fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER )`,
 ];
@@ -178,7 +181,7 @@ const estPremium = (u) => (u?.premium_jusqu || 0) > maintenant();
 
 /* ---------- Validation ---------- */
 const PSEUDO_RE = /^[A-Za-z0-9_-]{3,20}$/;
-const CARTE_RE = /^[a-z]+:[A-Za-z0-9-]{1,40}$/;
+const CARTE_RE = /^[a-z]+:[A-Za-z0-9_-]{1,40}$/;
 const pseudoAdmin = (env) => (env.ADMIN_PSEUDO || "nuiraz").toLowerCase();
 // Empêche les imitations du pseudo de l'administrateur (« Nuiraz_ », « nu1raz »…)
 const squelette = (p) => p.toLowerCase().replace(/[0]/g, "o").replace(/[1l]/g, "i").replace(/[3]/g, "e").replace(/[^a-z]/g, "");
@@ -312,6 +315,41 @@ route("GET", "sauvegarde", async ({ env, user }) => {
   return json(s ? { data: JSON.parse(s.data), maj: s.maj, reset: user.reset_le || 0 } : { data: null, reset: user.reset_le || 0 });
 }, { connecte: true });
 
+/* =====================================================================
+   Anti-triche : chaque sauvegarde est comparée à la précédente. Les gains impossibles sont refusés
+   (la sauvegarde du serveur est rétablie), les gains suspects sont signalés à l'admin.
+   Les gains donnés par le serveur (cadeaux, ventes, échanges…) sont notés dans « credits » et autorisés.
+   ===================================================================== */
+const crediter = (env, userId, pieces, cartes, boosters) => (pieces || cartes || boosters)
+  ? env.DB.prepare("INSERT INTO credits (user_id, pieces, cartes, boosters, cree_le) VALUES (?, ?, ?, ?, ?)").bind(userId, pieces || 0, cartes || 0, boosters || 0, maintenant()).run() : null;
+const totalExemplaires = (sv) => Object.values(sv?.owned || {}).reduce((t, x) => t + Math.max(0, Number(x) || 0), 0);
+const totalBoosters = (sv) => Object.values(sv?.boosters || {}).reduce((t, x) => t + Math.max(0, Number(x) || 0), 0);
+async function controleTriche(env, user, data) {
+  const sv = data?.sauvegarde || {}, coins = Number(sv.coins) || 0, ex = totalExemplaires(sv);
+  // Plafonds absolus : impossibles à atteindre en jouant normalement
+  const prec = await env.DB.prepare("SELECT data, maj FROM sauvegardes WHERE user_id = ?").bind(user.id).first();
+  if (coins > 5000000 || ex > 60000 || (Number(sv.xp) || 0) > 50000000 || totalBoosters(sv) > 5000) return { statut: "refuse", raisons: [`valeurs impossibles (${coins} pièces, ${ex} cartes)`], precedent: prec?.data };
+  if (!prec) return { statut: "ok" };
+  let ps; try { ps = JSON.parse(prec.data)?.sauvegarde || {}; } catch { return { statut: "ok" }; }
+  if (user.reset_le && prec.maj < user.reset_le) return { statut: "ok" }; // 1re sauvegarde après un reset
+  const h = Math.min(168, Math.max(0.05, (maintenant() - prec.maj) / 3600000));
+  const cr = await env.DB.prepare("SELECT COALESCE(SUM(pieces), 0) AS p, COALESCE(SUM(cartes), 0) AS c, COALESCE(SUM(boosters), 0) AS b FROM credits WHERE user_id = ? AND cree_le >= ?").bind(user.id, prec.maj - 600000).first();
+  const ouverts = Math.max(0, (Number(sv.ouverts) || 0) - (Number(ps.ouverts) || 0));
+  const gainPieces = coins - (Number(ps.coins) || 0), gainCartes = ex - totalExemplaires(ps);
+  const gainBoosters = totalBoosters(sv) - totalBoosters(ps), gainXp = (Number(sv.xp) || 0) - (Number(ps.xp) || 0);
+  // Marges larges : quêtes, badges, niveaux, doublons, passe… ne doivent jamais déclencher de faux positif
+  const maxPieces = cr.p + 12000 + 6000 * h, maxCartes = cr.c + 40 + ouverts * 12 + 25 * h, maxBoosters = cr.b + 15 + 6 * h, maxXp = 4000 + 2500 * h;
+  const raisons = [];
+  if (gainPieces > maxPieces) raisons.push(`+${gainPieces} pièces en ${h.toFixed(1)} h (max ${Math.round(maxPieces)})`);
+  if (gainCartes > maxCartes) raisons.push(`+${gainCartes} cartes en ${h.toFixed(1)} h (max ${Math.round(maxCartes)})`);
+  if (gainBoosters > maxBoosters) raisons.push(`+${gainBoosters} boosters en ${h.toFixed(1)} h (max ${Math.round(maxBoosters)})`);
+  if (gainXp > maxXp) raisons.push(`+${gainXp} XP en ${h.toFixed(1)} h`);
+  if (!raisons.length) return { statut: "ok" };
+  // Plus de 3 fois la limite : refusé ; sinon simplement signalé
+  const enorme = gainPieces > maxPieces * 3 || gainCartes > maxCartes * 3 || gainBoosters > maxBoosters * 3;
+  return { statut: enorme ? "refuse" : "suspect", raisons, precedent: prec.data };
+}
+
 // Parrainage : quand le filleul atteint le niveau 5 (720 XP), parrain et filleul reçoivent un booster + 200 pièces
 const XP_NIVEAU_5 = 720, FILLEULS_MAX = 30;
 async function verifierParrainage(env, user, data, ctx) {
@@ -349,6 +387,15 @@ route("PUT", "sauvegarde", async ({ request, env, user, ctx }) => {
   if (!b.data || typeof b.data !== "object") return erreur("Sauvegarde vide.");
   // Compte réinitialisé par l'admin : on refuse toute ancienne sauvegarde (appareil resté sur l'ancienne progression)
   if (user.reset_le && (Number(b.reset) || 0) < user.reset_le) return json({ erreur: "Votre compte a été réinitialisé par l'administrateur.", reinitialise: user.reset_le }, 409);
+  const triche = await controleTriche(env, user, b.data);
+  if (triche.statut !== "ok") {
+    await journaliser(env, user.id, triche.statut === "refuse" ? "🚫 sauvegarde refusée (triche)" : "🚩 progression suspecte", triche.raisons.join(" · "), "anti-triche");
+    enArrierePlan(ctx, (async () => {
+      const r = await env.DB.prepare("INSERT OR IGNORE INTO notifs_envoyees (user_id, type, cle, cree_le) VALUES (?, 'triche', ?, ?)").bind(user.id, new Date().toISOString().slice(0, 10), maintenant()).run();
+      if (r.meta.changes) await prevenirAdmins(env, { titre: triche.statut === "refuse" ? "🚫 Triche bloquée" : "🚩 Progression suspecte", texte: `${user.pseudo} : ${triche.raisons.join(" · ")}`, url: "./#admin" });
+    })());
+    if (triche.statut === "refuse") return json({ erreur: "Progression impossible détectée : votre sauvegarde a été rétablie.", triche: true, data: triche.precedent ? JSON.parse(triche.precedent) : null }, 409);
+  }
   const n = (x) => Math.max(0, Math.min(100000, Math.floor(Number(x) || 0)));
   const vitrine = (Array.isArray(b.vitrine) ? b.vitrine : []).filter((id) => typeof id === "string" && CARTE_RE.test(id)).slice(0, 5);
   await env.DB.prepare(`INSERT INTO sauvegardes (user_id, data, maj, cartes, secretes, badges, vitrine) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -436,6 +483,7 @@ route("POST", "cadeaux/(\\d+)/recevoir", async ({ env, user, p }) => {
   if (!c) return erreur("Cadeau introuvable.", 404);
   const r = await env.DB.prepare("INSERT OR IGNORE INTO cadeaux_recus (cadeau_id, user_id) VALUES (?, ?)").bind(c.id, user.id).run();
   if (!r.meta.changes) return erreur("Cadeau déjà reçu.", 409);
+  await crediter(env, user.id, c.pieces, 0, c.boosters);
   return json({ pieces: c.pieces, boosters: c.boosters, message: c.message });
 }, { connecte: true });
 
@@ -764,6 +812,7 @@ const CATALOGUE = (() => {
   for (const x of EXTENSIONS.MONUMENTS_NOUVEAUX) ajouter("monu:" + x[0], { type: "monument", rarete: x[6], nom: x[1] });
   for (const x of EXTENSIONS.NATURE_NOUVELLE) ajouter("nat:" + x[0], { type: "nature", rarete: x[6], nom: x[1] });
   for (const ev of [...Object.values(EXTENSIONS.EVENEMENTS_SAISONNIERS), ...Object.values(EVENEMENTS_DATA.EVENEMENTS_EXTRA)]) for (const x of ev.cartes || []) ajouter("event:" + x[0], { type: "monument", rarete: x[4], nom: x[1] });
+  for (const sa of Object.values(SAISONS_DATA.SAISONS_CARTES)) for (const x of sa.cartes) ajouter("saison:" + x[0].replace(/_/g, "-"), { type: "monument", rarete: x[4], nom: x[1] });
   const prefixes = { ville: "ville:", monument: "monu:", nature: "nat:", animal: "ani:", plat: "plat:", culture: "cult:" };
   for (const liste of [PAYS_AF.CARTES_PAYS_AF, PAYS_EUAS.CARTES_PAYS_EUAS, PAYS_AMOC.CARTES_PAYS_AMOC, PAYS_MOYENS.CARTES_PAYS_MOYENS, PAYS_PLUS.CARTES_PAYS_PLUS])
     for (const x of liste) if (prefixes[x[0]]) ajouter(prefixes[x[0]] + x[1], { type: x[0], rarete: x[0] === "ville" ? "peu-commun" : x[7], nom: x[2] });
@@ -923,11 +972,11 @@ async function controleTrafic(request, env, ctx) {
   if (RAFALES.size > 5000) RAFALES.clear();
   const agent = (request.headers.get("user-agent") || "").toLowerCase();
   const robot = /sqlmap|nikto|masscan|nmap|zgrab|python-requests|curl\/|wget\/|scrapy|go-http-client/.test(agent);
-  if (liste.length === 60 || (robot && liste.length === 1)) {
+  if (liste.length === 120 || (robot && liste.length === 1)) {
     const details = robot ? `Robot suspect (${agent.slice(0, 60)}) depuis ${ip}` : `Rafale de ${liste.length} requêtes en 10 s depuis ${ip}`;
     enArrierePlan(ctx, signalerMenace(env, ip, robot ? "robot" : "rafale", details));
   }
-  if (liste.length > 60 && await bouclierActif(env)) { BLOQUEES.set(ip, t + 10 * 60000); return erreur("Trop de requêtes : protection anti-robot activée.", 429); }
+  if (liste.length > 120 && await bouclierActif(env)) { BLOQUEES.set(ip, t + 10 * 60000); return erreur("Trop de requêtes : protection anti-robot activée.", 429); }
   return null;
 }
 // Compteurs du jour (requêtes API, par statut)
@@ -1057,7 +1106,10 @@ route("POST", "echanges/(\\d+)/annuler", async ({ env, user, p }) => {
 }, { connecte: true });
 route("GET", "livraisons", async ({ env, user }) => {
   const { results } = await env.DB.prepare("SELECT * FROM livraisons WHERE user_id = ? ORDER BY id").bind(user.id).all();
-  if (results.length) await env.DB.prepare(`DELETE FROM livraisons WHERE user_id = ? AND id <= ?`).bind(user.id, results[results.length - 1].id).run();
+  if (results.length) {
+    await env.DB.prepare(`DELETE FROM livraisons WHERE user_id = ? AND id <= ?`).bind(user.id, results[results.length - 1].id).run();
+    await crediter(env, user.id, results.reduce((t, l) => t + (l.pieces || 0), 0), results.filter((l) => l.carte).length, 0);
+  }
   return json({ livraisons: results.map((l) => ({ carte: l.carte, doree: !!l.doree, pieces: l.pieces, message: l.message })) });
 }, { connecte: true });
 

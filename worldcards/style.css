@@ -1464,3 +1464,17 @@ h1 { font-weight: 800; }
 .match-tournoi .moi { outline: 2px solid var(--accent); }
 .match-tournoi .btn { margin-top: 4px; }
 .bj-deja { text-align: center; font-size: 12px; color: var(--muted); } .bj-deja.neuve { color: var(--ok); font-weight: 700; }
+/* ===== Série du mois et cartes animées ===== */
+.serie-mois { display: flex; gap: 16px; align-items: center; margin-top: 16px; background: linear-gradient(135deg, color-mix(in srgb, var(--sc) 22%, var(--panel)), var(--panel)); border: 2px solid color-mix(in srgb, var(--sc) 60%, transparent); }
+.serie-texte { flex: 1; min-width: 0; } .serie-texte small { font-weight: 800; letter-spacing: .05em; color: var(--sc); }
+.serie-texte h3 { margin: 4px 0 6px; font-family: var(--titre); font-size: 24px; }
+.serie-carte { width: 150px; flex: none; }
+@media (max-width: 560px) { .serie-mois { flex-direction: column-reverse; } .serie-carte { width: 170px; } }
+.card.animee { animation: animee-lueur 2.6s ease-in-out infinite; }
+.card.animee::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 4;
+  background: linear-gradient(115deg, transparent 25%, rgba(255, 255, 255, .55) 45%, rgba(255, 215, 120, .4) 50%, transparent 65%); background-size: 250% 100%; animation: animee-balayage 2.2s linear infinite; mix-blend-mode: screen; }
+.card.animee .emoji, .card.animee .art > :not(img):not(svg) { animation: animee-flotte 2s ease-in-out infinite; }
+@keyframes animee-lueur { 0%, 100% { box-shadow: 0 0 10px 2px rgba(255, 196, 0, .55); } 50% { box-shadow: 0 0 26px 8px rgba(255, 120, 200, .65); } }
+@keyframes animee-balayage { from { background-position: 150% 0; } to { background-position: -100% 0; } }
+@keyframes animee-flotte { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-6px) scale(1.06); } }
+@media (prefers-reduced-motion: reduce) { .card.animee, .card.animee::after, .card.animee .emoji { animation: none; } }

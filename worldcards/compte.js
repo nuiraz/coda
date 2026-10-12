@@ -235,6 +235,11 @@ async function envoyerSauvegarde() {
   } catch (e) {
     SYNC.etat = "erreur";
     if (e.status === 409 && e.donnees?.reinitialise) { appliquerReinitialisation(e.donnees.reinitialise); return; }
+    if (e.status === 409 && e.donnees?.triche) {
+      // Progression impossible : le serveur rétablit la dernière sauvegarde valide
+      if (e.donnees.data?.sauvegarde) { appliquerSauvegardeCloud(e.donnees.data); aller(S.vue); }
+      toast("🚫 " + e.message, 8000); return;
+    }
     if (e.status === 401) { COMPTE.etat = "anonyme"; oublierSession(); toast("Votre session a expiré : reconnectez-vous pour sauvegarder dans le cloud."); }
     else if (e.status === 413) toast("⚠ " + e.message, 6000);
   } finally {

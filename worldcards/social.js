@@ -894,6 +894,24 @@ function brancherBoutiqueDuJour(racine) {
 const _vueBoosters = vueBoosters;
 vueBoosters = function (v, opts) {
   _vueBoosters(v, opts);
+  // Série de cartes du mois, en haut de la boutique
+  const cleSaison = "saison-" + MOIS_SAISON, ps = PACKS[cleSaison], sa = SAISONS[MOIS_SAISON];
+  if (ps) {
+    const fin = new Date(Date.UTC(+MOIS_SAISON.slice(0, 4), +MOIS_SAISON.slice(5, 7), 1));
+    const cartes = CARDS.filter((c) => c.saisonnier === cleSaison), animee = cartes.find((c) => c.animee);
+    const html = `<section class="panel serie-mois" style="--sc:${sa.couleur}">
+      <div class="serie-texte"><small>🗓️ SÉRIE DU MOIS · encore ${Math.max(1, Math.ceil((fin - Date.now()) / 86400000))} jours</small>
+        <h3>${sa.emoji} ${esc(sa.nom)}</h3>
+        <p>${cartes.length} cartes exclusives, disponibles seulement ce mois-ci · vous en avez <b>${count(cartes.map((c) => c.id))}/${cartes.length}</b>. La carte <b>animée</b> « ${esc(animee?.nom || "")} » est la plus rare !</p>
+        <button class="btn primary" id="acheterSaison" ${S.coins < ps.prix ? "disabled" : ""}>Booster ${esc(sa.nom)} · ${fmt(ps.prix)} 🪙</button></div>
+      ${animee ? `<div class="serie-carte">${cardHTML(animee, { locked: false })}</div>` : ""}</section>`;
+    const ancre = $(".pity-box", v);
+    if (ancre) ancre.insertAdjacentHTML("beforebegin", html); else v.insertAdjacentHTML("afterbegin", html);
+    $("#acheterSaison", v)?.addEventListener("click", () => {
+      if (S.coins < ps.prix) return;
+      S.coins -= ps.prix; S.boosters[cleSaison] = (S.boosters[cleSaison] || 0) + 1; sauver(); majCoins(); ouvrirBooster(cleSaison);
+    });
+  }
   const ancre = $(".pity-box", v);
   if (ancre) ancre.insertAdjacentHTML("afterend", blocBoutiqueDuJour()); else v.insertAdjacentHTML("beforeend", blocBoutiqueDuJour());
   brancherBoutiqueDuJour(v);
