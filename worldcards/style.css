@@ -1367,3 +1367,13 @@ h1 { font-weight: 800; }
 .face.back.dos-premium, .cosm-dos.dos-premium { background: linear-gradient(135deg, #6c4cf1, #2a1a7a 60%, #f5b21b); border-color: #f5b21b; }
 .face.back.dos-passe, .cosm-dos.dos-passe { background: linear-gradient(135deg, var(--d1), var(--d2)); border-color: #fff; }
 .cosm-dos.dos-classique { background: repeating-linear-gradient(45deg, #2a2340 0 6px, #241e38 6px 12px); border: 2px solid #4a3f6b; }
+
+/* ===== Enchères ===== */
+.encheres { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.ench { display: flex; gap: 12px; padding: 12px; border-radius: 16px; background: var(--panel); border: 1px solid var(--border); }
+.ench.en-tete { border-color: var(--ok); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 25%, transparent); }
+.ench-carte { width: 120px; flex: none; }
+.ench-infos { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ench-prix { display: flex; flex-direction: column; padding: 8px 10px; border-radius: 10px; background: var(--panel2); }
+.ench-prix b { font-size: 20px; } .ench-prix small { color: var(--muted); }
+.ench-temps { font-weight: 700; font-variant-numeric: tabular-nums; }

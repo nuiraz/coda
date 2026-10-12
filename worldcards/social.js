@@ -559,3 +559,83 @@ async function vueStyle(v) {
   });
 }
 ajouterPage("style", "🎨", "Personnaliser", vueStyle);
+
+/* =====================================================================
+   Enchères (24 h, taxe de 10 % pour le vendeur)
+   ===================================================================== */
+const enchEtat = { vue: "toutes", minuteur: null };
+const resteTemps = (fin) => { const s = Math.max(0, Math.floor((fin - Date.now()) / 1000)); return s >= 3600 ? `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}` : s > 0 ? `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s` : "terminée"; };
+async function vueEncheres(v) {
+  clearInterval(enchEtat.minuteur);
+  if (connecte()) verifierLivraisons();
+  v.innerHTML = `<section class="panel"><div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <div><h2 style="margin:0">🔨 Hôtel des enchères</h2><small class="muted">Mettez une carte en vente 24 h : les joueurs enchérissent en pièces. Le vendeur paie une taxe de 10 %. Une offre dans les 2 dernières minutes prolonge l'enchère.</small></div>
+      ${connecte() ? `<button class="btn primary" id="enchVendre">➕ Vendre une carte</button>` : `<button class="btn primary" data-aller="compte">Se connecter</button>`}</div></section>
+    <div class="toolbar">${[["toutes", "🔥 En cours"], ["miennes", "📦 Mes enchères"]].map(([k, l]) => `<button class="chip ${enchEtat.vue === k ? "on" : ""}" data-ev="${k}">${l}</button>`).join("")}</div>
+    <div id="enchListe"><p class="muted">Chargement…</p></div>`;
+  brancherLiens(v);
+  $$("[data-ev]", v).forEach((b) => b.onclick = () => { enchEtat.vue = b.dataset.ev; vueEncheres(v); });
+  $("#enchVendre")?.addEventListener("click", vendreAuxEncheres);
+  try {
+    const { encheres } = await api("encheres" + (enchEtat.vue === "miennes" ? "?vue=miennes" : ""));
+    $("#enchListe").innerHTML = encheres.length ? `<div class="encheres">${encheres.map((e) => {
+      const c = BY_ID[e.carte]; if (!c) return "";
+      const statut = e.statut === "ouverte" ? `<span class="ench-temps" data-fin="${e.fin}">⏱️ ${resteTemps(e.fin)}</span>` : `<span class="muted">${{ vendue: `✅ Vendue ${fmt(e.offre)} 🪙 à ${esc(e.acheteur)}`, invendue: "Sans offre", annulee: "Annulée" }[e.statut] || e.statut}</span>`;
+      return `<div class="ench ${e.enTete ? "en-tete" : ""}">
+        <div class="ench-carte">${cardHTML(c, { doree: e.doree })}</div>
+        <div class="ench-infos"><b>${esc(e.nom)}${e.doree ? " 👑" : ""}</b><small class="muted">par ${esc(e.vendeur)} · ${e.nbOffres} offre${e.nbOffres > 1 ? "s" : ""}</small>
+          <div class="ench-prix">${e.offre ? `<b>${fmt(e.offre)} 🪙</b><small>${e.enTete ? "🏆 vous êtes en tête" : "par " + esc(e.acheteur)}</small>` : `<b>${fmt(e.prixDepart)} 🪙</b><small>prix de départ</small>`}</div>
+          ${statut}
+          ${e.statut === "ouverte" && !e.moi && !e.enTete && connecte() ? `<button class="btn small primary" data-offre="${e.id}" data-min="${e.minimum}" data-nom="${esc(e.nom)}">🔨 Enchérir (min. ${fmt(e.minimum)})</button>` : ""}
+          ${e.statut === "ouverte" && (e.moi || COMPTE.admin) && (!e.offre || COMPTE.admin) ? `<button class="btn small" data-annuler="${e.id}">Annuler</button>` : ""}</div></div>`;
+    }).join("")}</div>` : `<p class="muted">${enchEtat.vue === "miennes" ? "Vous n'avez encore rien vendu ni enchéri." : "Aucune enchère en cours : soyez le premier à vendre une carte !"}</p>`;
+    $$("[data-offre]", v).forEach((b) => b.onclick = () => encherir(Number(b.dataset.offre), Number(b.dataset.min), b.dataset.nom));
+    $$("[data-annuler]", v).forEach((b) => b.onclick = async () => { try { await api(`encheres/${b.dataset.annuler}/annuler`, { methode: "POST", corps: {} }); toast("Enchère annulée : la carte revient dans votre collection."); setTimeout(verifierLivraisons, 500); vueEncheres(v); } catch (e) { toast("⚠ " + e.message); } });
+    enchEtat.minuteur = setInterval(() => {
+      if (!document.body.contains(v) || S.vue !== "encheres") return clearInterval(enchEtat.minuteur);
+      $$("[data-fin]", v).forEach((x) => x.textContent = "⏱️ " + resteTemps(Number(x.dataset.fin)));
+    }, 1000);
+  } catch (e) { $("#enchListe").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+function vendreAuxEncheres() {
+  choisirCarte("Quelle carte vendre aux enchères ?", (id) => {
+    const c = BY_ID[id], doree = !!S.doree?.[id], conseil = RARETES[c.rarete]?.prix || 100;
+    ouvrirModal(`<h2 style="margin-top:0">🔨 Vendre ${esc(c.nom)}</h2><div style="max-width:170px;margin:0 auto 10px">${cardHTML(c)}</div>
+      <form class="form" id="fEnch"><label>Prix de départ (pièces)<input id="enchPrix" type="number" min="10" max="100000" value="${conseil}" required></label>
+      ${doree ? `<label class="row" style="gap:8px"><input type="checkbox" id="enchDoree"> Vendre la version 👑 Dorée</label>` : ""}
+      <p class="muted" style="margin:0;font-size:13px">Durée 24 h. La carte est mise de côté pendant la vente et vous est rendue s'il n'y a aucune offre. Taxe de 10 % sur le prix final.</p>
+      <button class="btn primary">Mettre en vente</button></form>`);
+    $("#fEnch").onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await envoyerSauvegarde();
+        const vendDoree = !!$("#enchDoree")?.checked;
+        await api("encheres", { methode: "POST", corps: { carte: id, prix: Number($("#enchPrix").value), doree: vendDoree } });
+        S.owned[id] = Math.max(0, (S.owned[id] || 0) - 1);
+        if (!S.owned[id]) { delete S.owned[id]; S.deck = S.deck.filter((x) => x !== id); }
+        if (vendDoree) delete S.doree[id];
+        sauver(); envoyerSauvegarde(); fermerModal(); toast("🔨 Votre carte est aux enchères pour 24 h !"); enchEtat.vue = "miennes"; aller("encheres");
+      } catch (err) { toast("⚠ " + err.message); }
+    };
+  });
+}
+function encherir(id, minimum, nom) {
+  ouvrirModal(`<h2 style="margin-top:0">🔨 Enchérir sur ${esc(nom)}</h2><form class="form" id="fOffre">
+    <label>Votre offre (minimum ${fmt(minimum)} 🪙 · vous avez ${fmt(S.coins)} 🪙)<input id="offreMontant" type="number" min="${minimum}" value="${minimum}" required></label>
+    <p class="muted" style="margin:0;font-size:13px">Les pièces sont mises de côté. Si quelqu'un enchérit plus, elles vous sont rendues automatiquement.</p>
+    <button class="btn primary">Enchérir</button></form>`);
+  $("#fOffre").onsubmit = async (e) => {
+    e.preventDefault();
+    const montant = Math.floor(Number($("#offreMontant").value));
+    if (montant > S.coins) return toast("⚠ Vous n'avez pas assez de pièces.");
+    try {
+      await envoyerSauvegarde();
+      await api(`encheres/${id}/offre`, { methode: "POST", corps: { montant } });
+      S.coins -= montant; sauver(); majCoins(); envoyerSauvegarde();
+      fermerModal(); toast(`🔨 Offre de ${fmt(montant)} 🪙 enregistrée : vous êtes en tête !`); aller("encheres");
+    } catch (err) { toast("⚠ " + err.message); }
+  };
+}
+ajouterPage("encheres", "🔨", "Enchères", vueEncheres);
+// Les ventes, surenchères et cartes rendues arrivent par « livraisons »
+setInterval(() => { if (connecte() && !document.hidden) verifierLivraisons(); }, 60000);

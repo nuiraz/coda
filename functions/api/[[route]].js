@@ -83,6 +83,8 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS guilde_membres_g ON guilde_membres (guilde_id)`,
   `CREATE TABLE IF NOT EXISTS guilde_recompenses ( user_id INTEGER NOT NULL, semaine TEXT NOT NULL, PRIMARY KEY (user_id, semaine) )`,
   `CREATE TABLE IF NOT EXISTS passes ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, mois TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, mois) )`,
+  `CREATE TABLE IF NOT EXISTS encheres ( id INTEGER PRIMARY KEY AUTOINCREMENT, vendeur_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, vendeur TEXT NOT NULL, carte TEXT NOT NULL, nom TEXT NOT NULL, doree INTEGER NOT NULL DEFAULT 0, prix_depart INTEGER NOT NULL, offre INTEGER, acheteur_id INTEGER, acheteur TEXT, nb_offres INTEGER NOT NULL DEFAULT 0, fin INTEGER NOT NULL, statut TEXT NOT NULL DEFAULT 'ouverte', cree_le INTEGER NOT NULL )`,
+  `CREATE INDEX IF NOT EXISTS encheres_statut ON encheres (statut, fin)`,
   `CREATE TABLE IF NOT EXISTS bloques ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, bloque_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (user_id, bloque_id) )`,
   `CREATE TABLE IF NOT EXISTS combats ( id INTEGER PRIMARY KEY AUTOINCREMENT, attaquant INTEGER NOT NULL, defenseur INTEGER NOT NULL, graine INTEGER NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, cree_le INTEGER NOT NULL, fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER )`,
 ];
@@ -576,6 +578,7 @@ route("GET", "notifs/derniere", async ({ env, user }) => {
 // Tâche planifiée (cron du Worker) : rappels de booster gratuit et ménage
 export async function planifie(env) {
   await preparerSchema(env);
+  await cloturerEncheres(env);
   const { results } = await env.DB.prepare("SELECT r.user_id FROM rappels r WHERE r.quand <= ? AND EXISTS (SELECT 1 FROM abonnements a WHERE a.user_id = r.user_id) LIMIT 300").bind(maintenant()).all();
   for (const { user_id } of results) {
     await env.DB.prepare("DELETE FROM rappels WHERE user_id = ?").bind(user_id).run();
@@ -937,8 +940,7 @@ route("POST", "echanges/creer", async ({ request, env, user }) => {
   const ouverts = await env.DB.prepare("SELECT COUNT(*) AS n FROM echanges WHERE user_id = ? AND statut = 'ouvert'").bind(user.id).first();
   if (ouverts.n >= 10) return erreur("Vous avez déjà 10 offres en cours : annulez-en une d'abord.", 429);
   const save = await saveDe(env, user.id);
-  const enCours = await env.DB.prepare("SELECT COUNT(*) AS n FROM echanges WHERE user_id = ? AND statut = 'ouvert' AND carte_offerte = ?").bind(user.id, offerte).first();
-  if (((save.owned || {})[offerte] || 0) - enCours.n < 1) return erreur("Cette carte n'est pas dans votre collection (sauvegarde du compte).");
+  if (((save.owned || {})[offerte] || 0) - await enSequestre(env, user.id, offerte) < 1) return erreur("Cette carte n'est pas dans votre collection (sauvegarde du compte).");
   const doree = !!b.doree && !!(save.doree || {})[offerte];
   const r = await env.DB.prepare("INSERT INTO echanges (user_id, pseudo, carte_offerte, nom_offerte, carte_demandee, nom_demandee, pieces_demandees, doree, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .bind(user.id, user.pseudo, offerte, CATALOGUE[offerte].nom, demandee, demandee === "pieces" ? `${pieces} pièces` : CATALOGUE[demandee].nom, demandee === "pieces" ? pieces : 0, doree ? 1 : 0, maintenant()).run();
@@ -1604,6 +1606,95 @@ route("POST", "profil/apparence", async ({ request, env, user }) => {
   await env.DB.prepare("UPDATE users SET titre = ?, cadre = ? WHERE id = ?").bind(ok(b.titre), ok(b.cadre), user.id).run();
   return json({ ok: true });
 }, { connecte: true });
+/* =====================================================================
+   Enchères : une carte mise en vente 24 h, les joueurs enchérissent en pièces, taxe de 10 % pour le vendeur
+   ===================================================================== */
+const DUREE_ENCHERE = 24 * 3600000, TAXE_ENCHERE = 0.1, ENCHERES_MAX = 5;
+// Exemplaires d'une carte déjà mis de côté (échanges ouverts + enchères en cours)
+async function enSequestre(env, userId, carte) {
+  const r = await env.DB.prepare(`SELECT (SELECT COUNT(*) FROM echanges WHERE user_id = ?1 AND statut = 'ouvert' AND carte_offerte = ?2)
+    + (SELECT COUNT(*) FROM encheres WHERE vendeur_id = ?1 AND statut = 'ouverte' AND carte = ?2) AS n`).bind(userId, carte).first();
+  return r.n;
+}
+async function cloturerEncheres(env) {
+  const { results } = await env.DB.prepare("SELECT * FROM encheres WHERE statut = 'ouverte' AND fin <= ? LIMIT 50").bind(maintenant()).all();
+  for (const e of results) {
+    const r = await env.DB.prepare("UPDATE encheres SET statut = ? WHERE id = ? AND statut = 'ouverte'").bind(e.acheteur_id ? "vendue" : "invendue", e.id).run();
+    if (!r.meta.changes) continue;
+    if (e.acheteur_id) {
+      const net = Math.floor(e.offre * (1 - TAXE_ENCHERE));
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO livraisons (user_id, carte, doree, message, cree_le) VALUES (?, ?, ?, ?, ?)").bind(e.acheteur_id, e.carte, e.doree, `Enchère remportée (${e.offre} pièces)`, maintenant()),
+        env.DB.prepare("INSERT INTO livraisons (user_id, pieces, message, cree_le) VALUES (?, ?, ?, ?)").bind(e.vendeur_id, net, `Vente aux enchères de ${e.nom} à ${e.acheteur} (taxe 10 % déduite)`, maintenant()),
+      ]);
+      await envoyerPush(env, e.acheteur_id, { titre: "🔨 Enchère remportée !", texte: `${e.nom} est à vous pour ${e.offre} 🪙.`, url: "./#encheres" });
+      await envoyerPush(env, e.vendeur_id, { titre: "🔨 Carte vendue !", texte: `${e.nom} vendue ${e.offre} 🪙 à ${e.acheteur} (+${net} 🪙 après taxe).`, url: "./#encheres" });
+    } else {
+      await env.DB.prepare("INSERT INTO livraisons (user_id, carte, doree, message, cree_le) VALUES (?, ?, ?, ?, ?)").bind(e.vendeur_id, e.carte, e.doree, "Enchère sans offre : votre carte vous est rendue", maintenant()).run();
+    }
+  }
+}
+route("GET", "encheres", async ({ request, env, user }) => {
+  await cloturerEncheres(env);
+  const vue = new URL(request.url).searchParams.get("vue");
+  const filtre = vue === "miennes" && user ? "AND (e.vendeur_id = ?1 OR e.acheteur_id = ?1)" : "AND e.statut = 'ouverte'";
+  const { results } = await env.DB.prepare(`SELECT e.* FROM encheres e JOIN users u ON u.id = e.vendeur_id WHERE u.banni = 0 ${filtre}
+    ORDER BY ${vue === "miennes" ? "e.id DESC" : "e.fin ASC"} LIMIT 100`).bind(...(vue === "miennes" && user ? [user.id] : [])).all();
+  return json({ taxe: TAXE_ENCHERE, encheres: results.map((e) => ({ id: e.id, vendeur: e.vendeur, carte: e.carte, nom: e.nom, doree: !!e.doree, prixDepart: e.prix_depart, offre: e.offre, acheteur: e.acheteur,
+    nbOffres: e.nb_offres, fin: e.fin, statut: e.statut, moi: !!user && e.vendeur_id === user.id, enTete: !!user && e.acheteur_id === user.id,
+    minimum: e.offre ? Math.max(e.offre + 5, Math.ceil(e.offre * 1.05)) : e.prix_depart })) });
+});
+route("POST", "encheres", async ({ request, env, user }) => {
+  const b = await corps(request);
+  const carte = String(b.carte || ""), prix = Math.floor(Number(b.prix) || 0);
+  if (!CATALOGUE[carte]) return erreur("Carte inconnue.");
+  if (prix < 10 || prix > 100000) return erreur("Prix de départ entre 10 et 100 000 pièces.");
+  const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM encheres WHERE vendeur_id = ? AND statut = 'ouverte'").bind(user.id).first();
+  if (n.n >= ENCHERES_MAX) return erreur(`Maximum ${ENCHERES_MAX} enchères en cours.`, 429);
+  const save = await saveDe(env, user.id);
+  if (((save.owned || {})[carte] || 0) - await enSequestre(env, user.id, carte) < 1) return erreur("Cette carte n'est pas dans votre collection (sauvegarde du compte).");
+  const doree = !!b.doree && !!(save.doree || {})[carte];
+  const r = await env.DB.prepare("INSERT INTO encheres (vendeur_id, vendeur, carte, nom, doree, prix_depart, fin, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(user.id, user.pseudo, carte, CATALOGUE[carte].nom, doree ? 1 : 0, prix, maintenant() + DUREE_ENCHERE, maintenant()).run();
+  return json({ ok: true, id: r.meta.last_row_id }, 201);
+}, { connecte: true });
+route("POST", "encheres/(\\d+)/offre", async ({ request, env, user, p, ctx }) => {
+  const b = await corps(request);
+  await cloturerEncheres(env);
+  const e = await env.DB.prepare("SELECT * FROM encheres WHERE id = ? AND statut = 'ouverte'").bind(p[1]).first();
+  if (!e) return erreur("Cette enchère est terminée.", 404);
+  if (e.vendeur_id === user.id) return erreur("Vous ne pouvez pas enchérir sur votre propre carte.");
+  if (e.acheteur_id === user.id) return erreur("Vous êtes déjà en tête de cette enchère.");
+  const montant = Math.floor(Number(b.montant) || 0), minimum = e.offre ? Math.max(e.offre + 5, Math.ceil(e.offre * 1.05)) : e.prix_depart;
+  if (montant < minimum) return erreur(`L'offre minimum est de ${minimum} pièces.`);
+  const save = await saveDe(env, user.id);
+  if ((save.coins || 0) < montant) return erreur("Vous n'avez pas assez de pièces (sauvegarde du compte).");
+  // Anti-dernière seconde : une offre dans les 2 dernières minutes prolonge l'enchère de 2 minutes
+  const fin = e.fin - maintenant() < 120000 ? maintenant() + 120000 : e.fin;
+  const r = await env.DB.prepare("UPDATE encheres SET offre = ?, acheteur_id = ?, acheteur = ?, nb_offres = nb_offres + 1, fin = ? WHERE id = ? AND statut = 'ouverte' AND COALESCE(offre, 0) = ?")
+    .bind(montant, user.id, user.pseudo, fin, e.id, e.offre || 0).run();
+  if (!r.meta.changes) return erreur("Quelqu'un vient d'enchérir : réessayez.", 409);
+  // L'ancien meilleur enchérisseur récupère ses pièces
+  if (e.acheteur_id) {
+    await env.DB.prepare("INSERT INTO livraisons (user_id, pieces, message, cree_le) VALUES (?, ?, ?, ?)").bind(e.acheteur_id, e.offre, `Surenchère sur ${e.nom} : vos pièces vous sont rendues`, maintenant()).run();
+    enArrierePlan(ctx, envoyerPush(env, e.acheteur_id, { titre: "🔨 Vous avez été surenchéri", texte: `${user.pseudo} offre ${montant} 🪙 pour ${e.nom}.`, url: "./#encheres" }));
+  }
+  enArrierePlan(ctx, envoyerPush(env, e.vendeur_id, { titre: "🔨 Nouvelle offre", texte: `${user.pseudo} offre ${montant} 🪙 pour ${e.nom}.`, url: "./#encheres" }));
+  return json({ ok: true, montant, fin });
+}, { connecte: true });
+route("POST", "encheres/(\\d+)/annuler", async ({ env, user, p }) => {
+  const e = await env.DB.prepare("SELECT * FROM encheres WHERE id = ? AND statut = 'ouverte'").bind(p[1]).first();
+  if (!e) return erreur("Enchère introuvable.", 404);
+  if (e.vendeur_id !== user.id && !user.admin) return erreur("Non autorisé.", 403);
+  if (e.acheteur_id && !user.admin) return erreur("Impossible d'annuler : il y a déjà une offre.");
+  const r = await env.DB.prepare("UPDATE encheres SET statut = 'annulee' WHERE id = ? AND statut = 'ouverte'").bind(e.id).run();
+  if (r.meta.changes) {
+    await env.DB.prepare("INSERT INTO livraisons (user_id, carte, doree, message, cree_le) VALUES (?, ?, ?, ?, ?)").bind(e.vendeur_id, e.carte, e.doree, "Enchère annulée : votre carte vous est rendue", maintenant()).run();
+    if (e.acheteur_id) await env.DB.prepare("INSERT INTO livraisons (user_id, pieces, message, cree_le) VALUES (?, ?, ?, ?)").bind(e.acheteur_id, e.offre, `Enchère annulée par l'admin : vos pièces vous sont rendues`, maintenant()).run();
+  }
+  return json({ ok: true });
+}, { connecte: true });
+
 // Recherche de joueurs (pour ajouter des amis ou écrire)
 route("GET", "joueurs/recherche", async ({ request, env, user }) => {
   const q = String(new URL(request.url).searchParams.get("q") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 20);
