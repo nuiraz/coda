@@ -1098,3 +1098,27 @@ async function adminCreateurs(el) {
   };
   charger();
 }
+
+/* ---------- Défi viral : plus belles ouvertures de la semaine ---------- */
+const _deballerV4b = deballer;
+deballer = function (type) {
+  const res = _deballerV4b.apply(this, arguments);
+  if (typeof connecte === "function" && connecte()) {
+    api("ouvertures", { methode: "POST", corps: { cartes: res.map((x) => x.c.id), shiny: res.filter((x) => x.shiny).map((x) => x.c.id), pack: type } }).then((r) => {
+      if (!r || r.ignore) return;
+      const affiche = () => { const z = $(".poke .meilleure-carte"); if (!z) return false; if (!$(".defi-ouverture")) z.insertAdjacentHTML("afterend", `<p class="defi-ouverture">🔥 Défi de la semaine : <b>${fmt(r.score)} points</b> · n° ${r.rang} pour l'instant</p>`); return true; };
+      if (!affiche()) { let n = 0; const t = setInterval(() => { if (affiche() || ++n > 40) clearInterval(t); }, 500); }
+    }).catch(() => {});
+  }
+  return res;
+};
+async function blocOuvertures(el) {
+  try {
+    const { top } = await api("ouvertures/semaine");
+    el.innerHTML = `<h3 style="margin-top:0">🔥 Plus belles ouvertures de la semaine</h3><p class="muted" style="margin-top:0">Chaque booster ouvert compte : commune 1 pt, peu commune 2, rare 5, épique 15, ultra rare 40, légendaire 100 (×2 si Shiny). Partagez la vôtre !</p>
+      ${top.length ? `<ol class="top-ouvertures">${top.map((o, i) => `<li><span>${["🥇", "🥈", "🥉"][i] || i + 1}</span><a href="#" data-joueur="${esc(o.pseudo)}">${esc(o.pseudo)}</a><span class="to-cartes">${o.cartes.map((x) => { const c = BY_ID[x.id]; return c ? `<i class="r-${c.rarete}" title="${esc(c.nom)}${x.s ? " ✨ Shiny" : ""}">${esc(c.emoji || (c.type === "pays" ? "🏳️" : "🃏"))}</i>` : ""; }).join("")}</span><b>${fmt(o.score)}</b></li>`).join("")}</ol>` : `<p class="muted">Personne cette semaine pour l'instant : ouvrez un booster !</p>`}`;
+    $$("[data-joueur]", el).forEach((a) => a.onclick = (e) => { e.preventDefault(); profilComplet(a.dataset.joueur); });
+  } catch { el.remove(); }
+}
+const _hubEvenementsV4b = hubEvenements;
+hubEvenements = async function (el) { await _hubEvenementsV4b(el); const s = document.createElement("section"); s.className = "panel"; s.style.marginBottom = "14px"; el.append(s); blocOuvertures(s); };

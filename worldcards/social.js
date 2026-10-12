@@ -942,7 +942,7 @@ async function vueParrainage(v) {
   if (!connecte()) { v.innerHTML = `<div class="panel"><h2 style="margin-top:0">🤝 Parrainage</h2><p>Créez un compte pour obtenir votre lien de parrainage : vous et votre ami recevez chacun <b>un booster + 200 🪙</b> quand il atteint le niveau 5.</p><button class="btn primary" data-aller="compte">Créer un compte</button></div>`; brancherLiens(v); return; }
   v.innerHTML = `<p class="muted">Chargement…</p>`;
   try {
-    const r = await api("parrainage"), lien = `${location.origin}/?parrain=${encodeURIComponent(r.code)}`;
+    const r = await api("parrainage"), lien = `${location.origin}/r/${encodeURIComponent(r.code)}`;
     const valides = r.filleuls.filter((f) => f.valide).length;
     v.innerHTML = `<section class="panel parrain-tete"><div style="font-size:52px">🤝</div>
         <h2 style="margin:4px 0">Invitez vos amis</h2>

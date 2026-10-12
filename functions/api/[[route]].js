@@ -100,6 +100,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS photos_perso ( carte TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS rangs ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, couleur TEXT NOT NULL DEFAULT '#888888', description TEXT NOT NULL DEFAULT '', min_pts INTEGER NOT NULL DEFAULT 0, max_pts INTEGER, ordre INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, divisions INTEGER NOT NULL DEFAULT 1, montee TEXT NOT NULL DEFAULT '', descente TEXT NOT NULL DEFAULT '', recompense_pieces INTEGER NOT NULL DEFAULT 0, recompense_boosters INTEGER NOT NULL DEFAULT 0, logo TEXT, logo_maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS offres ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', badge TEXT NOT NULL DEFAULT '', prix_cents INTEGER NOT NULL, prix_reference_cents INTEGER, reference_note TEXT NOT NULL DEFAULT '', pieces INTEGER NOT NULL DEFAULT 0, boosters TEXT NOT NULL DEFAULT '{}', une_fois INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, ordre INTEGER NOT NULL DEFAULT 0, debut INTEGER, fin INTEGER, maj INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS ouvertures_semaine ( semaine TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, score INTEGER NOT NULL, cartes TEXT NOT NULL, pack TEXT, cree_le INTEGER NOT NULL, PRIMARY KEY (semaine, user_id) )`,
   `CREATE TABLE IF NOT EXISTS cosmetiques_achats ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, cle TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, cle) )`,
   `CREATE TABLE IF NOT EXISTS createurs ( code TEXT PRIMARY KEY COLLATE NOCASE, user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE, part INTEGER NOT NULL DEFAULT 10, actif INTEGER NOT NULL DEFAULT 1, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS createurs_ventes ( commande TEXT PRIMARY KEY, createur_id INTEGER NOT NULL, acheteur_id INTEGER NOT NULL, montant TEXT NOT NULL, part TEXT NOT NULL, cree_le INTEGER NOT NULL )`,
@@ -774,6 +775,17 @@ async function notificationsIntelligentes(env) {
   if (dernier - jourMois === 2 && fin.getUTCHours() === 17) {
     const { results: passes } = await env.DB.prepare("SELECT user_id FROM passes WHERE mois = ? LIMIT 300").bind(moisCourant()).all();
     for (const x of passes) await notifierUneFois(env, x.user_id, "passe-fin", moisCourant(), { titre: "🎟️ Votre passe se termine dans 2 jours", texte: "Pensez à récupérer toutes vos récompenses avant le changement de saison !", url: "./#passe" });
+  }
+  // 4) À 18 h (UTC) : il reste des combats classés aujourd'hui à ceux qui jouent en classé ces derniers jours
+  if (new Date(t).getUTCHours() === 18) {
+    const reg = await reglagesJeu(env);
+    const { results: actifs } = await env.DB.prepare(`SELECT a.user_id, CASE WHEN a.classes_jour = ? THEN a.classes_nb ELSE 0 END AS faits FROM arene a
+      WHERE EXISTS (SELECT 1 FROM abonnements ab WHERE ab.user_id = a.user_id) AND (EXISTS (SELECT 1 FROM combats c WHERE c.attaquant = a.user_id AND c.cree_le > ?)
+        OR EXISTS (SELECT 1 FROM duels d WHERE (d.a_id = a.user_id OR d.b_id = a.user_id) AND d.fini_le > ?)) LIMIT 300`).bind(jourUTC(), t - 3 * JOUR, t - 3 * JOUR).all();
+    for (const x of actifs) {
+      const reste = reg.classe.parJour - (x.faits || 0);
+      if (reste > 0) await notifierUneFois(env, x.user_id, "classes-restants", jourUTC(), { titre: `⚔️ Encore ${reste} combat${reste > 1 ? "s" : ""} classé${reste > 1 ? "s" : ""} aujourd'hui`, texte: "Grimpez dans votre ligue avant minuit : trouvez un adversaire en direct !", url: "./#ligues" });
+    }
   }
   await env.DB.prepare("DELETE FROM notifs_envoyees WHERE cree_le < ?").bind(t - 40 * JOUR).run();
 }
@@ -2646,6 +2658,38 @@ route("PUT", "admin/offres/([a-z0-9-]{2,30})", async ({ request, env, user, p })
 
 
 
+
+
+/* =====================================================================
+   Défi viral : les plus belles ouvertures de booster de la semaine, et les amis prévenus d'une légendaire
+   ===================================================================== */
+const POINTS_RARETE = { "commun": 1, "peu-commun": 2, "rare": 5, "epique": 15, "ultra-rare": 40, "legendaire": 100, "secrete": 100 };
+const DERNIERE_OUVERTURE = new Map();
+route("POST", "ouvertures", async ({ request, env, user, ctx }) => {
+  const b = await corps(request);
+  if (maintenant() - (DERNIERE_OUVERTURE.get(user.id) || 0) < 4000) return json({ ok: true, ignore: true });
+  DERNIERE_OUVERTURE.set(user.id, maintenant());
+  const cartes = (Array.isArray(b.cartes) ? b.cartes : []).map(String).slice(0, 6), shiny = new Set((Array.isArray(b.shiny) ? b.shiny : []).map(String));
+  if (!cartes.length || cartes.some((id) => !CATALOGUE[id])) return erreur("Ouverture invalide.");
+  const score = cartes.reduce((t, id) => t + (POINTS_RARETE[CATALOGUE[id].rarete] || 1) * (shiny.has(id) ? 2 : 1), 0);
+  const sem = semaineCourante();
+  await env.DB.prepare(`INSERT INTO ouvertures_semaine (semaine, user_id, score, cartes, pack, cree_le) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(semaine, user_id) DO UPDATE SET score = excluded.score, cartes = excluded.cartes, pack = excluded.pack, cree_le = excluded.cree_le WHERE excluded.score > ouvertures_semaine.score`)
+    .bind(sem, user.id, score, JSON.stringify(cartes.map((id) => ({ id, s: shiny.has(id) }))), String(b.pack || "").slice(0, 20), maintenant()).run();
+  // Une légendaire : les amis (réciproques) sont prévenus, une fois par jour au maximum
+  const leg = cartes.find((id) => CATALOGUE[id].rarete === "legendaire");
+  if (leg) enArrierePlan(ctx, (async () => {
+    const { results } = await env.DB.prepare("SELECT a.ami_id AS id FROM amis a WHERE a.user_id = ?1 AND EXISTS (SELECT 1 FROM amis b WHERE b.user_id = a.ami_id AND b.ami_id = ?1) LIMIT 50").bind(user.id).all();
+    for (const x of results) await notifierUneFois(env, x.id, "ami-legendaire", `${jourUTC()}:${user.id}`, { titre: `🌟 ${user.pseudo} vient d'ouvrir une légendaire !`, texte: `${CATALOGUE[leg].nom} : à vous de tenter votre chance.`, url: "./#boosters" });
+  })());
+  const rang = await env.DB.prepare("SELECT COUNT(*) + 1 AS r FROM ouvertures_semaine WHERE semaine = ? AND score > ?").bind(sem, score).first();
+  return json({ score, rang: rang.r });
+}, { connecte: true });
+route("GET", "ouvertures/semaine", async ({ env }) => {
+  const { results } = await env.DB.prepare(`SELECT o.score, o.cartes, o.pack, o.cree_le, u.pseudo FROM ouvertures_semaine o JOIN users u ON u.id = o.user_id
+    WHERE o.semaine = ? AND u.banni = 0 ORDER BY o.score DESC, o.cree_le ASC LIMIT 10`).bind(semaineCourante()).all();
+  return json({ semaine: semaineCourante(), top: results.map((x) => ({ ...x, cartes: JSON.parse(x.cartes) })) }, 200, { "cache-control": "public, max-age=30" });
+});
 
 /* =====================================================================
    Cosmétiques achetés, code créateur (part reversée sur les achats des joueurs qui le soutiennent), cartes dédicacées
