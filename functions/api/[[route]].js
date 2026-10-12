@@ -100,6 +100,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS photos_perso ( carte TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS rangs ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, couleur TEXT NOT NULL DEFAULT '#888888', description TEXT NOT NULL DEFAULT '', min_pts INTEGER NOT NULL DEFAULT 0, max_pts INTEGER, ordre INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, divisions INTEGER NOT NULL DEFAULT 1, montee TEXT NOT NULL DEFAULT '', descente TEXT NOT NULL DEFAULT '', recompense_pieces INTEGER NOT NULL DEFAULT 0, recompense_boosters INTEGER NOT NULL DEFAULT 0, logo TEXT, logo_maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS offres ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', badge TEXT NOT NULL DEFAULT '', prix_cents INTEGER NOT NULL, prix_reference_cents INTEGER, reference_note TEXT NOT NULL DEFAULT '', pieces INTEGER NOT NULL DEFAULT 0, boosters TEXT NOT NULL DEFAULT '{}', une_fois INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, ordre INTEGER NOT NULL DEFAULT 0, debut INTEGER, fin INTEGER, maj INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS notifs_campagnes ( id INTEGER PRIMARY KEY AUTOINCREMENT, titre TEXT NOT NULL, texte TEXT NOT NULL, url TEXT NOT NULL, cible TEXT NOT NULL, total INTEGER NOT NULL DEFAULT 0, envoyes INTEGER NOT NULL DEFAULT 0, par TEXT, cree_le INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS notifs_file ( campagne_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (campagne_id, user_id) )`,
   `CREATE TABLE IF NOT EXISTS ouvertures_semaine ( semaine TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, score INTEGER NOT NULL, cartes TEXT NOT NULL, pack TEXT, cree_le INTEGER NOT NULL, PRIMARY KEY (semaine, user_id) )`,
   `CREATE TABLE IF NOT EXISTS cosmetiques_achats ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, cle TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, cle) )`,
   `CREATE TABLE IF NOT EXISTS createurs ( code TEXT PRIMARY KEY COLLATE NOCASE, user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE, part INTEGER NOT NULL DEFAULT 10, actif INTEGER NOT NULL DEFAULT 1, cree_le INTEGER NOT NULL )`,
@@ -2724,6 +2726,59 @@ route("GET", "admin/combats", async ({ env }) => {
   const cartes = Object.values(st).map((x) => ({ ...x, taux: Math.round((x.gagnes / x.joues) * 100) }));
   return json({ parJour: { arene: parJourA.results, duels: parJourD.results }, modes: modes.results[0],
     plusJouees: cartes.sort((a, b) => b.joues - a.joues).slice(0, 15), meilleures: cartes.filter((x) => x.joues >= 5).sort((a, b) => b.taux - a.taux).slice(0, 10), pires: cartes.filter((x) => x.joues >= 5).sort((a, b) => a.taux - b.taux).slice(0, 10) });
+}, { admin: true });
+
+
+/* =====================================================================
+   Notifications de l'admin : envoyer une notification (événement, annonce…) à tous ou à un groupe de joueurs
+   L'envoi se fait par lots, relancés par la page d'admin, pour rester sous les limites du Worker.
+   ===================================================================== */
+const CIBLES_NOTIF = {
+  tous: { nom: "Tous les joueurs abonnés", sql: "SELECT DISTINCT a.user_id FROM abonnements a JOIN users u ON u.id = a.user_id WHERE u.banni = 0", args: () => [] },
+  actifs: { nom: "Joueurs actifs (7 derniers jours)", sql: "SELECT DISTINCT a.user_id FROM abonnements a JOIN users u ON u.id = a.user_id WHERE u.banni = 0 AND u.derniere_co > ?", args: (t) => [t - 7 * JOUR] },
+  inactifs: { nom: "Joueurs absents depuis 3 jours (pour les faire revenir)", sql: "SELECT DISTINCT a.user_id FROM abonnements a JOIN users u ON u.id = a.user_id WHERE u.banni = 0 AND COALESCE(u.derniere_co, 0) < ?", args: (t) => [t - 3 * JOUR] },
+  premium: { nom: "Joueurs Premium", sql: "SELECT DISTINCT a.user_id FROM abonnements a JOIN users u ON u.id = a.user_id WHERE u.banni = 0 AND u.premium_jusqu > ?", args: (t) => [t] },
+  guildes: { nom: "Membres d'une guilde", sql: "SELECT DISTINCT a.user_id FROM abonnements a JOIN users u ON u.id = a.user_id JOIN guilde_membres m ON m.user_id = u.id WHERE u.banni = 0", args: () => [] },
+};
+const PAGES_NOTIF = ["accueil", "boosters", "ligues", "hub", "missions", "combat", "albums", "decks", "succes", "passe", "samedi", "guilde", "premium"];
+route("GET", "admin/notifs", async ({ env }) => {
+  const t = maintenant(), comptes = {};
+  for (const [k, c] of Object.entries(CIBLES_NOTIF)) comptes[k] = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM (${c.sql})`).bind(...c.args(t)).first()).n;
+  const { results } = await env.DB.prepare("SELECT id, titre, texte, url, cible, total, envoyes, par, cree_le FROM notifs_campagnes ORDER BY id DESC LIMIT 20").all();
+  return json({ cibles: Object.fromEntries(Object.entries(CIBLES_NOTIF).map(([k, c]) => [k, { nom: c.nom, n: comptes[k] }])), pages: PAGES_NOTIF, historique: results });
+}, { admin: true });
+route("POST", "admin/notifs", async ({ request, env, user }) => {
+  const b = await corps(request), t = maintenant();
+  const titre = String(b.titre || "").trim().slice(0, 80), texte = String(b.texte || "").trim().slice(0, 200);
+  if (titre.length < 2 || texte.length < 2) return erreur("Indiquez un titre et un message.");
+  const page = PAGES_NOTIF.includes(b.page) ? b.page : "accueil", url = page === "accueil" ? "./" : "./#" + page;
+  let ids;
+  if (b.cible === "pseudo") {
+    const u = await env.DB.prepare("SELECT id FROM users WHERE pseudo = ?").bind(String(b.pseudo || "")).first();
+    if (!u) return erreur("Joueur introuvable.", 404);
+    ids = [u.id];
+  } else {
+    const c = CIBLES_NOTIF[b.cible]; if (!c) return erreur("Cible inconnue.");
+    ids = (await env.DB.prepare(c.sql).bind(...c.args(t)).all()).results.map((x) => x.user_id);
+  }
+  if (!ids.length) return erreur("Aucun joueur abonné aux notifications dans cette cible.");
+  const r = await env.DB.prepare("INSERT INTO notifs_campagnes (titre, texte, url, cible, total, par, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(titre, texte, url, b.cible === "pseudo" ? "@" + b.pseudo : b.cible, ids.length, user.pseudo, t).run();
+  const id = r.meta.last_row_id;
+  for (let i = 0; i < ids.length; i += 50) await env.DB.batch(ids.slice(i, i + 50).map((u) => env.DB.prepare("INSERT OR IGNORE INTO notifs_file (campagne_id, user_id) VALUES (?, ?)").bind(id, u)));
+  await journaliser(env, user.id, "notification envoyée", `${titre} → ${ids.length} joueur(s)`, "admin");
+  return json({ id, total: ids.length });
+}, { admin: true });
+route("POST", "admin/notifs/(\\d+)/envoyer", async ({ env, p }) => {
+  const c = await env.DB.prepare("SELECT * FROM notifs_campagnes WHERE id = ?").bind(p[1]).first();
+  if (!c) return erreur("Envoi introuvable.", 404);
+  const { results } = await env.DB.prepare("SELECT user_id FROM notifs_file WHERE campagne_id = ? LIMIT 15").bind(c.id).all();
+  for (const { user_id } of results) {
+    await envoyerPush(env, user_id, { titre: c.titre, texte: c.texte, url: c.url }).catch((e) => console.error("notif", e));
+    await env.DB.prepare("DELETE FROM notifs_file WHERE campagne_id = ? AND user_id = ?").bind(c.id, user_id).run();
+  }
+  if (results.length) await env.DB.prepare("UPDATE notifs_campagnes SET envoyes = envoyes + ? WHERE id = ?").bind(results.length, c.id).run();
+  const reste = (await env.DB.prepare("SELECT COUNT(*) AS n FROM notifs_file WHERE campagne_id = ?").bind(c.id).first()).n;
+  return json({ envoyes: c.envoyes + results.length, total: c.total, restants: reste });
 }, { admin: true });
 
 /* =====================================================================

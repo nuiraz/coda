@@ -1155,3 +1155,48 @@ async function adminImages(el) {
     });
   } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
+
+/* ---------- Admin : envoyer une notification aux joueurs ---------- */
+const MODELES_NOTIF = [
+  ["🎉 Événement en cours", "🎉 Événement en cours !", "Un événement vient de commencer sur Play2F1 : venez en profiter maintenant !", "accueil"],
+  ["🏟️ Tournoi", "🏟️ Le tournoi commence !", "Le tournoi du samedi ouvre ses inscriptions : rejoignez-le avant le départ.", "samedi"],
+  ["🎁 Nouveau booster", "🎁 Nouveau booster disponible", "Un nouveau booster vient d'arriver dans la boutique. Qui sortira la légendaire ?", "boosters"],
+  ["⚔️ Week-end classé", "⚔️ Week-end de combats classés", "Grimpez dans votre ligue ce week-end : la guerre de guildes a commencé !", "ligues"],
+  ["🔧 Maintenance", "🔧 Petite pause technique", "Play2F1 fait une courte maintenance. Merci de votre patience, on revient vite !", "accueil"],
+];
+async function adminNotifs(el) {
+  el.innerHTML = `<p class="muted">Chargement…</p>`;
+  let d; try { d = await api("admin/notifs"); } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  const NOMS_PAGES = { accueil: "Accueil", boosters: "Boutique", ligues: "Ligues", hub: "Communauté", missions: "Missions", combat: "Combat", albums: "Albums", decks: "Decks", succes: "Succès", passe: "Passe de saison", samedi: "Tournoi du samedi", guilde: "Guildes", premium: "Premium" };
+  el.innerHTML = `<section class="panel"><h3 style="margin-top:0">🔔 Envoyer une notification</h3>
+      <p class="muted">Elle arrive sur le téléphone ou l'ordinateur des joueurs qui ont activé les notifications, même jeu fermé. Toucher la notification ouvre la page choisie.</p>
+      <div class="toolbar">${MODELES_NOTIF.map((m, i) => `<button class="chip" data-modele="${i}">${esc(m[0])}</button>`).join("")}</div>
+      <form class="form" id="fNotif"><div class="rf-grille">
+        <label class="large">Titre<input name="titre" maxlength="80" required placeholder="Ex. : 🎉 Événement Halloween en cours !"></label>
+        <label class="large">Message<input name="texte" maxlength="200" required placeholder="Ex. : 12 cartes exclusives jusqu'à dimanche : ouvrez vite un booster !"></label>
+        <label>Page ouverte au toucher<select name="page">${d.pages.map((p) => `<option value="${p}">${esc(NOMS_PAGES[p] || p)}</option>`).join("")}</select></label>
+        <label>Destinataires<select name="cible">${Object.entries(d.cibles).map(([k, c]) => `<option value="${k}">${esc(c.nom)} (${c.n})</option>`).join("")}<option value="pseudo">Un seul joueur (test)</option></select></label>
+        <label id="nfPseudo" hidden>Pseudo<input name="pseudo" maxlength="20"></label></div>
+        <div class="notif-apercu"><img src="icons/icon-192.png" alt=""><div><b id="nfT">Titre</b><span id="nfX">Message</span></div><small>Play2F1 · maintenant</small></div>
+        <button class="btn primary" id="nfGo">📣 Envoyer</button> <span class="muted" id="nfEtat"></span></form></section>
+    <section class="panel"><h3 style="margin-top:0">Historique</h3>${d.historique.length ? `<table class="classement"><tbody>${d.historique.map((h) => `<tr><td>${depuis(h.cree_le)}</td><td><b>${esc(h.titre)}</b><br><small class="muted">${esc(h.texte)}</small></td><td>${esc(d.cibles[h.cible]?.nom || h.cible)}</td><td>${h.envoyes}/${h.total}</td></tr>`).join("")}</tbody></table>` : `<p class="muted">Aucune notification envoyée pour l'instant.</p>`}</section>`;
+  const f = $("#fNotif");
+  const apercu = () => { $("#nfT").textContent = f.titre.value || "Titre"; $("#nfX").textContent = f.texte.value || "Message"; $("#nfPseudo").hidden = f.cible.value !== "pseudo"; };
+  f.oninput = apercu; f.onchange = apercu;
+  $$("[data-modele]", el).forEach((b) => b.onclick = () => { const m = MODELES_NOTIF[b.dataset.modele]; f.titre.value = m[1]; f.texte.value = m[2]; f.page.value = m[3]; apercu(); });
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const nb = f.cible.value === "pseudo" ? 1 : d.cibles[f.cible.value]?.n || 0;
+    if (!confirm(`Envoyer « ${f.titre.value} » à ${nb} joueur(s) ?`)) return;
+    $("#nfGo").disabled = true;
+    try {
+      const { id, total } = await api("admin/notifs", { methode: "POST", corps: Object.fromEntries(new FormData(f)) });
+      for (;;) {
+        const r = await api(`admin/notifs/${id}/envoyer`, { methode: "POST", corps: {} });
+        $("#nfEtat").textContent = `Envoi… ${r.envoyes}/${total}`;
+        if (!r.restants) break;
+      }
+      toast(`📣 Notification envoyée à ${total} joueur(s).`); adminNotifs(el);
+    } catch (err) { $("#nfEtat").textContent = "⚠ " + err.message; $("#nfGo").disabled = false; }
+  };
+}
