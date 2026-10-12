@@ -100,6 +100,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS photos_perso ( carte TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS rangs ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, couleur TEXT NOT NULL DEFAULT '#888888', description TEXT NOT NULL DEFAULT '', min_pts INTEGER NOT NULL DEFAULT 0, max_pts INTEGER, ordre INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, divisions INTEGER NOT NULL DEFAULT 1, montee TEXT NOT NULL DEFAULT '', descente TEXT NOT NULL DEFAULT '', recompense_pieces INTEGER NOT NULL DEFAULT 0, recompense_boosters INTEGER NOT NULL DEFAULT 0, logo TEXT, logo_maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS offres ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', badge TEXT NOT NULL DEFAULT '', prix_cents INTEGER NOT NULL, prix_reference_cents INTEGER, reference_note TEXT NOT NULL DEFAULT '', pieces INTEGER NOT NULL DEFAULT 0, boosters TEXT NOT NULL DEFAULT '{}', une_fois INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, ordre INTEGER NOT NULL DEFAULT 0, debut INTEGER, fin INTEGER, maj INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS activite ( user_id INTEGER NOT NULL, jour TEXT NOT NULL, PRIMARY KEY (user_id, jour) )`,
   `CREATE TABLE IF NOT EXISTS notifs_campagnes ( id INTEGER PRIMARY KEY AUTOINCREMENT, titre TEXT NOT NULL, texte TEXT NOT NULL, url TEXT NOT NULL, cible TEXT NOT NULL, total INTEGER NOT NULL DEFAULT 0, envoyes INTEGER NOT NULL DEFAULT 0, par TEXT, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS notifs_file ( campagne_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (campagne_id, user_id) )`,
   `CREATE TABLE IF NOT EXISTS ouvertures_semaine ( semaine TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, score INTEGER NOT NULL, cartes TEXT NOT NULL, pack TEXT, cree_le INTEGER NOT NULL, PRIMARY KEY (semaine, user_id) )`,
@@ -150,6 +151,9 @@ const MIGRATIONS = [
   `ALTER TABLE offres ADD COLUMN cosmetique TEXT`,
   `ALTER TABLE users ADD COLUMN code_createur TEXT`,
   `ALTER TABLE duels ADD COLUMN aleatoire INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE notifs_campagnes ADD COLUMN programme_le INTEGER`,
+  `ALTER TABLE notifs_campagnes ADD COLUMN statut TEXT NOT NULL DEFAULT 'fini'`,
+  `ALTER TABLE notifs_campagnes ADD COLUMN discord INTEGER NOT NULL DEFAULT 0`,
 ];
 let schemaPret = false;
 // Empreinte du schéma : si la base est déjà à jour, une seule lecture suffit au démarrage d'une instance
@@ -804,6 +808,7 @@ export async function planifie(env) {
   try { await notificationsIntelligentes(env); } catch (e) { console.error(e); }
   try { await cronTournoiDirect(env); } catch (e) { console.error(e); }
   try { await cloturerGuerres(env); } catch (e) { console.error(e); }
+  try { await cronNotifs(env); } catch (e) { console.error(e); }
   const jourSync = new Date().toISOString().slice(0, 10), dejaJour = (await lireConfig(env, "sync_jour")) === jourSync;
   if (!dejaJour) await ecrireConfig(env, "sync_jour", jourSync);
   try { await syncSupabase(env, !dejaJour); } catch (e) { console.error(e); }
@@ -1025,6 +1030,7 @@ route("GET", "arene/classement", async ({ env }) => {
    Joueurs en ligne, temps de jeu, métriques et bouclier anti-bot
    ===================================================================== */
 const EN_LIGNE_MS = 2 * 60000;
+const ACTIVITE_VUE = new Map(); // évite d'écrire l'activité du jour à chaque signal
 route("POST", "presence/ping", async ({ request, env, user }) => {
   let b = {}; try { b = await request.json(); } catch {}
   const visiteur = String(b.visiteur || "").replace(/[^a-z0-9]/gi, "").slice(0, 24);
@@ -1037,6 +1043,7 @@ route("POST", "presence/ping", async ({ request, env, user }) => {
     // Temps de jeu : on compte le temps écoulé depuis le dernier signal (au plus 2 minutes)
     if (user && avant && maintenant() - avant.vu < EN_LIGNE_MS) requetes.push(env.DB.prepare("UPDATE users SET temps_jeu = temps_jeu + ? WHERE id = ?").bind(Math.round((maintenant() - avant.vu) / 1000), user.id));
   }
+  if (user && ACTIVITE_VUE.get(user.id) !== jourUTC()) { ACTIVITE_VUE.set(user.id, jourUTC()); requetes.push(env.DB.prepare("INSERT OR IGNORE INTO activite (user_id, jour) VALUES (?, ?)").bind(user.id, jourUTC())); }
   if (requetes.length) await env.DB.batch(requetes);
   const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM presence WHERE vu > ?").bind(maintenant() - EN_LIGNE_MS).first();
   const alerte = user?.admin ? await lireConfig(env, "alerte") : null;
@@ -1295,6 +1302,7 @@ route("POST", "admin/evenement", async ({ request, env, ctx }) => {
   const jours = Math.max(1, Math.min(60, Math.floor(Number(b.jours) || 7)));
   const ev = { cle: b.cle, debut: maintenant(), fin: maintenant() + jours * JOUR };
   await ecrireConfig(env, "evenement", ev);
+  enArrierePlan(ctx, annoncerDiscord(env, "evenements", { titre: `🎉 Événement : ${NOM_EVENEMENT(b.cle)} !`, texte: `Des cartes exclusives à collectionner jusqu'au ${new Date(ev.fin).toLocaleDateString("fr-FR", { timeZone: "Europe/Brussels" })}. Ouvrez vite un booster d'événement !`, url: "./#boosters", couleur: 0x9b51e0 }));
   if (b.prevenir) enArrierePlan(ctx, (async () => {
     const { results } = await env.DB.prepare("SELECT DISTINCT user_id FROM abonnements LIMIT 1000").all();
     for (const { user_id } of results) await envoyerPush(env, user_id, { titre: `🎉 Événement : ${NOM_EVENEMENT(b.cle)} !`, texte: "Cartes exclusives à collectionner pendant une durée limitée.", url: "./#boosters" });
@@ -2346,6 +2354,7 @@ async function lancerTournoiDirect(env, sem, force = false) {
   const tableau = { joueurs, tours };
   await env.DB.prepare("INSERT INTO tdirect (semaine, statut, taille, tableau, tour, prochain, cree_le) VALUES (?, 'encours', ?, ?, 0, ?, ?) ON CONFLICT(semaine) DO UPDATE SET statut = 'encours', taille = excluded.taille, tableau = excluded.tableau, tour = 0, prochain = excluded.prochain")
     .bind(sem, taille, JSON.stringify(tableau), maintenant() + (force ? 60000 : 5 * 60000), maintenant()).run();
+  await annoncerDiscord(env, "tournois", { titre: "🏆 Le tournoi du samedi commence !", texte: `${taille} joueurs s'affrontent : ${joueurs.map((j) => j.pseudo).join(", ")}. Une manche toutes les 15 minutes.`, url: "./#samedi", couleur: 0xff6b35 });
   for (const j of joueurs) await envoyerPush(env, j.id, { titre: "🏆 Le tournoi du samedi commence !", texte: `${taille} joueurs, une manche toutes les 15 minutes. Venez suivre vos matchs en direct !`, url: "./#samedi" });
   return { statut: "encours" };
 }
@@ -2375,6 +2384,7 @@ async function avancerTournoiDirect(env, sem, force = false) {
       await envoyerPush(env, j.id, { titre: place === 1 ? "🏆 Vous avez gagné le tournoi !" : "🏆 Tournoi terminé", texte: `${message} : ${pieces} 🪙${boosters ? ` et ${boosters} booster(s)` : ""}.`, url: "./#samedi" });
     }
     tab.champion = tab.joueurs[tour[0].gagnant].pseudo;
+    await annoncerDiscord(env, "tournois", { titre: `🏆 ${tab.champion} remporte le tournoi du samedi !`, texte: `Bravo au champion de la semaine. Inscriptions ouvertes pour samedi prochain, 20 h.`, url: "./#samedi", couleur: 0xffd34d });
   } else {
     const suivant = [];
     for (let i = 0; i < tour.length; i += 2) suivant.push({ a: tour[i].gagnant, b: tour[i + 1].gagnant, gagnant: null });
@@ -2488,7 +2498,7 @@ async function reglagesJeu(env) {
 const nombre = (x, min, max, def) => { const n = Number(x); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
 route("GET", "reglages", async ({ env }) => {
   const r = await reglagesJeu(env);
-  return json({ ...r, tailleDeck: COMBAT.TAILLE_DECK, koVictoire: COMBAT.KO_VICTOIRE }, 200, { "cache-control": "public, max-age=30" });
+  return json({ ...r, tailleDeck: COMBAT.TAILLE_DECK, koVictoire: COMBAT.KO_VICTOIRE, discord: (await configDiscord(env)).invitation }, 200, { "cache-control": "public, max-age=30" });
 });
 route("PUT", "admin/reglages", async ({ request, env, user }) => {
   const b = await corps(request), act = await reglagesJeu(env);
@@ -2816,44 +2826,166 @@ const CIBLES_NOTIF = {
   guildes: { nom: "Membres d'une guilde", sql: "SELECT DISTINCT a.user_id FROM abonnements a JOIN users u ON u.id = a.user_id JOIN guilde_membres m ON m.user_id = u.id WHERE u.banni = 0", args: () => [] },
 };
 const PAGES_NOTIF = ["accueil", "boosters", "ligues", "hub", "missions", "combat", "albums", "decks", "succes", "passe", "samedi", "guilde", "premium"];
+// Prépare la file d'envoi d'une campagne (les destinataires sont calculés au moment de l'envoi)
+async function preparerCampagne(env, c) {
+  const t = maintenant();
+  let ids = [];
+  if (c.cible.startsWith("@")) { const u = await env.DB.prepare("SELECT id FROM users WHERE pseudo = ?").bind(c.cible.slice(1)).first(); if (u) ids = [u.id]; }
+  else if (CIBLES_NOTIF[c.cible]) ids = (await env.DB.prepare(CIBLES_NOTIF[c.cible].sql).bind(...CIBLES_NOTIF[c.cible].args(t)).all()).results.map((x) => x.user_id);
+  for (let i = 0; i < ids.length; i += 50) await env.DB.batch(ids.slice(i, i + 50).map((u) => env.DB.prepare("INSERT OR IGNORE INTO notifs_file (campagne_id, user_id) VALUES (?, ?)").bind(c.id, u)));
+  await env.DB.prepare("UPDATE notifs_campagnes SET statut = ?, total = ? WHERE id = ?").bind(ids.length ? "envoi" : "fini", ids.length, c.id).run();
+  if (c.discord) await annoncerDiscord(env, null, { titre: c.titre, texte: c.texte, url: c.url });
+  return ids.length;
+}
+async function envoyerLot(env, c, n) {
+  const { results } = await env.DB.prepare("SELECT user_id FROM notifs_file WHERE campagne_id = ? LIMIT ?").bind(c.id, n).all();
+  for (const { user_id } of results) {
+    await env.DB.prepare("DELETE FROM notifs_file WHERE campagne_id = ? AND user_id = ?").bind(c.id, user_id).run();
+    await envoyerPush(env, user_id, { titre: c.titre, texte: c.texte, url: c.url }).catch((e) => console.error("notif", e));
+  }
+  if (results.length) await env.DB.prepare("UPDATE notifs_campagnes SET envoyes = envoyes + ? WHERE id = ?").bind(results.length, c.id).run();
+  const reste = (await env.DB.prepare("SELECT COUNT(*) AS n FROM notifs_file WHERE campagne_id = ?").bind(c.id).first()).n;
+  if (!reste) await env.DB.prepare("UPDATE notifs_campagnes SET statut = 'fini' WHERE id = ?").bind(c.id).run();
+  return { envoyes: c.envoyes + results.length, total: c.total, restants: reste, lot: results.length };
+}
+// Toutes les 15 minutes : lance les notifications programmées et termine les envois interrompus
+async function cronNotifs(env) {
+  const t = maintenant();
+  const { results: dues } = await env.DB.prepare("SELECT * FROM notifs_campagnes WHERE statut = 'programmee' AND programme_le <= ? ORDER BY programme_le LIMIT 5").bind(t).all();
+  for (const c of dues) await preparerCampagne(env, c);
+  let budget = 40;
+  const { results: enCours } = await env.DB.prepare("SELECT * FROM notifs_campagnes WHERE statut = 'envoi' AND (programme_le IS NOT NULL OR cree_le < ?) ORDER BY id LIMIT 5").bind(t - 5 * 60000).all();
+  for (const c of enCours) { if (budget <= 0) break; budget -= (await envoyerLot(env, c, budget)).lot; }
+}
 route("GET", "admin/notifs", async ({ env }) => {
   const t = maintenant(), comptes = {};
   for (const [k, c] of Object.entries(CIBLES_NOTIF)) comptes[k] = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM (${c.sql})`).bind(...c.args(t)).first()).n;
-  const { results } = await env.DB.prepare("SELECT id, titre, texte, url, cible, total, envoyes, par, cree_le FROM notifs_campagnes ORDER BY id DESC LIMIT 20").all();
-  return json({ cibles: Object.fromEntries(Object.entries(CIBLES_NOTIF).map(([k, c]) => [k, { nom: c.nom, n: comptes[k] }])), pages: PAGES_NOTIF, historique: results });
+  const { results } = await env.DB.prepare("SELECT id, titre, texte, url, cible, total, envoyes, par, cree_le, statut, programme_le, discord FROM notifs_campagnes ORDER BY (statut = 'programmee') DESC, id DESC LIMIT 30").all();
+  return json({ cibles: Object.fromEntries(Object.entries(CIBLES_NOTIF).map(([k, c]) => [k, { nom: c.nom, n: comptes[k] }])), pages: PAGES_NOTIF, historique: results, discord: !!(await configDiscord(env)).webhook });
 }, { admin: true });
 route("POST", "admin/notifs", async ({ request, env, user }) => {
   const b = await corps(request), t = maintenant();
   const titre = String(b.titre || "").trim().slice(0, 80), texte = String(b.texte || "").trim().slice(0, 200);
   if (titre.length < 2 || texte.length < 2) return erreur("Indiquez un titre et un message.");
   const page = PAGES_NOTIF.includes(b.page) ? b.page : "accueil", url = page === "accueil" ? "./" : "./#" + page;
-  let ids;
+  let cible;
   if (b.cible === "pseudo") {
-    const u = await env.DB.prepare("SELECT id FROM users WHERE pseudo = ?").bind(String(b.pseudo || "")).first();
+    const u = await env.DB.prepare("SELECT pseudo FROM users WHERE pseudo = ?").bind(String(b.pseudo || "")).first();
     if (!u) return erreur("Joueur introuvable.", 404);
-    ids = [u.id];
-  } else {
-    const c = CIBLES_NOTIF[b.cible]; if (!c) return erreur("Cible inconnue.");
-    ids = (await env.DB.prepare(c.sql).bind(...c.args(t)).all()).results.map((x) => x.user_id);
-  }
-  if (!ids.length) return erreur("Aucun joueur abonné aux notifications dans cette cible.");
-  const r = await env.DB.prepare("INSERT INTO notifs_campagnes (titre, texte, url, cible, total, par, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(titre, texte, url, b.cible === "pseudo" ? "@" + b.pseudo : b.cible, ids.length, user.pseudo, t).run();
+    cible = "@" + u.pseudo;
+  } else if (CIBLES_NOTIF[b.cible]) cible = b.cible;
+  else return erreur("Cible inconnue.");
+  const programme = Number(b.programme) || 0;
+  if (programme && (programme < t - 60000 || programme > t + 60 * JOUR)) return erreur("La date d'envoi doit être dans les 60 prochains jours.");
+  const differe = programme > t + 60000;
+  const r = await env.DB.prepare("INSERT INTO notifs_campagnes (titre, texte, url, cible, total, par, cree_le, statut, programme_le, discord) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)")
+    .bind(titre, texte, url, cible, user.pseudo, t, differe ? "programmee" : "envoi", differe ? programme : null, b.discord ? 1 : 0).run();
   const id = r.meta.last_row_id;
-  for (let i = 0; i < ids.length; i += 50) await env.DB.batch(ids.slice(i, i + 50).map((u) => env.DB.prepare("INSERT OR IGNORE INTO notifs_file (campagne_id, user_id) VALUES (?, ?)").bind(id, u)));
-  await journaliser(env, user.id, "notification envoyée", `${titre} → ${ids.length} joueur(s)`, "admin");
-  return json({ id, total: ids.length });
+  if (differe) {
+    await journaliser(env, user.id, "notification programmée", `${titre} → ${new Date(programme).toISOString()}`, "admin");
+    return json({ id, programme });
+  }
+  const total = await preparerCampagne(env, { id, titre, texte, url, cible, discord: b.discord ? 1 : 0 });
+  if (!total && !b.discord) { await env.DB.prepare("DELETE FROM notifs_campagnes WHERE id = ?").bind(id).run(); return erreur("Aucun joueur abonné aux notifications dans cette cible."); }
+  await journaliser(env, user.id, "notification envoyée", `${titre} → ${total} joueur(s)`, "admin");
+  return json({ id, total });
 }, { admin: true });
 route("POST", "admin/notifs/(\\d+)/envoyer", async ({ env, p }) => {
   const c = await env.DB.prepare("SELECT * FROM notifs_campagnes WHERE id = ?").bind(p[1]).first();
   if (!c) return erreur("Envoi introuvable.", 404);
-  const { results } = await env.DB.prepare("SELECT user_id FROM notifs_file WHERE campagne_id = ? LIMIT 15").bind(c.id).all();
-  for (const { user_id } of results) {
-    await envoyerPush(env, user_id, { titre: c.titre, texte: c.texte, url: c.url }).catch((e) => console.error("notif", e));
-    await env.DB.prepare("DELETE FROM notifs_file WHERE campagne_id = ? AND user_id = ?").bind(c.id, user_id).run();
+  if (c.statut === "programmee") return erreur("Cette notification est programmée : elle partira toute seule.");
+  return json(await envoyerLot(env, c, 15));
+}, { admin: true });
+route("DELETE", "admin/notifs/(\\d+)", async ({ env, p }) => {
+  const r = await env.DB.prepare("DELETE FROM notifs_campagnes WHERE id = ? AND statut = 'programmee'").bind(p[1]).run();
+  if (!r.meta.changes) return erreur("Seule une notification programmée (pas encore partie) peut être annulée.");
+  return json({ ok: true });
+}, { admin: true });
+
+/* =====================================================================
+   Discord : lien d'invitation et annonces automatiques (webhook configuré dans l'admin)
+   ===================================================================== */
+const INVITATION_DISCORD = "https://discord.gg/uHnvkZYB6c";
+const SITE_PUBLIC = "https://play2f1.com";
+let discordCache = { t: 0, v: null };
+async function configDiscord(env) {
+  if (discordCache.v && maintenant() - discordCache.t < 30000) return discordCache.v;
+  const lu = (await lireConfig(env, "discord")) || {};
+  const v = { webhook: lu.webhook || "", invitation: lu.invitation || INVITATION_DISCORD, annonces: { legendaires: true, tournois: true, evenements: true, ...(lu.annonces || {}) } };
+  discordCache = { t: maintenant(), v };
+  return v;
+}
+// type : legendaires, tournois, evenements (désactivables dans l'admin) ; null = annonce manuelle
+async function annoncerDiscord(env, type, { titre, texte, url, couleur }) {
+  const c = await configDiscord(env);
+  if (!c.webhook || (type && !c.annonces[type])) return false;
+  const lien = SITE_PUBLIC + "/" + String(url || "").replace(/^\.\//, "");
+  try {
+    const r = await fetch(c.webhook, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "Play2F1", avatar_url: SITE_PUBLIC + "/icons/icon-192.png", allowed_mentions: { parse: [] },
+        embeds: [{ title: String(titre).slice(0, 250), description: String(texte || "").slice(0, 1500), url: lien, color: couleur || 0x0a5cf7, footer: { text: "play2f1.com" } }] }) });
+    return r.ok;
+  } catch (e) { console.error("discord", e); return false; }
+}
+const WEBHOOK_DISCORD = /^https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d{5,25}\/[\w-]{20,100}$/;
+route("GET", "admin/discord", async ({ env }) => { const c = await configDiscord(env); return json({ ...c, webhook: c.webhook ? c.webhook.replace(/\/[\w-]{20,100}$/, "/••••••") : "", configure: !!c.webhook }); }, { admin: true });
+route("PUT", "admin/discord", async ({ request, env, user }) => {
+  const b = await corps(request), act = (await lireConfig(env, "discord")) || {};
+  const nv = { ...act };
+  if (b.webhook !== undefined && !String(b.webhook).includes("••")) {
+    const w = String(b.webhook || "").trim();
+    if (w && !WEBHOOK_DISCORD.test(w)) return erreur("Adresse de webhook Discord invalide (Paramètres du salon → Intégrations → Webhooks → Copier l'URL).");
+    nv.webhook = w;
   }
-  if (results.length) await env.DB.prepare("UPDATE notifs_campagnes SET envoyes = envoyes + ? WHERE id = ?").bind(results.length, c.id).run();
-  const reste = (await env.DB.prepare("SELECT COUNT(*) AS n FROM notifs_file WHERE campagne_id = ?").bind(c.id).first()).n;
-  return json({ envoyes: c.envoyes + results.length, total: c.total, restants: reste });
+  if (b.invitation !== undefined) {
+    const inv = String(b.invitation || "").trim();
+    if (inv && !/^https:\/\/(discord\.gg|discord\.com\/invite)\/[\w-]{2,40}$/.test(inv)) return erreur("Lien d'invitation invalide (https://discord.gg/…).");
+    nv.invitation = inv;
+  }
+  if (b.annonces) nv.annonces = { legendaires: !!b.annonces.legendaires, tournois: !!b.annonces.tournois, evenements: !!b.annonces.evenements };
+  await ecrireConfig(env, "discord", nv);
+  discordCache = { t: 0, v: null };
+  await journaliser(env, user.id, "réglages Discord modifiés", "", "admin");
+  return json({ ok: true });
+}, { admin: true });
+route("POST", "admin/discord/tester", async ({ env }) => {
+  const ok = await annoncerDiscord(env, null, { titre: "👋 Play2F1 est connecté à Discord", texte: "Les annonces automatiques (légendaires, tournois, événements) arriveront dans ce salon.", url: "./" });
+  return ok ? json({ ok: true }) : erreur("Discord n'a pas accepté le message : vérifiez le webhook.", 502);
+}, { admin: true });
+
+/* =====================================================================
+   Suivi des joueurs : rétention (J1, J7, J30), joueurs actifs et entonnoir des nouveaux
+   ===================================================================== */
+route("GET", "admin/retention", async ({ env }) => {
+  const t = maintenant(), depuis30 = t - 30 * JOUR, jour = (ms) => new Date(ms).toISOString().slice(0, 10);
+  // Les jours d'inscription et de dernière connexion comptent comme jours d'activité (historique d'avant le suivi)
+  await env.DB.batch([
+    env.DB.prepare("INSERT OR IGNORE INTO activite (user_id, jour) SELECT id, date(cree_le / 1000, 'unixepoch') FROM users"),
+    env.DB.prepare("INSERT OR IGNORE INTO activite (user_id, jour) SELECT id, date(derniere_co / 1000, 'unixepoch') FROM users WHERE derniere_co IS NOT NULL"),
+  ]);
+  const [cohortes, parJour, actifs, entonnoir] = await env.DB.batch([
+    env.DB.prepare(`SELECT date(u.cree_le / 1000, 'unixepoch') AS jour, COUNT(*) AS inscrits,
+      SUM(EXISTS (SELECT 1 FROM activite a WHERE a.user_id = u.id AND a.jour = date(u.cree_le / 1000, 'unixepoch', '+1 day'))) AS j1,
+      SUM(EXISTS (SELECT 1 FROM activite a WHERE a.user_id = u.id AND a.jour BETWEEN date(u.cree_le / 1000, 'unixepoch', '+6 day') AND date(u.cree_le / 1000, 'unixepoch', '+8 day'))) AS j7,
+      SUM(EXISTS (SELECT 1 FROM activite a WHERE a.user_id = u.id AND a.jour BETWEEN date(u.cree_le / 1000, 'unixepoch', '+28 day') AND date(u.cree_le / 1000, 'unixepoch', '+32 day'))) AS j30,
+      SUM(EXISTS (SELECT 1 FROM activite a WHERE a.user_id = u.id AND a.jour > date(u.cree_le / 1000, 'unixepoch'))) AS revenus
+      FROM users u WHERE u.cree_le > ? GROUP BY jour ORDER BY jour DESC`).bind(t - 60 * JOUR),
+    env.DB.prepare("SELECT jour, COUNT(*) AS n FROM activite WHERE jour >= ? GROUP BY jour ORDER BY jour").bind(jour(depuis30)),
+    env.DB.prepare(`SELECT (SELECT COUNT(*) FROM activite WHERE jour = ?1) AS jour, (SELECT COUNT(DISTINCT user_id) FROM activite WHERE jour > ?2) AS semaine,
+      (SELECT COUNT(DISTINCT user_id) FROM activite WHERE jour > ?3) AS mois, (SELECT COUNT(*) FROM users) AS total`).bind(jour(t), jour(t - 7 * JOUR), jour(depuis30)),
+    env.DB.prepare(`SELECT COUNT(*) AS inscrits,
+      SUM(COALESCE(json_extract(s.data, '$.sauvegarde.ouverts'), 0) >= 1) AS booster,
+      SUM(COALESCE(json_extract(s.data, '$.sauvegarde.ouverts'), 0) >= 5) AS boosters5,
+      SUM(COALESCE(json_array_length(json_extract(s.data, '$.sauvegarde.deck')), 0) >= 1) AS deck,
+      SUM(COALESCE(json_extract(s.data, '$.sauvegarde.combat.victoires'), 0) + COALESCE(json_extract(s.data, '$.sauvegarde.combat.defaites'), 0) >= 1
+        OR EXISTS (SELECT 1 FROM arene ar WHERE ar.user_id = u.id AND ar.victoires + ar.defaites > 0)) AS combat,
+      SUM(json_extract(s.data, '$.sauvegarde.tuto.fini') IS NOT NULL) AS tuto,
+      SUM(EXISTS (SELECT 1 FROM activite a WHERE a.user_id = u.id AND a.jour > date(u.cree_le / 1000, 'unixepoch'))) AS revenu,
+      SUM(COALESCE(json_extract(s.data, '$.sauvegarde.xp'), 0) >= 720) AS niveau5,
+      SUM(EXISTS (SELECT 1 FROM paiements p WHERE p.user_id = u.id AND p.statut = 'paye')) AS payeur
+      FROM users u LEFT JOIN sauvegardes s ON s.user_id = u.id WHERE u.cree_le > ?`).bind(depuis30),
+  ]);
+  return json({ cohortes: cohortes.results, parJour: parJour.results, actifs: actifs.results[0], entonnoir: entonnoir.results[0] });
 }, { admin: true });
 
 /* =====================================================================
@@ -2875,6 +3007,8 @@ route("POST", "ouvertures", async ({ request, env, user, ctx }) => {
   // Une légendaire : les amis (réciproques) sont prévenus, une fois par jour au maximum
   const leg = cartes.find((id) => CATALOGUE[id].rarete === "legendaire");
   if (leg) enArrierePlan(ctx, (async () => {
+    const r1 = await env.DB.prepare("INSERT OR IGNORE INTO notifs_envoyees (user_id, type, cle, cree_le) VALUES (?, 'discord-leg', ?, ?)").bind(user.id, jourUTC(), maintenant()).run();
+    if (r1.meta.changes) await annoncerDiscord(env, "legendaires", { titre: `🌟 ${user.pseudo} a ouvert une carte légendaire !`, texte: `**${CATALOGUE[leg].nom}**${shiny.has(leg) ? " ✨ en version Shiny" : ""}. Qui sera le prochain ?`, url: "./#boosters", couleur: 0xf5b21b });
     const { results } = await env.DB.prepare("SELECT a.ami_id AS id FROM amis a WHERE a.user_id = ?1 AND EXISTS (SELECT 1 FROM amis b WHERE b.user_id = a.ami_id AND b.ami_id = ?1) LIMIT 50").bind(user.id).all();
     for (const x of results) await notifierUneFois(env, x.id, "ami-legendaire", `${jourUTC()}:${user.id}`, { titre: `🌟 ${user.pseudo} vient d'ouvrir une légendaire !`, texte: `${CATALOGUE[leg].nom} : à vous de tenter votre chance.`, url: "./#boosters" });
   })());

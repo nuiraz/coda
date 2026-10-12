@@ -1,8 +1,8 @@
 "use strict";
 // Service worker de Play2F1 : le jeu fonctionne hors ligne et se charge instantanément.
 // Changez VERSION à chaque mise en ligne pour forcer la mise à jour du cache.
-const VERSION = "wc-2026-10-12-53";
-const COEUR = ["./","index.html","style.css","app.js","compte.js","combat.js","combat-ui.js","extras.js","social.js","v3.js","v4.js","i18n.js","manifest.webmanifest", "apple-touch-icon.png","data/silhouettes.js","data/monde.js","data/villes2.js","data/monuments2.js","data/villes3.js","data/monuments3.js","data/nature.js","data/animaux.js","data/plats.js","data/monuments4.js","data/nature2.js","data/animaux2.js","data/plats2.js","data/culture.js","data/extensions.js","data/pays-af.js","data/pays-euas.js","data/pays-amoc.js","data/pays-moyens.js","data/pays-plus.js","data/evenements.js","data/saisons.js","data/photos.js","data/photos-pays.js","icons/apple-touch-icon.png","icons/apple-180.png","icons/favicon-32.png","icons/icon-192.png","icons/icon-512.png","icons/icon-maskable-512.png","icons/icon.svg","icons/logo-2f1.png","icons/logo-site.png"];
+const VERSION = "wc-2026-10-12-54";
+const COEUR = ["./","index.html","style.css","app.js","compte.js","combat.js","combat-ui.js","extras.js","social.js","v3.js","v4.js","v5.js","i18n.js","manifest.webmanifest", "apple-touch-icon.png","data/silhouettes.js","data/monde.js","data/villes2.js","data/monuments2.js","data/villes3.js","data/monuments3.js","data/nature.js","data/animaux.js","data/plats.js","data/monuments4.js","data/nature2.js","data/animaux2.js","data/plats2.js","data/culture.js","data/extensions.js","data/pays-af.js","data/pays-euas.js","data/pays-amoc.js","data/pays-moyens.js","data/pays-plus.js","data/evenements.js","data/saisons.js","data/photos.js","data/photos-pays.js","icons/apple-touch-icon.png","icons/apple-180.png","icons/favicon-32.png","icons/icon-192.png","icons/icon-512.png","icons/icon-maskable-512.png","icons/icon.svg","icons/logo-2f1.png","icons/logo-site.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => Promise.allSettled(COEUR.map((f) => c.add(f)))).then(() => self.skipWaiting()));

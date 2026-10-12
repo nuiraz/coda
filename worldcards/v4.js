@@ -1211,36 +1211,120 @@ const MODELES_NOTIF = [
 async function adminNotifs(el) {
   el.innerHTML = `<p class="muted">Chargement…</p>`;
   let d; try { d = await api("admin/notifs"); } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
-  const NOMS_PAGES = { accueil: "Accueil", boosters: "Boutique", ligues: "Ligues", hub: "Communauté", missions: "Missions", combat: "Combat", albums: "Albums", decks: "Decks", succes: "Succès", passe: "Passe de saison", samedi: "Tournoi du samedi", guilde: "Guildes", premium: "Premium" };
+  const NOMS_PAGES = { accueil: "Accueil", boosters: "Boutique", ligues: "Ligues", hub: "Communauté", missions: "Missions", combat: "Combat", albums: "Albums", decks: "Decks", succes: "Succès", passe: "Passe de saison", samedi: "Tournoi du samedi", guilde: "Guildes", premium: "Premium", defi: "Défi du jour", nations: "Coupe des nations" };
+  const nomCible = (c) => (c.startsWith("@") ? c : d.cibles[c]?.nom || c);
+  const local = (ms) => new Date(ms - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const etat = (h) => h.statut === "programmee" ? `⏰ Prévue le ${new Date(h.programme_le).toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} <button class="btn small" data-annuler="${h.id}">Annuler</button>`
+    : h.statut === "envoi" ? `⏳ En cours ${h.envoyes}/${h.total}` : `✅ ${h.envoyes}/${h.total}`;
   el.innerHTML = `<section class="panel"><h3 style="margin-top:0">🔔 Envoyer une notification</h3>
-      <p class="muted">Elle arrive sur le téléphone ou l'ordinateur des joueurs qui ont activé les notifications, même jeu fermé. Toucher la notification ouvre la page choisie.</p>
+      <p class="muted">Elle arrive sur le téléphone ou l'ordinateur des joueurs qui ont activé les notifications, même jeu fermé. Toucher la notification ouvre la page choisie. Vous pouvez aussi la <b>programmer</b> : elle part toute seule à l'heure prévue (à 15 minutes près).</p>
       <div class="toolbar">${MODELES_NOTIF.map((m, i) => `<button class="chip" data-modele="${i}">${esc(m[0])}</button>`).join("")}</div>
       <form class="form" id="fNotif"><div class="rf-grille">
         <label class="large">Titre<input name="titre" maxlength="80" required placeholder="Ex. : 🎉 Événement Halloween en cours !"></label>
         <label class="large">Message<input name="texte" maxlength="200" required placeholder="Ex. : 12 cartes exclusives jusqu'à dimanche : ouvrez vite un booster !"></label>
         <label>Page ouverte au toucher<select name="page">${d.pages.map((p) => `<option value="${p}">${esc(NOMS_PAGES[p] || p)}</option>`).join("")}</select></label>
         <label>Destinataires<select name="cible">${Object.entries(d.cibles).map(([k, c]) => `<option value="${k}">${esc(c.nom)} (${c.n})</option>`).join("")}<option value="pseudo">Un seul joueur (test)</option></select></label>
-        <label id="nfPseudo" hidden>Pseudo<input name="pseudo" maxlength="20"></label></div>
+        <label id="nfPseudo" hidden>Pseudo<input name="pseudo" maxlength="20"></label>
+        <label>Quand<select name="quand"><option value="">Tout de suite</option><option value="plus-tard">Programmer…</option></select></label>
+        <label id="nfDate" hidden>Date et heure<input type="datetime-local" name="date" min="${local(Date.now())}"></label></div>
+        <div class="toolbar" id="nfRaccourcis" hidden><button type="button" class="chip" data-raccourci="samedi">Samedi 20 h</button><button type="button" class="chip" data-raccourci="demain">Demain 18 h</button><button type="button" class="chip" data-raccourci="heure">Dans 1 h</button></div>
+        <label class="check"><input type="checkbox" name="discord" ${d.discord ? "" : "disabled"}> Publier aussi sur Discord ${d.discord ? "" : `<small class="muted">(configurez le webhook dans l'onglet 💬 Discord)</small>`}</label>
         <div class="notif-apercu"><img src="icons/icon-192.png" alt=""><div><b id="nfT">Titre</b><span id="nfX">Message</span></div><small>Play2F1 · maintenant</small></div>
         <button class="btn primary" id="nfGo">📣 Envoyer</button> <span class="muted" id="nfEtat"></span></form></section>
-    <section class="panel"><h3 style="margin-top:0">Historique</h3>${d.historique.length ? `<table class="classement"><tbody>${d.historique.map((h) => `<tr><td>${depuis(h.cree_le)}</td><td><b>${esc(h.titre)}</b><br><small class="muted">${esc(h.texte)}</small></td><td>${esc(d.cibles[h.cible]?.nom || h.cible)}</td><td>${h.envoyes}/${h.total}</td></tr>`).join("")}</tbody></table>` : `<p class="muted">Aucune notification envoyée pour l'instant.</p>`}</section>`;
+    <section class="panel"><h3 style="margin-top:0">Programmées et historique</h3>${d.historique.length ? `<div style="overflow-x:auto"><table class="classement"><tbody>${d.historique.map((h) => `<tr><td>${depuis(h.cree_le)}</td><td><b>${esc(h.titre)}</b>${h.discord ? " 💬" : ""}<br><small class="muted">${esc(h.texte)}</small></td><td>${esc(nomCible(h.cible))}</td><td>${etat(h)}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">Aucune notification envoyée pour l'instant.</p>`}</section>`;
   const f = $("#fNotif");
-  const apercu = () => { $("#nfT").textContent = f.titre.value || "Titre"; $("#nfX").textContent = f.texte.value || "Message"; $("#nfPseudo").hidden = f.cible.value !== "pseudo"; };
+  const plusTard = () => f.quand.value === "plus-tard";
+  const apercu = () => {
+    $("#nfT").textContent = f.titre.value || "Titre"; $("#nfX").textContent = f.texte.value || "Message"; $("#nfPseudo").hidden = f.cible.value !== "pseudo";
+    $("#nfDate").hidden = $("#nfRaccourcis").hidden = !plusTard(); f.date.required = plusTard();
+    $("#nfGo").textContent = plusTard() ? "⏰ Programmer" : "📣 Envoyer";
+  };
   f.oninput = apercu; f.onchange = apercu;
   $$("[data-modele]", el).forEach((b) => b.onclick = () => { const m = MODELES_NOTIF[b.dataset.modele]; f.titre.value = m[1]; f.texte.value = m[2]; f.page.value = m[3]; apercu(); });
+  $$("[data-raccourci]", el).forEach((b) => b.onclick = () => {
+    const x = new Date(); x.setSeconds(0, 0);
+    if (b.dataset.raccourci === "heure") x.setHours(x.getHours() + 1);
+    else { x.setMinutes(0); x.setHours(b.dataset.raccourci === "demain" ? 18 : 20); x.setDate(x.getDate() + (b.dataset.raccourci === "demain" ? 1 : ((6 - x.getDay() + 7) % 7 || (new Date().getHours() >= 20 ? 7 : 0)))); }
+    f.date.value = local(x.getTime());
+  });
+  $$("[data-annuler]", el).forEach((b) => b.onclick = async () => {
+    if (!confirm("Annuler cette notification programmée ?")) return;
+    try { await api(`admin/notifs/${b.dataset.annuler}`, { methode: "DELETE" }); toast("Notification annulée."); adminNotifs(el); } catch (e) { toast("⚠ " + e.message); }
+  });
   f.onsubmit = async (e) => {
     e.preventDefault();
     const nb = f.cible.value === "pseudo" ? 1 : d.cibles[f.cible.value]?.n || 0;
-    if (!confirm(`Envoyer « ${f.titre.value} » à ${nb} joueur(s) ?`)) return;
+    const quand = plusTard() ? new Date(f.date.value).getTime() : 0;
+    if (plusTard() && !(quand > Date.now())) { $("#nfEtat").textContent = "⚠ Choisissez une date à venir."; return; }
+    if (!confirm(plusTard() ? `Programmer « ${f.titre.value} » pour le ${new Date(quand).toLocaleString("fr-FR")} ?` : `Envoyer « ${f.titre.value} » à ${nb} joueur(s) ?`)) return;
     $("#nfGo").disabled = true;
+    const corps = { titre: f.titre.value, texte: f.texte.value, page: f.page.value, cible: f.cible.value, pseudo: f.pseudo.value, discord: f.discord.checked, programme: quand || undefined };
     try {
-      const { id, total } = await api("admin/notifs", { methode: "POST", corps: Object.fromEntries(new FormData(f)) });
-      for (;;) {
-        const r = await api(`admin/notifs/${id}/envoyer`, { methode: "POST", corps: {} });
+      const r0 = await api("admin/notifs", { methode: "POST", corps });
+      if (r0.programme) { toast(`⏰ Notification programmée pour le ${new Date(r0.programme).toLocaleString("fr-FR")}.`); adminNotifs(el); return; }
+      const { id, total } = r0;
+      for (let r = { restants: total }; r.restants;) {
+        r = await api(`admin/notifs/${id}/envoyer`, { methode: "POST", corps: {} });
         $("#nfEtat").textContent = `Envoi… ${r.envoyes}/${total}`;
-        if (!r.restants) break;
       }
       toast(`📣 Notification envoyée à ${total} joueur(s).`); adminNotifs(el);
     } catch (err) { $("#nfEtat").textContent = "⚠ " + err.message; $("#nfGo").disabled = false; }
   };
+}
+
+/* ---------- Admin : Discord (webhook des annonces et lien d'invitation) ---------- */
+async function adminDiscord(el) {
+  el.innerHTML = `<p class="muted">Chargement…</p>`;
+  let d; try { d = await api("admin/discord"); } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  el.innerHTML = `<section class="panel"><h3 style="margin-top:0">💬 Discord</h3>
+    <p class="muted">Le lien d'invitation apparaît dans le jeu (accueil, communauté, bas de page). Le <b>webhook</b> permet au jeu de publier tout seul dans un salon de votre serveur : sur Discord, ouvrez les paramètres du salon (ex. #annonces) → <b>Intégrations</b> → <b>Webhooks</b> → <b>Nouveau webhook</b> → <b>Copier l'URL du webhook</b>, puis collez-la ici.</p>
+    <form class="form" id="fDiscord" style="max-width:640px">
+      <label>Lien d'invitation<input name="invitation" value="${esc(d.invitation)}" placeholder="https://discord.gg/…"></label>
+      <label>URL du webhook ${d.configure ? "✅" : ""}<input name="webhook" value="${esc(d.webhook)}" placeholder="https://discord.com/api/webhooks/…" autocomplete="off"></label>
+      <fieldset class="panel" style="margin:0"><legend>Annonces automatiques</legend>
+        <label class="check"><input type="checkbox" name="legendaires" ${d.annonces.legendaires ? "checked" : ""}> 🌟 Cartes légendaires ouvertes (une fois par jour et par joueur)</label>
+        <label class="check"><input type="checkbox" name="tournois" ${d.annonces.tournois ? "checked" : ""}> 🏆 Début et champion du tournoi du samedi</label>
+        <label class="check"><input type="checkbox" name="evenements" ${d.annonces.evenements ? "checked" : ""}> 🎉 Lancement des événements et boosters limités</label>
+        <p class="muted" style="margin:6px 0 0;font-size:13px">Les notifications de l'onglet 🔔 peuvent aussi être publiées sur Discord (case à cocher).</p></fieldset>
+      <div class="row"><button class="btn primary">Enregistrer</button><button type="button" class="btn" id="dcTest" ${d.configure ? "" : "disabled"}>📨 Envoyer un message de test</button><span class="muted" id="dcEtat"></span></div>
+    </form></section>`;
+  const f = $("#fDiscord");
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api("admin/discord", { methode: "PUT", corps: { invitation: f.invitation.value, webhook: f.webhook.value, annonces: { legendaires: f.legendaires.checked, tournois: f.tournois.checked, evenements: f.evenements.checked } } });
+      toast("💬 Réglages Discord enregistrés."); adminDiscord(el);
+    } catch (err) { $("#dcEtat").textContent = "⚠ " + err.message; }
+  };
+  $("#dcTest").onclick = async () => {
+    try { await api("admin/discord/tester", { methode: "POST", corps: {} }); $("#dcEtat").textContent = "✅ Message publié sur Discord."; } catch (err) { $("#dcEtat").textContent = "⚠ " + err.message; }
+  };
+}
+
+/* ---------- Admin : rétention et entonnoir des nouveaux joueurs ---------- */
+async function adminRetention(el) {
+  el.innerHTML = `<p class="muted">Chargement…</p>`;
+  let d; try { d = await api("admin/retention"); } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  const pc = (n, t) => (t ? Math.round((n / t) * 100) : 0);
+  const cellule = (n, t, mur) => mur ? `<td class="muted">—</td>` : `<td><span class="ret-pc" style="--p:${pc(n, t)}">${pc(n, t)} %</span><small class="muted"> ${n}</small></td>`;
+  const ageJours = (jour) => Math.floor((Date.now() - Date.parse(jour + "T00:00:00Z")) / 86400000);
+  const total = (k) => d.cohortes.reduce((t, c) => t + (c[k] || 0), 0);
+  const base = (min) => d.cohortes.filter((c) => ageJours(c.jour) >= min).reduce((t, c) => t + c.inscrits, 0);
+  const totalMur = (k, min) => d.cohortes.filter((c) => ageJours(c.jour) >= min).reduce((t, c) => t + (c[k] || 0), 0);
+  const e = d.entonnoir, etapes = [["inscrits", "Inscription"], ["booster", "1er booster ouvert"], ["tuto", "Tutoriel terminé"], ["deck", "Deck créé"], ["combat", "1er combat"], ["revenu", "Revenu un autre jour"], ["boosters5", "5 boosters ouverts"], ["niveau5", "Niveau 5"], ["payeur", "Achat"]];
+  const max = Math.max(1, ...d.parJour.map((x) => x.n));
+  el.innerHTML = `<div class="statgrid" style="margin-bottom:12px">
+      <div class="stat"><b>${d.actifs.jour}</b><span>Actifs aujourd'hui</span></div><div class="stat"><b>${d.actifs.semaine}</b><span>Actifs (7 jours)</span></div>
+      <div class="stat"><b>${d.actifs.mois}</b><span>Actifs (30 jours)</span></div><div class="stat"><b>${d.actifs.total}</b><span>Comptes au total</span></div>
+      <div class="stat"><b>${pc(totalMur("j1", 1), base(1))} %</b><span>Reviennent le lendemain (J1)</span></div><div class="stat"><b>${pc(totalMur("j7", 8), base(8))} %</b><span>Encore là après 7 jours (J7)</span></div></div>
+    <section class="panel"><h3 style="margin-top:0">Joueurs actifs par jour (30 jours)</h3><div class="barres">${d.parJour.map((x) => `<div title="${x.jour} : ${x.n}"><i class="b-duel" style="height:${(x.n / max) * 100}%"></i><small>${x.jour.slice(8)}</small></div>`).join("")}</div></section>
+    <section class="panel"><h3 style="margin-top:0">Où les nouveaux s'arrêtent (inscrits des 30 derniers jours)</h3>
+      <p class="muted">Chaque barre montre la part des nouveaux joueurs qui ont atteint l'étape. La plus grosse chute indique ce qu'il faut améliorer en priorité.</p>
+      <div class="entonnoir">${etapes.map(([k, nom], i) => `<div class="et-ligne"><span>${nom}</span><div class="et-barre"><i style="width:${pc(e[k] || 0, e.inscrits)}%"></i></div><b>${pc(e[k] || 0, e.inscrits)} %</b><small class="muted">${e[k] || 0}${i && etapes[i - 1] && (e[etapes[i - 1][0]] || 0) > (e[k] || 0) && k !== "tuto" ? ` · −${(e[etapes[i - 1][0]] || 0) - (e[k] || 0)}` : ""}</small></div>`).join("")}</div></section>
+    <section class="panel"><h3 style="margin-top:0">Rétention par jour d'inscription</h3>
+      <p class="muted">J1 : revenu le lendemain · J7 : revenu autour du 7e jour · J30 : autour du 30e jour · Revenus : revenu au moins une fois. « — » : pas encore mesurable.</p>
+      <div style="overflow-x:auto"><table class="classement"><thead><tr><th>Inscription</th><th>Inscrits</th><th>J1</th><th>J7</th><th>J30</th><th>Revenus</th></tr></thead><tbody>
+      ${d.cohortes.map((c) => `<tr><td>${new Date(c.jour).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}</td><td>${c.inscrits}</td>${cellule(c.j1, c.inscrits, ageJours(c.jour) < 1)}${cellule(c.j7, c.inscrits, ageJours(c.jour) < 8)}${cellule(c.j30, c.inscrits, ageJours(c.jour) < 32)}${cellule(c.revenus, c.inscrits, ageJours(c.jour) < 1)}</tr>`).join("")}
+      <tr><td><b>Total</b></td><td><b>${total("inscrits")}</b></td>${cellule(totalMur("j1", 1), base(1))}${cellule(totalMur("j7", 8), base(8))}${cellule(totalMur("j30", 32), base(32), !base(32))}${cellule(totalMur("revenus", 1), base(1))}</tr></tbody></table></div>
+      <p class="muted" style="font-size:13px">Le suivi jour par jour commence avec cette version : avant, seuls le jour d'inscription et la dernière connexion sont connus.</p></section>`;
 }
