@@ -435,8 +435,8 @@ async function vuePasse(v) {
     </section>
     <p class="muted">Gagnez de l'XP en jouant (boosters, combats, quiz, quêtes, connexion du jour). Chaque mois, un nouveau thème et de nouvelles récompenses exclusives.</p>
     ${actif ? `<div class="panel passe-ok">💎 Piste Premium débloquée pour ${esc(nomMois(p.mois))} !</div>`
-      : connecte() ? `<div class="panel passe-achat"><div><b>🔓 Débloquez la piste Premium — 7,99 €</b><br><small class="muted">Cadre et dos de cartes exclusifs, titre « ${esc(nomTitre(`passe-${p.mois}-elite`))} », cartes épiques, boosters Or et Prestige… Valable jusqu'à la fin du mois.</small></div>
-        <div class="row" style="gap:8px;flex-wrap:wrap"><a class="btn primary premium" href="${PAYPAL}/7.99EUR" target="_blank" rel="noopener" id="passePayer">Payer 7,99 € avec PayPal</a><button class="btn" id="passeDemande">✅ J'ai payé</button></div>
+      : connecte() ? `<div class="panel passe-achat"><div><b>🔓 Débloquez la piste Premium — 7,99 €/mois</b><br><small class="muted">Cadre et dos de cartes exclusifs, titre « ${esc(nomTitre(`passe-${p.mois}-elite`))} », cartes épiques, boosters Or et Prestige… Abonnement renouvelé chaque mois pour le nouveau passe, résiliable à tout moment.</small></div>
+        <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn primary premium hidden" data-stripe="passe">💳 Payer 7,99 € par carte</button><a class="btn premium" href="${PAYPAL}/7.99EUR" target="_blank" rel="noopener" id="passePayer">Payer avec PayPal</a><button class="btn" id="passeDemande">✅ J'ai payé (PayPal)</button></div>
         <div class="zone-paypal hidden" data-paypal="passe"></div></div>`
       : `<div class="panel"><a href="#" data-aller="compte">Connectez-vous</a> pour pouvoir débloquer la piste Premium.</div>`}
     ${aRecuperer ? `<button class="btn primary" id="passeTout" style="width:100%;margin:10px 0">🎁 Tout récupérer (${aRecuperer})</button>` : ""}
@@ -470,7 +470,7 @@ async function vuePasse(v) {
     try { await api("premium/demande", { methode: "POST", corps: { formule: "passe", note: "" } }); ouvrirModal(`<div class="reveal"><div style="font-size:52px">🎟️</div><h2>Demande envoyée !</h2><p>L'administrateur vérifie votre paiement et débloque la piste Premium, en général sous 24 h. N'oubliez pas d'indiquer votre pseudo dans la note PayPal.</p><button class="btn primary" data-close>OK</button></div>`); }
     catch (e) { toast("⚠ " + e.message); }
   });
-  if (!actif && connecte()) brancherPaypal();
+  if (!actif && connecte()) { brancherPaypal(); brancherStripe(v); }
 }
 ajouterPage("passe", "🎟️", "Passe", vuePasse);
 
@@ -751,3 +751,77 @@ function vueExpedition(v) {
   v.querySelector(".exp-etape.actuelle")?.scrollIntoView({ block: "center" });
 }
 ajouterPage("expedition", "🧭", "Expédition", vueExpedition);
+
+
+/* =====================================================================
+   Paiement par carte (Stripe Checkout) : redirection vers la page sécurisée de Stripe, puis retour sur le site
+   ===================================================================== */
+async function brancherStripe(racine) {
+  const boutons = $$("[data-stripe]", racine);
+  $$("[data-portail]", racine).forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    try { location.href = (await api("stripe/portail", { methode: "POST", corps: {} })).url; } catch (e) { toast("⚠ " + e.message, 6000); b.disabled = false; }
+  });
+  if (!boutons.length || !connecte()) return;
+  let config; try { config = await api("premium/config"); } catch { return; }
+  if (!config.stripe) return;
+  boutons.forEach((b) => {
+    b.classList.remove("hidden");
+    b.closest(".offre-premium")?.querySelector("[data-payer]")?.classList.add("secours");
+    b.onclick = async () => {
+      b.disabled = true; const texte = b.textContent; b.textContent = "Redirection vers Stripe…";
+      try { location.href = (await api("stripe/checkout", { methode: "POST", corps: { formule: b.dataset.stripe } })).url; }
+      catch (e) { toast("⚠ " + e.message, 6000); b.disabled = false; b.textContent = texte; }
+    };
+  });
+}
+// Retour de Stripe : on confirme le paiement auprès du serveur (qui vérifie tout chez Stripe)
+addEventListener("DOMContentLoaded", async () => {
+  const url = new URL(location.href), session = url.searchParams.get("stripe_session");
+  if (url.searchParams.get("stripe") === "annule") { history.replaceState(null, "", location.pathname + location.hash); toast("Paiement annulé : aucun montant n'a été prélevé."); return; }
+  if (!session) return;
+  history.replaceState(null, "", location.pathname);
+  for (let i = 0; i < 40 && !connecte(); i++) await pause(250); // le temps de retrouver la session du compte
+  if (!connecte()) return toast("⚠ Connectez-vous pour activer votre achat, puis rouvrez le lien de retour.", 8000);
+  for (let essai = 0; essai < 5; essai++) {
+    try {
+      const r = await api("stripe/valider", { methode: "POST", corps: { session } });
+      if (r.formule === "passe") { passeEtat.actif = true; ouvrirModal(`<div class="reveal"><div style="font-size:56px">🎟️</div><h2>Merci ! Votre passe de saison est actif.</h2><p>La piste Premium est débloquée : récupérez vos récompenses !</p><button class="btn primary" data-close>Voir mon passe</button></div>`, () => aller("passe")); }
+      else { majPremium(r.premiumJusqu); COMPTE.stripe = true; majBoutonCompte(); ouvrirModal(`<div class="reveal"><div style="font-size:56px">💎</div><h2>Merci ! Votre Premium est activé.</h2><p>${r.formule === "vie" ? "Premium à vie : merci pour votre soutien !" : "Votre abonnement se renouvelle automatiquement ; vous pouvez le gérer depuis la page Premium."}</p><button class="btn primary" data-close>Super !</button></div>`, () => aller("premium")); }
+      return;
+    } catch (e) {
+      if (e.status !== 402) return toast("⚠ " + e.message, 8000);
+      await pause(2000); // paiement en cours de confirmation chez Stripe
+    }
+  }
+  toast("⏳ Paiement en cours de confirmation : votre achat sera activé sous peu.", 8000);
+});
+
+/* =====================================================================
+   Admin : Stripe et Supabase
+   ===================================================================== */
+async function adminIntegrations(el) {
+  el.innerHTML = `<p class="muted">Chargement…</p>`;
+  try {
+    const r = await api("admin/integrations"), st = r.cles, d = r.supabase.derniere;
+    const ligne = (nom, titre, aide, ph) => `<div class="panel integ">
+      <div class="row" style="justify-content:space-between;gap:8px"><b>${titre}</b><span>${st[nom].configuree ? `✅ configurée (${st[nom].source === "Cloudflare" ? "variable Cloudflare" : "saisie ici"}) · <code>${esc(st[nom].apercu)}</code>` : "❌ pas encore configurée"}</span></div>
+      <p class="muted" style="margin:6px 0">${aide}</p>
+      ${st[nom].source === "Cloudflare" ? "" : `<div class="row" style="gap:6px"><input type="password" autocomplete="off" data-cle="${nom}" placeholder="${ph}" style="flex:1"><button class="btn primary" data-enr="${nom}">Enregistrer</button>${st[nom].configuree ? `<button class="btn" data-suppr="${nom}">Retirer</button>` : ""}</div>`}</div>`;
+    el.innerHTML = `${ligne("STRIPE_SECRET_KEY", "💳 Stripe (paiement par carte)", "Stripe → Développeurs → Clés API → « Clé secrète » (sk_live_…) ou une clé restreinte (rk_live_…). Les 4 produits Stripe sont déjà reliés au site.", "sk_live_… ou rk_live_…")}
+      ${ligne("SUPABASE_SECRET_KEY", "🗄️ Supabase (copie de sauvegarde)", `Supabase → projet « worldcards » → Project Settings → API Keys → « Secret keys » (sb_secret_…). Copie automatique toutes les 15 min vers ${esc(r.supabase.url)}.`, "sb_secret_…")}
+      <div class="panel"><b>📊 État</b><p style="margin:6px 0">${r.abonnementsActifs} abonnement(s) Stripe actif(s) · Dernière copie Supabase : ${d ? `${depuis(d.t)} (${Object.entries(d.n || {}).map(([k, v]) => `${v} ${k}`).join(", ") || "rien de neuf"})` : "jamais"}</p>
+        <button class="btn primary" id="integTester">🔄 Tester Stripe et lancer une copie complète</button><div id="integRes" style="margin-top:8px"></div></div>
+      <p class="muted" style="font-size:12.5px">Les clés sont gardées côté serveur et ne sont jamais renvoyées au navigateur (seul un aperçu masqué s'affiche). Pour plus de sécurité, vous pouvez aussi les mettre en « secrets » dans Cloudflare (Workers → coda → Settings → Variables) : elles sont alors prioritaires.</p>`;
+    $$("[data-enr]", el).forEach((b) => b.onclick = async () => {
+      const nom = b.dataset.enr, v = $(`[data-cle="${nom}"]`, el).value.trim(); if (!v) return;
+      try { await api("admin/integrations", { methode: "POST", corps: { [nom]: v } }); toast("🔐 Clé enregistrée."); adminIntegrations(el); } catch (e) { toast("⚠ " + e.message, 6000); }
+    });
+    $$("[data-suppr]", el).forEach((b) => b.onclick = async () => { if (!confirm("Retirer cette clé ?")) return; await api("admin/integrations", { methode: "POST", corps: { [b.dataset.suppr]: "" } }); adminIntegrations(el); });
+    $("#integTester").onclick = async () => {
+      $("#integRes").textContent = "Test en cours…";
+      try { const t = await api("admin/integrations/tester", { methode: "POST", corps: {} }); $("#integRes").innerHTML = `<div>${esc(t.stripe)}</div><div>${esc(t.supabase)}</div><div class="muted">${esc(t.abonnements)}</div>`; }
+      catch (e) { $("#integRes").textContent = "⚠ " + e.message; }
+    };
+  } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}

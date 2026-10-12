@@ -1388,3 +1388,5 @@ h1 { font-weight: 800; }
 .exp-etape.actuelle { opacity: 1; cursor: pointer; border-color: var(--c); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 30%, transparent); animation: pulse-chrono .9s ease-in-out infinite alternate; }
 .exp-etape.boss { grid-column: 1 / -1; }
 .exp-ic { font-size: 34px; }
+[data-payer].secours { background: transparent; color: var(--accent); border: 1px solid var(--border); box-shadow: none; font-size: 13px; }
+.integ code { font-size: 12px; }

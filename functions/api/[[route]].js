@@ -85,6 +85,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS passes ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, mois TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, mois) )`,
   `CREATE TABLE IF NOT EXISTS encheres ( id INTEGER PRIMARY KEY AUTOINCREMENT, vendeur_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, vendeur TEXT NOT NULL, carte TEXT NOT NULL, nom TEXT NOT NULL, doree INTEGER NOT NULL DEFAULT 0, prix_depart INTEGER NOT NULL, offre INTEGER, acheteur_id INTEGER, acheteur TEXT, nb_offres INTEGER NOT NULL DEFAULT 0, fin INTEGER NOT NULL, statut TEXT NOT NULL DEFAULT 'ouverte', cree_le INTEGER NOT NULL )`,
   `CREATE INDEX IF NOT EXISTS encheres_statut ON encheres (statut, fin)`,
+  `CREATE TABLE IF NOT EXISTS abonnements_stripe ( abonnement TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, formule TEXT NOT NULL, client TEXT, statut TEXT NOT NULL, fin INTEGER, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS bloques ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, bloque_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (user_id, bloque_id) )`,
   `CREATE TABLE IF NOT EXISTS combats ( id INTEGER PRIMARY KEY AUTOINCREMENT, attaquant INTEGER NOT NULL, defenseur INTEGER NOT NULL, graine INTEGER NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, cree_le INTEGER NOT NULL, fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER )`,
 ];
@@ -95,6 +96,7 @@ const MIGRATIONS = [
   `ALTER TABLE users ADD COLUMN reset_le INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN muet_jusqu INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN titre TEXT`,
+  `ALTER TABLE users ADD COLUMN stripe_client TEXT`,
   `ALTER TABLE users ADD COLUMN cadre TEXT`,
 ];
 let schemaPret = false;
@@ -154,7 +156,7 @@ async function utilisateurCourant(request, env) {
   if (u) u.jeton = token;
   return u;
 }
-const profilPublic = (u) => ({ pseudo: u.pseudo, admin: !!u.admin, creeLe: u.cree_le, premiumJusqu: u.premium_jusqu || 0, tempsJeu: u.temps_jeu || 0 });
+const profilPublic = (u) => ({ pseudo: u.pseudo, admin: !!u.admin, creeLe: u.cree_le, premiumJusqu: u.premium_jusqu || 0, tempsJeu: u.temps_jeu || 0, stripe: !!u.stripe_client });
 // Semaine courante (lundi), en temps universel : clé des classements hebdomadaires
 function semaineCourante(decalage = 0) {
   const d = new Date(); d.setUTCHours(0, 0, 0, 0);
@@ -240,6 +242,10 @@ route("GET", "moi", async ({ env, user }) => {
     await env.DB.prepare("UPDATE sessions SET expire = ? WHERE token_hash = ?").bind(expire, await sha256(user.jeton)).run();
   }
   await env.DB.prepare("UPDATE users SET derniere_co = ? WHERE id = ?").bind(maintenant(), user.id).run();
+  // Abonnement Stripe arrivé à échéance : on vérifie s'il a été renouvelé
+  if (user.stripe_client && await env.DB.prepare("SELECT 1 FROM abonnements_stripe WHERE user_id = ? AND statut IN ('active', 'trialing', 'past_due') AND fin < ?").bind(user.id, maintenant() + 3600000).first()) {
+    try { await syncStripe(env, user.id); user = { ...user, ...(await env.DB.prepare("SELECT premium_jusqu FROM users WHERE id = ?").bind(user.id).first()) }; } catch {}
+  }
   return json({ connecte: true, ...profilPublic(user) }, 200, { "set-cookie": cookieSession(user.jeton, SESSION_JOURS * 86400) });
 });
 
@@ -579,6 +585,10 @@ route("GET", "notifs/derniere", async ({ env, user }) => {
 export async function planifie(env) {
   await preparerSchema(env);
   await cloturerEncheres(env);
+  const jourSync = new Date().toISOString().slice(0, 10), dejaJour = (await lireConfig(env, "sync_jour")) === jourSync;
+  if (!dejaJour) await ecrireConfig(env, "sync_jour", jourSync);
+  try { await syncSupabase(env, !dejaJour); } catch (e) { console.error(e); }
+  if (!dejaJour) { try { await syncStripe(env); } catch (e) { console.error(e); } }
   const { results } = await env.DB.prepare("SELECT r.user_id FROM rappels r WHERE r.quand <= ? AND EXISTS (SELECT 1 FROM abonnements a WHERE a.user_id = r.user_id) LIMIT 300").bind(maintenant()).all();
   for (const { user_id } of results) {
     await env.DB.prepare("DELETE FROM rappels WHERE user_id = ?").bind(user_id).run();
@@ -627,6 +637,7 @@ async function activerPasse(env, ctx, userId) {
   enArrierePlan(ctx, envoyerPush(env, userId, { titre: "🎟️ Passe de saison activé !", texte: "La piste Premium du passe est débloquée pour ce mois. Bon jeu !", url: "./#passe" }));
 }
 route("GET", "passe/moi", async ({ env, user }) => {
+  if (user.stripe_client) await syncStripe(env, user.id, "passe").catch(() => {});
   const p = await env.DB.prepare("SELECT 1 FROM passes WHERE user_id = ? AND mois = ?").bind(user.id, moisCourant()).first();
   return json({ mois: moisCourant(), actif: !!p });
 }, { connecte: true });
@@ -1118,14 +1129,14 @@ async function finDeSaison(env) {
 /* =====================================================================
    Paiement automatique PayPal (Checkout) : activé si PAYPAL_CLIENT_ID et PAYPAL_SECRET sont configurés
    ===================================================================== */
-const PRIX_FORMULES = { mois: "3.99", an: "29.99", vie: "89.00", passe: "7.99" };
+const PRIX_FORMULES = { mois: "3.99", an: "29.99", vie: "89.99", passe: "7.99" };
 const urlPaypal = (env) => (env.PAYPAL_MODE === "sandbox" ? "https://api-m.sandbox.paypal.com" : "https://api-m.paypal.com");
 async function jetonPaypal(env) {
   const r = await fetch(urlPaypal(env) + "/v1/oauth2/token", { method: "POST", headers: { Authorization: "Basic " + btoa(`${env.PAYPAL_CLIENT_ID}:${env.PAYPAL_SECRET}`), "Content-Type": "application/x-www-form-urlencoded" }, body: "grant_type=client_credentials" });
   if (!r.ok) throw new ErreurApi("PayPal est indisponible pour le moment.", 502);
   return (await r.json()).access_token;
 }
-route("GET", "premium/config", async ({ env }) => json({ paypalClientId: env.PAYPAL_CLIENT_ID && env.PAYPAL_SECRET ? env.PAYPAL_CLIENT_ID : null, prix: PRIX_FORMULES }));
+route("GET", "premium/config", async ({ env }) => json({ paypalClientId: env.PAYPAL_CLIENT_ID && env.PAYPAL_SECRET ? env.PAYPAL_CLIENT_ID : null, stripe: !!(await secret(env, "STRIPE_SECRET_KEY")), prix: PRIX_FORMULES }));
 route("POST", "premium/paypal/commande", async ({ request, env, user }) => {
   if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_SECRET) return erreur("Paiement automatique non configuré.", 503);
   const b = await corps(request);
@@ -1694,6 +1705,174 @@ route("POST", "encheres/(\\d+)/annuler", async ({ env, user, p }) => {
   }
   return json({ ok: true });
 }, { connecte: true });
+
+/* =====================================================================
+   Clés secrètes : variables Cloudflare (prioritaires) ou saisies par l'admin (stockées dans D1, jamais renvoyées)
+   ===================================================================== */
+const CLES_SECRETES = { STRIPE_SECRET_KEY: /^(sk|rk)_(live|test)_[A-Za-z0-9]{20,}$/, SUPABASE_SECRET_KEY: /^(sb_secret_[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_.-]{100,})$/ };
+async function secret(env, nom) { return env[nom] || (await lireConfig(env, "secret:" + nom)) || null; }
+const masquer = (v) => (v ? v.slice(0, 8) + "…" + v.slice(-4) : null);
+
+/* =====================================================================
+   Stripe : paiement par carte (Checkout), abonnements renouvelés automatiquement, portail client
+   ===================================================================== */
+const PRIX_STRIPE = { mois: "price_1UPY5eLe08eGeK8a4HklrJGs", an: "price_1UPY5eLe08eGeK8aB6MTLmrx", vie: "price_1UPY5eLe08eGeK8aBGweOgzF", passe: "price_1UPY9JLe08eGeK8avxM6LU4r" };
+function formStripe(obj, prefix = "", out = new URLSearchParams()) {
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined || v === null) continue;
+    const cle = prefix ? `${prefix}[${k}]` : k;
+    if (typeof v === "object") formStripe(v, cle, out); else out.append(cle, String(v));
+  }
+  return out;
+}
+async function stripeApi(env, methode, chemin, params) {
+  const cle = await secret(env, "STRIPE_SECRET_KEY");
+  if (!cle) throw new ErreurApi("Le paiement par carte n'est pas encore configuré.", 503);
+  let r;
+  try {
+    r = await fetch("https://api.stripe.com/v1/" + chemin + (methode === "GET" && params ? "?" + formStripe(params) : ""), {
+      method: methode, headers: { Authorization: "Bearer " + cle, "Content-Type": "application/x-www-form-urlencoded", "Stripe-Version": "2024-06-20" },
+      body: methode === "GET" ? undefined : formStripe(params || {}),
+    });
+  } catch { throw new ErreurApi("Impossible de joindre Stripe pour le moment.", 502); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new ErreurApi("Stripe : " + (j.error?.message || `erreur ${r.status}`), 502);
+  return j;
+}
+const finPeriode = (sub) => 1000 * (sub.current_period_end || sub.items?.data?.[0]?.current_period_end || 0);
+// Applique l'état d'un abonnement Stripe au joueur (Premium prolongé ou passe du mois activé)
+async function appliquerAbonnement(env, ctx, userId, formule, sub) {
+  const fin = finPeriode(sub), actif = ["active", "trialing", "past_due"].includes(sub.status);
+  await env.DB.prepare(`INSERT INTO abonnements_stripe (abonnement, user_id, formule, client, statut, fin, maj) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(abonnement) DO UPDATE SET statut = excluded.statut, fin = excluded.fin, maj = excluded.maj`).bind(sub.id, userId, formule, sub.customer, sub.status, fin, maintenant()).run();
+  if (!actif) return;
+  if (formule === "passe") await env.DB.prepare("INSERT OR IGNORE INTO passes (user_id, mois, cree_le) VALUES (?, ?, ?)").bind(userId, moisCourant(), maintenant()).run();
+  else await env.DB.prepare("UPDATE users SET premium_jusqu = MAX(COALESCE(premium_jusqu, 0), ?) WHERE id = ? AND COALESCE(premium_jusqu, 0) < ?").bind(fin + JOUR, userId, PREMIUM_VIE).run();
+}
+async function syncStripe(env, userId = null, formule = null) {
+  const conditions = [], valeurs = [];
+  if (userId) { conditions.push("AND user_id = ?"); valeurs.push(userId); }
+  if (formule) { conditions.push("AND formule = ?"); valeurs.push(formule); }
+  const { results } = await env.DB.prepare(`SELECT * FROM abonnements_stripe WHERE statut IN ('active', 'trialing', 'past_due', 'incomplete') ${conditions.join(" ")} LIMIT 200`).bind(...valeurs).all();
+  for (const a of results) {
+    try { await appliquerAbonnement(env, null, a.user_id, a.formule, await stripeApi(env, "GET", "subscriptions/" + a.abonnement)); } catch (e) { console.error(e); }
+  }
+  return results.length;
+}
+route("POST", "stripe/checkout", async ({ request, env, user }) => {
+  const b = await corps(request);
+  const formule = PRIX_STRIPE[b.formule] ? b.formule : null;
+  if (!formule) return erreur("Formule inconnue.");
+  if (formule === "passe" && await env.DB.prepare("SELECT 1 FROM passes WHERE user_id = ? AND mois = ?").bind(user.id, moisCourant()).first()) return erreur("Votre passe de saison est déjà actif ce mois-ci.");
+  if (formule !== "passe" && (user.premium_jusqu || 0) >= PREMIUM_VIE) return erreur("Vous êtes déjà Premium à vie !");
+  if (formule !== "passe" && await env.DB.prepare("SELECT 1 FROM abonnements_stripe WHERE user_id = ? AND formule IN ('mois', 'an') AND statut IN ('active', 'trialing')").bind(user.id).first() && formule !== "vie")
+    return erreur("Vous avez déjà un abonnement Premium actif : gérez-le avec « Gérer mon abonnement ».");
+  const origine = new URL(request.url).origin, meta = { user_id: String(user.id), formule, pseudo: user.pseudo };
+  const session = await stripeApi(env, "POST", "checkout/sessions", {
+    mode: formule === "vie" ? "payment" : "subscription",
+    line_items: [{ price: PRIX_STRIPE[formule], quantity: 1 }],
+    success_url: `${origine}/?stripe_session={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origine}/?stripe=annule#${formule === "passe" ? "passe" : "premium"}`,
+    client_reference_id: String(user.id), metadata: meta, locale: "fr", allow_promotion_codes: "true",
+    customer: user.stripe_client || undefined,
+    customer_creation: !user.stripe_client && formule === "vie" ? "always" : undefined,
+    subscription_data: formule === "vie" ? undefined : { metadata: meta },
+    payment_intent_data: formule === "vie" ? { metadata: meta } : undefined,
+  });
+  return json({ url: session.url });
+}, { connecte: true });
+route("POST", "stripe/valider", async ({ request, env, user, ctx }) => {
+  const b = await corps(request);
+  const id = String(b.session || "");
+  if (!/^cs_(live|test)_[A-Za-z0-9]+$/.test(id)) return erreur("Session de paiement invalide.");
+  const s = await stripeApi(env, "GET", "checkout/sessions/" + id, { expand: ["subscription"] });
+  const formule = s.metadata?.formule;
+  if (s.metadata?.user_id !== String(user.id) || !PRIX_STRIPE[formule]) return erreur("Ce paiement ne correspond pas à votre compte.", 403);
+  if (s.status !== "complete" || !["paid", "no_payment_required"].includes(s.payment_status)) return erreur("Le paiement n'est pas encore confirmé.", 402);
+  const neuf = await env.DB.prepare("INSERT OR IGNORE INTO paiements (commande, user_id, formule, montant, statut, cree_le) VALUES (?, ?, ?, ?, 'paye', ?)")
+    .bind(id, user.id, formule, ((s.amount_total || 0) / 100).toFixed(2), maintenant()).run();
+  if (s.customer) await env.DB.prepare("UPDATE users SET stripe_client = ? WHERE id = ?").bind(s.customer, user.id).run();
+  if (formule === "vie") await env.DB.prepare("UPDATE users SET premium_jusqu = ? WHERE id = ?").bind(PREMIUM_VIE, user.id).run();
+  else if (s.subscription) await appliquerAbonnement(env, ctx, user.id, formule, s.subscription);
+  if (neuf.meta.changes) enArrierePlan(ctx, prevenirAdmins(env, { titre: "💰 Paiement Stripe reçu", texte: `${user.pseudo} : ${{ mois: "Premium mensuel", an: "Premium annuel", vie: "Premium à vie", passe: "Passe de saison" }[formule]} (${((s.amount_total || 0) / 100).toFixed(2)} €)`, url: "./#admin" }));
+  const u = await env.DB.prepare("SELECT premium_jusqu FROM users WHERE id = ?").bind(user.id).first();
+  return json({ ok: true, formule, premiumJusqu: u.premium_jusqu });
+}, { connecte: true });
+// Portail Stripe : changer de carte, voir les factures, résilier
+route("POST", "stripe/portail", async ({ request, env, user }) => {
+  if (!user.stripe_client) return erreur("Aucun abonnement Stripe sur ce compte.");
+  const p = await stripeApi(env, "POST", "billing_portal/sessions", { customer: user.stripe_client, return_url: new URL(request.url).origin + "/#premium", locale: "fr" });
+  return json({ url: p.url });
+}, { connecte: true });
+
+/* =====================================================================
+   Copie de sauvegarde vers Supabase (comptes, sauvegardes, Premium, passes, paiements, guildes, modération)
+   ===================================================================== */
+const SUPABASE_URL = "https://jkttkmuckwyfazsjxgga.supabase.co";
+const iso = (ms) => (ms ? new Date(ms).toISOString() : null);
+async function envoyerSupabase(env, cle, table, lignes, conflit) {
+  if (!lignes.length) return 0;
+  const entetes = { apikey: cle, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" };
+  if (cle.startsWith("eyJ")) entetes.Authorization = "Bearer " + cle;
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=${conflit}`, { method: "POST", headers: entetes, body: JSON.stringify(lignes) });
+  if (!r.ok) throw new Error(`Supabase ${table} : ${r.status} ${(await r.text()).slice(0, 200)}`);
+  return lignes.length;
+}
+async function syncSupabase(env, complet = false) {
+  const cle = await secret(env, "SUPABASE_SECRET_KEY");
+  if (!cle) return null;
+  const depuis = complet ? 0 : (await lireConfig(env, "supabase_sync"))?.t || 0, t0 = maintenant(), n = {};
+  const lots = async (table, conflit, sql, binds, conv, taille) => {
+    n[table] = 0;
+    for (let off = 0; ; off += taille) {
+      const { results } = await env.DB.prepare(`${sql} LIMIT ${taille} OFFSET ${off}`).bind(...binds).all();
+      n[table] += await envoyerSupabase(env, cle, table, results.map(conv), conflit);
+      if (results.length < taille) break;
+    }
+  };
+  await lots("joueurs", "id", "SELECT * FROM users WHERE cree_le > ?1 OR COALESCE(derniere_co, 0) > ?1 OR ?1 = 0 OR id IN (SELECT user_id FROM sauvegardes WHERE maj > ?1) ORDER BY id", [depuis],
+    (u) => ({ id: u.id, pseudo: u.pseudo, admin: !!u.admin, banni: !!u.banni, cree_le: iso(u.cree_le), derniere_co: iso(u.derniere_co), premium_jusqu: iso(u.premium_jusqu), temps_jeu: u.temps_jeu || 0,
+      titre: u.titre, cadre: u.cadre, hash: u.hash, sel: u.sel, reset_le: iso(u.reset_le), maj: iso(t0) }), 400);
+  await lots("sauvegardes", "user_id", "SELECT * FROM sauvegardes WHERE maj > ? ORDER BY user_id", [depuis],
+    (x) => ({ user_id: x.user_id, data: JSON.parse(x.data), cartes: x.cartes || 0, secretes: x.secretes || 0, badges: x.badges || 0, maj: iso(x.maj) }), 20);
+  await lots("paiements", "commande", "SELECT * FROM paiements WHERE cree_le > ? ORDER BY cree_le", [complet ? 0 : depuis - JOUR],
+    (x) => ({ commande: x.commande, user_id: x.user_id, formule: x.formule, montant: x.montant, fournisseur: x.commande.startsWith("cs_") ? "stripe" : "paypal", statut: x.statut, cree_le: iso(x.cree_le) }), 400);
+  await lots("passes", "user_id,mois", "SELECT * FROM passes WHERE cree_le > ? ORDER BY cree_le", [complet ? 0 : depuis - JOUR],
+    (x) => ({ user_id: x.user_id, mois: x.mois, cree_le: iso(x.cree_le) }), 400);
+  await lots("abonnements", "stripe_subscription", "SELECT * FROM abonnements_stripe WHERE maj > ? ORDER BY maj", [complet ? 0 : depuis - JOUR],
+    (x) => ({ stripe_subscription: x.abonnement, user_id: x.user_id, formule: x.formule, stripe_customer: x.client, statut: x.statut, fin: iso(x.fin), maj: iso(x.maj) }), 400);
+  await lots("moderation", "id", "SELECT * FROM moderation WHERE cree_le > ? ORDER BY id", [complet ? 0 : depuis - JOUR],
+    (x) => ({ id: x.id, user_id: x.user_id, action: x.action, details: x.details, par: x.par, cree_le: iso(x.cree_le) }), 400);
+  if (complet || !depuis) await lots("guildes", "id", `SELECT g.*, (SELECT json_group_array(json_object('user_id', m.user_id, 'role', m.role)) FROM guilde_membres m WHERE m.guilde_id = g.id) AS membres FROM guildes g ORDER BY id`, [],
+    (g) => ({ id: g.id, nom: g.nom, tag: g.tag, embleme: g.embleme, description: g.description, chef_id: g.chef_id, membres: JSON.parse(g.membres || "[]"), maj: iso(t0) }), 200);
+  await ecrireConfig(env, "supabase_sync", { t: t0, n, complet });
+  return n;
+}
+// Administration : état des intégrations et saisie des clés
+route("GET", "admin/integrations", async ({ env }) => {
+  const st = {};
+  for (const nom of Object.keys(CLES_SECRETES)) { const v = await secret(env, nom); st[nom] = { configuree: !!v, source: env[nom] ? "Cloudflare" : v ? "admin" : null, apercu: masquer(v) }; }
+  const nb = await env.DB.prepare("SELECT COUNT(*) AS n FROM abonnements_stripe WHERE statut IN ('active', 'trialing')").first();
+  return json({ cles: st, supabase: { url: SUPABASE_URL, derniere: await lireConfig(env, "supabase_sync") }, abonnementsActifs: nb.n, prix: PRIX_STRIPE });
+}, { admin: true });
+route("POST", "admin/integrations", async ({ request, env }) => {
+  const b = await corps(request);
+  for (const [nom, re] of Object.entries(CLES_SECRETES)) {
+    if (b[nom] === undefined) continue;
+    const v = String(b[nom] || "").trim();
+    if (!v) { await env.DB.prepare("DELETE FROM config WHERE cle = ?").bind("secret:" + nom).run(); continue; }
+    if (!re.test(v)) return erreur(`Clé ${nom === "STRIPE_SECRET_KEY" ? "Stripe (sk_live_… ou rk_live_…)" : "Supabase (sb_secret_…)"} invalide.`);
+    await ecrireConfig(env, "secret:" + nom, v);
+  }
+  return json({ ok: true });
+}, { admin: true });
+route("POST", "admin/integrations/tester", async ({ env }) => {
+  const res = {};
+  try { const p = await stripeApi(env, "GET", "prices/" + PRIX_STRIPE.mois); res.stripe = `✅ Connecté (${p.livemode ? "mode réel" : "mode test"})`; } catch (e) { res.stripe = "❌ " + e.message; }
+  try { const n = await syncSupabase(env, true); res.supabase = n ? `✅ Copie complète : ${Object.entries(n).map(([k, v]) => `${v} ${k}`).join(", ")}` : "❌ Clé Supabase absente"; } catch (e) { res.supabase = "❌ " + e.message; }
+  try { res.abonnements = `${await syncStripe(env)} abonnement(s) vérifié(s)`; } catch (e) { res.abonnements = "—"; }
+  return json(res);
+}, { admin: true });
 
 // Recherche de joueurs (pour ajouter des amis ou écrire)
 route("GET", "joueurs/recherche", async ({ request, env, user }) => {

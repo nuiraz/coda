@@ -23,11 +23,11 @@ function majPremium(jusqu) {
 }
 const PAYPAL = "https://paypal.me/noozoaa";
 const OFFRES_PREMIUM = {
-  mois: { nom: "1 mois", prix: "3,99 €", lien: PAYPAL + "/3.99EUR", detail: "31 jours de Premium, sans renouvellement automatique." },
-  an: { nom: "1 an", prix: "29,99 €", lien: PAYPAL + "/29.99EUR", detail: "365 jours de Premium : soit 2,50 € par mois.", ruban: "Populaire" },
-  vie: { nom: "À vie", prix: "89 €", lien: PAYPAL + "/89EUR", detail: "Un seul paiement, Premium pour toujours.", ruban: "Meilleure offre" },
+  mois: { nom: "1 mois", prix: "3,99 €", lien: PAYPAL + "/3.99EUR", detail: "Abonnement mensuel renouvelé automatiquement, résiliable à tout moment." },
+  an: { nom: "1 an", prix: "29,99 €", lien: PAYPAL + "/29.99EUR", detail: "Abonnement annuel : soit 2,50 € par mois. Résiliable à tout moment.", ruban: "Populaire" },
+  vie: { nom: "À vie", prix: "89,99 €", lien: PAYPAL + "/89.99EUR", detail: "Un seul paiement, Premium pour toujours.", ruban: "Meilleure offre" },
 };
-const libelleFormule = (f) => (f === "passe" ? "🎟️ Passe de saison du mois · 7,99 €" : `${OFFRES_PREMIUM[f]?.nom || f} · ${OFFRES_PREMIUM[f]?.prix || ""}`);
+const libelleFormule = (f) => (f === "passe" ? "🎟️ Passe de saison · 7,99 €/mois" : `${OFFRES_PREMIUM[f]?.nom || f} · ${OFFRES_PREMIUM[f]?.prix || ""}`);
 let SYNC = { etat: "", timer: 0, enCours: false, encore: false };
 
 /* =====================================================================
@@ -956,7 +956,7 @@ async function vueAdmin(v) {
   if (!COMPTE.admin) { v.innerHTML = `<div class="panel"><p>Accès réservé à l'administrateur.</p><button class="btn" data-aller="compte">Mon compte</button></div>`; brancherLiens(v); return; }
   v.innerHTML = `<div class="sectiontitle"><h3>👑 Administration</h3><span class="muted">Connecté en tant que ${esc(COMPTE.pseudo)}</span></div>
     <div class="statgrid" id="aStats"><div class="stat"><b>…</b><span>chargement</span></div></div>
-    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["avatars", "🖼️ Photos de profil"], ["moderation", "🛡️ Modération"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
+    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["avatars", "🖼️ Photos de profil"], ["moderation", "🛡️ Modération"], ["integrations", "🔌 Intégrations"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
     <div id="aCorps"></div>`;
   $$("[data-a]", v).forEach((b) => b.onclick = () => { adminEtat.onglet = b.dataset.a; aller("admin"); });
   api("admin/stats").then((s) => {
@@ -964,7 +964,7 @@ async function vueAdmin(v) {
       .map(([l, n]) => `<div class="stat"><b>${fmt(n)}</b><span>${l}</span></div>`).join("");
   }).catch((e) => { $("#aStats").innerHTML = `<p class="err">${esc(e.message)}</p>`; });
   const corps = $("#aCorps");
-  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, evenements: adminEvenements, photos: adminPhotos, avatars: adminAvatars, moderation: adminModeration, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
+  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, evenements: adminEvenements, photos: adminPhotos, avatars: adminAvatars, moderation: adminModeration, integrations: adminIntegrations, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
 }
 async function adminJoueurs(el) {
   el.innerHTML = `<input class="search" id="aq" type="search" placeholder="Rechercher un joueur…" value="${esc(adminEtat.q)}" style="max-width:none;width:100%;margin-bottom:10px">
@@ -1308,14 +1308,16 @@ function vuePremium(v) {
         ${o.ruban ? `<span class="ruban">${o.ruban}</span>` : ""}
         <h3 style="margin:0">${o.nom}</h3><div class="prix">${o.prix}</div>
         <p class="muted" style="margin:0 0 10px">${o.detail}</p>
-        <a class="btn primary premium" href="${o.lien}" target="_blank" rel="noopener" data-payer="${k}">Payer ${o.prix} avec PayPal</a>
+        <button class="btn primary premium hidden" data-stripe="${k}">💳 Payer ${o.prix} par carte</button>
+        <a class="btn premium" href="${o.lien}" target="_blank" rel="noopener" data-payer="${k}">Payer ${o.prix} avec PayPal</a>
         ${connecte() ? `<div class="zone-paypal hidden" data-paypal="${k}"></div>` : ""}</div>`).join("")}</div>
+    ${connecte() && COMPTE.stripe ? `<div class="panel row" style="justify-content:space-between;gap:10px;margin-top:12px"><span>💳 Abonnement payé par carte : changer de carte, voir les factures ou résilier.</span><button class="btn" data-portail>⚙️ Gérer mon abonnement</button></div>` : ""}
     <div class="panel" style="margin-top:16px">
       <h3 style="margin-top:0">Comment ça marche ?</h3>
       <ol class="regles">
         <li>${connecte() ? `Vous êtes connecté en tant que <b>${esc(COMPTE.pseudo)}</b>.` : `<a href="#" data-aller="compte">Créez un compte ou connectez-vous</a> : le Premium est lié à votre compte.`}</li>
-        <li>Payez avec PayPal et <b>écrivez votre pseudo dans la note du paiement</b>.</li>
-        <li>Revenez ici et touchez « J'ai payé » : l'administrateur vérifie le paiement et active votre Premium, en général sous 24 heures. Vous recevez une notification.</li>
+        <li><b>Par carte (Stripe)</b> : le Premium est activé <b>immédiatement</b> après le paiement, et l'abonnement se gère depuis cette page.</li>
+        <li><b>Par PayPal</b> : écrivez votre pseudo dans la note du paiement, puis touchez « J'ai payé » ci-dessous : l'administrateur active votre Premium, en général sous 24 heures.</li>
       </ol>
       ${connecte() ? `<form class="form" id="fDemande" style="max-width:520px">
         <label>Formule<select id="dFormule">${[...Object.keys(OFFRES_PREMIUM), "passe"].map((k) => `<option value="${k}">${libelleFormule(k)}</option>`).join("")}</select></label>
@@ -1334,6 +1336,7 @@ function vuePremium(v) {
     } catch (err) { $("#dErr").textContent = err.message; }
   });
   brancherPaypal();
+  if (typeof brancherStripe === "function") brancherStripe(v);
 }
 async function adminPremium(el) {
   el.innerHTML = `<form class="panel form" id="fPrem" style="max-width:520px"><h3 style="margin:0">Activer le Premium</h3>
@@ -1454,20 +1457,20 @@ const PAGES_LEGALES = {
     <li>Sécurité du site et modération : intérêt légitime de l'éditeur (article 6.1.f).</li></ul>
     <h3>Notifications</h3><p>Si vous les activez, l'adresse technique d'abonnement fournie par votre navigateur (Apple, Google ou Mozilla) est enregistrée pour vous envoyer des notifications ; les notifications ne contiennent aucune donnée personnelle. Vous pouvez les désactiver à tout moment depuis « Mon compte ».</p>
     <h3>Échanges, retours et temps de jeu</h3><p>Les offres d'échange (pseudo, cartes proposées et demandées), les messages envoyés via « Idée ou bug ? » et votre temps de jeu sont enregistrés pour faire fonctionner ces services. Le nombre de joueurs en ligne est calculé à partir d'un identifiant aléatoire stocké dans votre navigateur, effacé du serveur au bout de 24 heures.</p>
-    <h3>Premium</h3><p>Pour activer le Premium, nous conservons la formule choisie, la date et l'information que vous indiquez pour retrouver votre paiement. Le paiement lui-même est traité par PayPal, selon sa propre politique de confidentialité ; nous ne recevons jamais vos coordonnées bancaires. Ces données sont conservées 10 ans à des fins comptables (obligation légale).</p>
+    <h3>Premium</h3><p>Pour activer le Premium, nous conservons la formule choisie, la date et l'information que vous indiquez pour retrouver votre paiement. Le paiement lui-même est traité par Stripe (paiement par carte et abonnements) ou PayPal, selon leur propre politique de confidentialité ; nous ne recevons jamais vos coordonnées bancaires (nous conservons seulement l'identifiant client et d'abonnement Stripe). Ces données sont conservées 10 ans à des fins comptables (obligation légale).</p>
     <h3>Cookies et stockage local</h3><p>Le site utilise un seul cookie, « wc_session », strictement nécessaire pour rester connecté (durée : 30 jours), ainsi que le stockage local du navigateur pour votre progression et vos réglages. Ces éléments sont indispensables au service et ne nécessitent pas de consentement. Aucun cookie publicitaire ou de mesure d'audience n'est utilisé.</p>
     <h3>Photos de Wikipédia</h3><p>Les photos des cartes sont chargées directement depuis les serveurs de la Wikimedia Foundation, qui reçoivent donc votre adresse IP lors de leur affichage (voir la politique de confidentialité de la Wikimedia Foundation). Vous pouvez désactiver les photos dans les réglages du jeu.</p>
-    <h3>Destinataires</h3><p>Seul l'administrateur du site accède aux données des comptes. Le pseudo, la vitrine, les statistiques de collection et les messages sont publics dans le hub. Les données sont hébergées par Cloudflare, Inc., qui peut les traiter hors de l'Union européenne dans le cadre de garanties prévues par le RGPD (Data Privacy Framework UE–États-Unis et clauses contractuelles types).</p>
+    <h3>Destinataires</h3><p>Seul l'administrateur du site accède aux données des comptes. Le pseudo, la vitrine, les statistiques de collection et les messages sont publics dans le hub. Les données sont hébergées par Cloudflare, Inc., qui peut les traiter hors de l'Union européenne dans le cadre de garanties prévues par le RGPD (Data Privacy Framework UE–États-Unis et clauses contractuelles types). Une copie de sauvegarde des comptes et des sauvegardes de jeu est conservée chez Supabase, Inc. (serveurs situés en Irlande, Union européenne), accessible uniquement au serveur du jeu.</p>
     <h3>Durée de conservation</h3><p>Les données du compte sont conservées tant que le compte existe et peuvent être supprimées après 3 ans sans connexion. Les sessions de connexion expirent après 30 jours. Un compte supprimé est effacé immédiatement, avec sa sauvegarde et ses messages.</p>
     <h3>Vos droits</h3><p>Vous disposez des droits d'accès, de rectification, d'effacement, de portabilité, d'opposition et de limitation. Depuis « Mon compte », vous pouvez télécharger toutes vos données et supprimer votre compte vous-même. Pour toute autre demande : ${CONTACT}. Vous pouvez aussi adresser une réclamation à la CNIL (www.cnil.fr).</p>
     <h3>Mineurs</h3><p>Avant 15 ans, l'inscription nécessite l'accord d'un parent.</p>`],
   cgv: ["Conditions générales de vente", `
     <h3>1. Vendeur</h3><p>${EDITEUR}${ADRESSE ? `, ${ADRESSE}` : ""}. Contact : ${CONTACT}.${SIRET ? ` ${SIRET}.` : ""}</p>
-    <h3>2. Offre</h3><p>Le Premium est un abonnement à des avantages numériques dans ${NOM_SITE} : 2 boosters Classiques supplémentaires par jour, accès aux boosters Prestige (dont un offert par semaine), chances de cartes Shiny doublées, 20 questions de quiz par jour au lieu de 10, 20 combats d'arène par jour au lieu de 10 et un badge 💎. Trois formules, sans renouvellement automatique : <b>1 mois pour 3,99 €</b> (31 jours), <b>1 an pour 29,99 €</b> (365 jours) et <b>à vie pour 89 €</b> (pendant toute la durée d'exploitation du jeu). Prix toutes taxes comprises${TVA_NON_APPLICABLE ? " ; TVA non applicable, régime de franchise des petites entreprises (art. 56bis du Code TVA belge)" : ""}.</p><p><b>Passe de saison</b> : achat unique de <b>7,99 €</b> qui débloque la piste Premium du passe du mois civil en cours (récompenses numériques : objets de personnalisation exclusifs, cartes, boosters, pièces). Il prend fin le dernier jour du mois, sans renouvellement automatique ; les récompenses déjà récupérées restent acquises. Il est distinct de l'abonnement Premium.</p>
-    <h3>3. Commande et paiement</h3><p>Le paiement se fait par PayPal (paypal.me/noozoaa), en indiquant son pseudo dans la note. Le Premium est lié au compte du joueur et activé manuellement après vérification du paiement, en général sous 24 heures et au plus tard sous 7 jours. Sans activation dans ce délai, le joueur est remboursé sur simple demande.</p>
+    <h3>2. Offre</h3><p>Le Premium est un abonnement à des avantages numériques dans ${NOM_SITE} : 2 boosters Classiques supplémentaires par jour, accès aux boosters Prestige (dont un offert par semaine), chances de cartes Shiny doublées, 20 questions de quiz par jour au lieu de 10, 20 combats d'arène par jour au lieu de 10 et un badge 💎. Trois formules : <b>abonnement mensuel à 3,99 €</b> et <b>abonnement annuel à 29,99 €</b>, renouvelés automatiquement à chaque échéance jusqu'à résiliation, et <b>Premium à vie pour 89,99 €</b> (paiement unique, pendant toute la durée d'exploitation du jeu). Les abonnements payés par carte se résilient à tout moment depuis la page Premium (« Gérer mon abonnement ») : le Premium reste actif jusqu'à la fin de la période payée. Un paiement PayPal manuel reste possible ; il couvre alors 31 jours ou 365 jours sans renouvellement. Prix toutes taxes comprises${TVA_NON_APPLICABLE ? " ; TVA non applicable, régime de franchise des petites entreprises (art. 56bis du Code TVA belge)" : ""}.</p><p><b>Passe de saison</b> : abonnement de <b>7,99 € par mois</b> qui débloque la piste Premium du passe du mois en cours (récompenses numériques : objets de personnalisation exclusifs, cartes, boosters, pièces), renouvelé automatiquement chaque mois pour le passe suivant, résiliable à tout moment. Les récompenses déjà récupérées restent acquises. Il est distinct de l'abonnement Premium.</p>
+    <h3>3. Commande et paiement</h3><p>Le paiement par carte bancaire est traité de façon sécurisée par Stripe : le Premium ou le passe est activé automatiquement dès la confirmation du paiement, et chaque renouvellement est prélevé à l'échéance. Le paiement peut aussi se faire par PayPal (paypal.me/noozoaa), en indiquant son pseudo dans la note : le Premium est alors activé manuellement après vérification, en général sous 24 heures et au plus tard sous 7 jours ; sans activation dans ce délai, le joueur est remboursé sur simple demande. Le Premium est lié au compte du joueur.</p>
     <h3>4. Droit de rétractation</h3><p>Le Premium est un contenu numérique fourni sur un support immatériel. Conformément à l'article L221-28 13° du Code de la consommation, en demandant son activation, le joueur accepte que l'exécution commence immédiatement et renonce à son droit de rétractation une fois le Premium activé. Avant activation, il peut annuler sa commande et être remboursé intégralement.</p>
     <h3>5. Durée et fin</h3><p>Les avantages s'appliquent pendant la durée achetée. En cas de suspension du compte pour manquement grave aux conditions d'utilisation, le Premium prend fin sans remboursement. En cas d'arrêt définitif du jeu, les joueurs Premium en cours (formules mensuelle et annuelle) sont remboursés au prorata de la durée restante.</p>
-    <h3>6. Réclamations et médiation</h3><p>Pour toute réclamation : ${CONTACT}. En cas de litige, le consommateur peut recourir gratuitement à un médiateur de la consommation ou à la plateforme européenne de règlement en ligne des litiges. Droit applicable : droit français.</p>`],
+    <h3>6. Réclamations et médiation</h3><p>Pour toute réclamation : ${CONTACT}. En cas de litige, le consommateur peut recourir gratuitement à un médiateur de la consommation ou à la plateforme européenne de règlement en ligne des litiges. Droit applicable : droit belge.</p>`],
 };
 function vueLegal(v, opts = {}) {
   const page = PAGES_LEGALES[opts.page] ? opts.page : "mentions";
