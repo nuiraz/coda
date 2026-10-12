@@ -1,8 +1,8 @@
 "use strict";
 // Service worker de Play2F1 : le jeu fonctionne hors ligne et se charge instantanément.
 // Changez VERSION à chaque mise en ligne pour forcer la mise à jour du cache.
-const VERSION = "wc-2026-10-12-50";
-const COEUR = ["./","index.html","style.css","app.js","compte.js","combat.js","combat-ui.js","extras.js","social.js","v3.js","v4.js","i18n.js","manifest.webmanifest", "apple-touch-icon.png","data/carte.js","data/monde.js","data/villes2.js","data/monuments2.js","data/villes3.js","data/monuments3.js","data/nature.js","data/animaux.js","data/plats.js","data/monuments4.js","data/nature2.js","data/animaux2.js","data/plats2.js","data/culture.js","data/extensions.js","data/pays-af.js","data/pays-euas.js","data/pays-amoc.js","data/pays-moyens.js","data/pays-plus.js","data/evenements.js","data/saisons.js","data/photos.js","data/photos-pays.js","vendor/d3.min.js","vendor/topojson-client.min.js","icons/apple-touch-icon.png","icons/apple-180.png","icons/favicon-32.png","icons/icon-192.png","icons/icon-512.png","icons/icon-maskable-512.png","icons/icon.svg","icons/logo-2f1.png","icons/logo-site.png"];
+const VERSION = "wc-2026-10-12-51";
+const COEUR = ["./","index.html","style.css","app.js","compte.js","combat.js","combat-ui.js","extras.js","social.js","v3.js","v4.js","i18n.js","manifest.webmanifest", "apple-touch-icon.png","data/silhouettes.js","data/monde.js","data/villes2.js","data/monuments2.js","data/villes3.js","data/monuments3.js","data/nature.js","data/animaux.js","data/plats.js","data/monuments4.js","data/nature2.js","data/animaux2.js","data/plats2.js","data/culture.js","data/extensions.js","data/pays-af.js","data/pays-euas.js","data/pays-amoc.js","data/pays-moyens.js","data/pays-plus.js","data/evenements.js","data/saisons.js","data/photos.js","data/photos-pays.js","icons/apple-touch-icon.png","icons/apple-180.png","icons/favicon-32.png","icons/icon-192.png","icons/icon-512.png","icons/icon-maskable-512.png","icons/icon.svg","icons/logo-2f1.png","icons/logo-site.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => Promise.allSettled(COEUR.map((f) => c.add(f)))).then(() => self.skipWaiting()));
@@ -21,16 +21,24 @@ self.addEventListener("fetch", (e) => {
     return;
   }
   if (url.origin !== location.origin) return;
-  // Fichiers du jeu : le réseau d'abord (toujours la dernière version), le cache seulement hors ligne
+  // Pages (navigation) : le réseau d'abord pour avoir la dernière version, le cache si le réseau tarde ou manque
+  if (e.request.mode === "navigate") {
+    e.respondWith((async () => {
+      const c = await caches.open(VERSION);
+      const reseau = fetch(e.request).then((r) => { if (r.ok && typeAttendu(url.pathname, r)) c.put(e.request, r.clone()); return r; });
+      const delai = new Promise((ok) => setTimeout(() => ok(null), 3500));
+      try { const r = await Promise.race([reseau, delai]); if (r) return r; } catch {}
+      return (await c.match(e.request)) || (await c.match("index.html")) || reseau.catch(() => Response.error());
+    })());
+    return;
+  }
+  // Fichiers du jeu : servis tout de suite depuis le cache, mis à jour en arrière-plan pour la prochaine visite
   e.respondWith((async () => {
     const c = await caches.open(VERSION);
-    try {
-      const r = await fetch(e.request, { cache: "no-cache" });
-      if (r.ok && typeAttendu(url.pathname, r)) c.put(e.request, r.clone());
-      return r;
-    } catch {
-      return (await c.match(e.request, { ignoreSearch: true })) || (e.request.mode === "navigate" ? c.match("index.html") : Response.error());
-    }
+    const enCache = await c.match(e.request);
+    const reseau = fetch(e.request).then((r) => { if (r.ok && typeAttendu(url.pathname, r)) c.put(e.request, r.clone()); return r; }).catch(() => null);
+    if (enCache) { e.waitUntil(reseau); return enCache; }
+    return (await reseau) || (await c.match(e.request, { ignoreSearch: true })) || Response.error();
   })());
 });
 

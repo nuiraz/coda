@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v50"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v51"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -304,9 +304,23 @@ const coutDe = (c) => COMBAT.COUT[c.rarete] || 1;
 /* =====================================================================
    Carte du monde : silhouettes et atlas
    ===================================================================== */
+// La carte du monde (d3, topojson, Natural Earth : ~1 Mo) n'est chargée que pour l'Atlas ;
+// les silhouettes des cartes viennent de data/silhouettes.js (pré-calculées)
 const FEATURES = {};
-topojson.feature(CARTE_MONDE, CARTE_MONDE.objects.countries).features.forEach((f) => { if (f.id) FEATURES[f.id] = f; });
-const NUM_TO_CODE = Object.fromEntries(Object.entries(CODES_NUMERIQUES).map(([c, n]) => [n, c]));
+let NUM_TO_CODE = {}, cartePrete = null;
+function chargerCarteMonde() {
+  if (cartePrete) return cartePrete;
+  const script = (src) => new Promise((ok, ko) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = ko; document.head.append(s); });
+  cartePrete = (async () => {
+    if (typeof d3 === "undefined") await script("vendor/d3.min.js");
+    if (typeof topojson === "undefined") await script("vendor/topojson-client.min.js");
+    if (typeof CARTE_MONDE === "undefined") await script("data/carte.js");
+    topojson.feature(CARTE_MONDE, CARTE_MONDE.objects.countries).features.forEach((f) => { if (f.id) FEATURES[f.id] = f; });
+    NUM_TO_CODE = Object.fromEntries(Object.entries(CODES_NUMERIQUES).map(([c, n]) => [n, c]));
+  })();
+  cartePrete.catch(() => { cartePrete = null; });
+  return cartePrete;
+}
 const POINTS_ABSENTS = { TV: [179.2, -8.52] }; // pays trop petits pour la carte au 1:50m
 
 // Garde le territoire principal (sans les territoires lointains comme la Guyane pour la France)
@@ -323,6 +337,8 @@ function territoirePrincipal(f) {
 const silCache = {};
 function silhouette(code) {
   if (code in silCache) return silCache[code];
+  if (typeof SILHOUETTES !== "undefined" && SILHOUETTES[code]) return (silCache[code] = `<svg class="sil" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><path d="${SILHOUETTES[code]}"/></svg>`);
+  if (typeof CODES_NUMERIQUES === "undefined") return "";
   const f0 = FEATURES[CODES_NUMERIQUES[code]];
   if (!f0) return (silCache[code] = "");
   const f = territoirePrincipal(f0);
@@ -1506,6 +1522,11 @@ function dessinerSections() {
    ===================================================================== */
 const couches = { pays: true, villes: true, monuments: true, nature: true, merveilles: true };
 function vueAtlas(v, opts = {}) {
+  if (typeof d3 === "undefined" || !Object.keys(FEATURES).length) {
+    v.innerHTML = `<div class="panel"><p class="muted">🗺️ Chargement de la carte du monde…</p></div>`;
+    chargerCarteMonde().then(() => { if (S.vue === "atlas") vueAtlas(v, opts); }).catch(() => { v.innerHTML = `<div class="panel"><p class="err">Impossible de charger la carte. Vérifiez votre connexion.</p></div>`; });
+    return;
+  }
   const nPays = count(of("monde", "pays").map((c) => c.id));
   v.innerHTML = `<div class="toolbar">
       <b>${nPays}/195 pays</b><div class="bar" style="flex:1;min-width:120px;max-width:300px"><i style="width:${nPays / 1.95}%"></i></div>

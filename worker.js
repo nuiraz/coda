@@ -2,9 +2,25 @@
 // L'API est la même que pour Cloudflare Pages (functions/api/[[route]].js).
 import { onRequest, planifie } from "./functions/api/[[route]].js";
 
+const CACHE_PUBLIC = /^\/api\/(reglages|visuels|photos\/perso|photos\/corrections|evenement|saison\/finale|ouvertures\/semaine|visuel\/[A-Za-z0-9-]+|rang-logo\/[a-z0-9-]+|photo-perso\/[a-z]+~[A-Za-z0-9_-]+)$/;
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    // Données publiques identiques pour tous les joueurs : servies depuis le cache de Cloudflare (sans toucher à la base)
+    if (request.method === "GET" && CACHE_PUBLIC.test(url.pathname)) {
+      const cache = caches.default, cle = new Request(url.toString(), { method: "GET" });
+      const deja = await cache.match(cle);
+      if (deja) return deja;
+      const r = await onRequest({ request, env, ctx });
+      if (r.status === 200) {
+        const copie = new Response(r.body, r);
+        if (!copie.headers.get("cache-control")) copie.headers.set("cache-control", "public, max-age=60");
+        ctx.waitUntil(cache.put(cle, copie.clone()));
+        return copie;
+      }
+      return r;
+    }
     if (url.pathname.startsWith("/api/")) return onRequest({ request, env, ctx });
     const invit = /^\/r\/([A-Za-z0-9_-]{3,20})\/?$/.exec(url.pathname);
     if (invit) return pageInvitation(invit[1]);

@@ -1,0 +1,13 @@
+# Durées de cache des fichiers statiques (Cloudflare Workers Static Assets)
+/flags/*
+  Cache-Control: public, max-age=604800
+/vendor/*
+  Cache-Control: public, max-age=2592000
+/icons/*
+  Cache-Control: public, max-age=86400
+/data/*
+  Cache-Control: public, max-age=3600
+/carte/*
+  Cache-Control: public, max-age=3600
+/cartes
+  Cache-Control: public, max-age=3600

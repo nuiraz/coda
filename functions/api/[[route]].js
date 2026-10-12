@@ -150,10 +150,17 @@ const MIGRATIONS = [
   `ALTER TABLE duels ADD COLUMN aleatoire INTEGER NOT NULL DEFAULT 0`,
 ];
 let schemaPret = false;
+// Empreinte du schéma : si la base est déjà à jour, une seule lecture suffit au démarrage d'une instance
+const EMPREINTE_SCHEMA = (() => { let h = 2166136261; for (const c of SCHEMA.join("|") + "#" + MIGRATIONS.join("|")) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return String(h >>> 0); })();
 async function preparerSchema(env) {
   if (schemaPret) return;
+  try {
+    const v = await env.DB.prepare("SELECT valeur FROM config WHERE cle = 'schema'").first();
+    if (v && JSON.parse(v.valeur) === EMPREINTE_SCHEMA) { schemaPret = true; return; }
+  } catch {}
   await env.DB.batch(SCHEMA.map((sql) => env.DB.prepare(sql)));
   for (const sql of MIGRATIONS) { try { await env.DB.prepare(sql).run(); } catch {} }
+  await env.DB.prepare("INSERT INTO config (cle, valeur) VALUES ('schema', ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur").bind(JSON.stringify(EMPREINTE_SCHEMA)).run();
   schemaPret = true;
 }
 
