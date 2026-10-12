@@ -26,6 +26,7 @@ import SAISONS_DATA from "../../worldcards/data/saisons.js";
 import EVENEMENTS_DATA from "../../worldcards/data/evenements.js";
 import CENTRES_DATA from "../../worldcards/data/centres.js";
 import SILHOUETTES_DATA from "../../worldcards/data/silhouettes.js";
+import BANQUE_DEVINE from "../../worldcards/data/devinettes.json";
 
 const JOUR = 864e5;
 const SESSION_JOURS = 365; // on reste connecté un an (la session est prolongée à chaque visite)
@@ -105,6 +106,10 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS defi_jour ( jour TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, essais TEXT NOT NULL DEFAULT '[]', fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL, PRIMARY KEY (jour, user_id) )`,
   `CREATE TABLE IF NOT EXISTS nations_points ( semaine TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, nation TEXT NOT NULL, points INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (semaine, user_id) )`,
   `CREATE TABLE IF NOT EXISTS souhaits ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, carte TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, carte) )`,
+  `CREATE TABLE IF NOT EXISTS devine_jour ( jour TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, indices INTEGER NOT NULL DEFAULT 1, reponse TEXT, juste INTEGER NOT NULL DEFAULT 0, fini INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL, PRIMARY KEY (jour, user_id) )`,
+  `CREATE TABLE IF NOT EXISTS devine_defis ( code TEXT PRIMARY KEY, createur INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, cat TEXT NOT NULL, ids TEXT NOT NULL, cree_le INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS devine_defis_scores ( code TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, score INTEGER NOT NULL, bonnes INTEGER NOT NULL, maj INTEGER NOT NULL, PRIMARY KEY (code, user_id) )`,
+  `CREATE TABLE IF NOT EXISTS economie_jour ( jour TEXT PRIMARY KEY, joueurs INTEGER NOT NULL, actifs INTEGER NOT NULL, total INTEGER NOT NULL, moyenne INTEGER NOT NULL, distribues INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS devinettes_admin ( id TEXT PRIMARY KEY, cat TEXT NOT NULL, donnees TEXT, image TEXT, wiki TEXT, sans_image INTEGER NOT NULL DEFAULT 0, masque INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS cartes_admin ( id TEXT PRIMARY KEY, nom TEXT NOT NULL, type TEXT NOT NULL, pays TEXT NOT NULL, emoji TEXT, rarete TEXT NOT NULL, anecdote TEXT, wiki TEXT, evenement TEXT, sortie INTEGER NOT NULL, actif INTEGER NOT NULL DEFAULT 1, annoncee INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS propositions ( id INTEGER PRIMARY KEY AUTOINCREMENT, de_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, a_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, carte_donnee TEXT NOT NULL, carte_recue TEXT NOT NULL, statut TEXT NOT NULL DEFAULT 'ouverte', cree_le INTEGER NOT NULL, maj INTEGER NOT NULL )`,
@@ -826,6 +831,7 @@ export async function planifie(env) {
   try { await annoncerCartesAdmin(env); } catch (e) { console.error(e); }
   try { await expirerPropositions(env); } catch (e) { console.error(e); }
   try { await cloturerNations(env); } catch (e) { console.error(e); }
+  if (new Date().getMinutes() < 15) try { await releveEconomie(env); } catch (e) { console.error(e); }
   const jourSync = new Date().toISOString().slice(0, 10), dejaJour = (await lireConfig(env, "sync_jour")) === jourSync;
   if (!dejaJour) await ecrireConfig(env, "sync_jour", jourSync);
   try { await syncSupabase(env, !dejaJour); } catch (e) { console.error(e); }
@@ -3485,6 +3491,125 @@ route("DELETE", "admin/devinettes/(dvp?~[a-z]{2,15}~[a-z0-9]{1,12})", async ({ e
   await env.DB.prepare("DELETE FROM devinettes_admin WHERE id = ?").bind(p[1].replaceAll("~", ":")).run();
   await env.IMAGES?.delete("devinettes/" + p[1]).catch(() => {});
   return json({ ok: true });
+}, { admin: true });
+/* =====================================================================
+   Devinette du jour : la même pour tout le monde, 3 indices dévoilés un par un,
+   une seule réponse. Moins d'indices = plus de pièces et meilleur classement.
+   ===================================================================== */
+const RECOMPENSES_DEVINE_JOUR = [0, 300, 200, 120];
+let ordreDevine = null;
+async function devinetteDuJour(env, jour) {
+  if (!ordreDevine) {
+    let sel = await lireConfig(env, "devine_sel");
+    if (!sel) { sel = [...aleatoire(8)].map((x) => x.toString(16).padStart(2, "0")).join(""); await ecrireConfig(env, "devine_sel", sel); }
+    const o = Object.entries(BANQUE_DEVINE).flatMap(([cat, l]) => l.map((_, i) => `dv:${cat}:${i}`)).sort();
+    const rng = COMBAT.rng(COMBAT.hash("devine:" + sel));
+    for (let i = o.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; }
+    ordreDevine = o;
+  }
+  const { results } = await env.DB.prepare("SELECT id, donnees, masque FROM devinettes_admin WHERE id LIKE 'dv:%'").all();
+  const perso = Object.fromEntries(results.map((x) => [x.id, x]));
+  const n = numeroDefi(jour);
+  for (let k = 0; k < 50; k++) {
+    const id = ordreDevine[(((n - 1 + k) % ordreDevine.length) + ordreDevine.length) % ordreDevine.length];
+    if (perso[id]?.masque) continue;
+    const [, cat, i] = id.split(":"), d = perso[id]?.donnees ? JSON.parse(perso[id].donnees) : BANQUE_DEVINE[cat][Number(i)];
+    const rng = COMBAT.rng(COMBAT.hash("choix:" + jour)), choix = [d[0], ...d[1]];
+    for (let a = choix.length - 1; a > 0; a--) { const b = Math.floor(rng() * (a + 1)); [choix[a], choix[b]] = [choix[b], choix[a]]; }
+    return { id, cat, reponse: d[0], choix, indices: d[2], explication: d[3] || "" };
+  }
+}
+async function etatDevineJour(env, user, jour, nAnonyme) {
+  const d = await devinetteDuJour(env, jour);
+  const moi = user ? await env.DB.prepare("SELECT indices, reponse, juste, fini FROM devine_jour WHERE jour = ? AND user_id = ?").bind(jour, user.id).first() : null;
+  const n = moi ? moi.indices : Math.min(3, Math.max(1, nAnonyme || 1)), fini = !!moi?.fini;
+  const { results: top } = await env.DB.prepare(`SELECT u.pseudo, d.indices FROM devine_jour d JOIN users u ON u.id = d.user_id
+    WHERE d.jour = ? AND d.juste = 1 AND u.banni = 0 ORDER BY d.indices, d.maj LIMIT 10`).bind(jour).all();
+  const st = await env.DB.prepare("SELECT COUNT(*) AS joueurs, SUM(juste) AS gagnants FROM devine_jour WHERE jour = ? AND fini = 1").bind(jour).first();
+  return { jour, numero: numeroDefi(jour), id: d.id, cat: d.cat, choix: d.choix, indices: fini ? d.indices : d.indices.slice(0, n), nIndices: n,
+    fini, juste: !!moi?.juste, maReponse: moi?.reponse || null, solution: fini ? { reponse: d.reponse, explication: d.explication } : null,
+    top, joueurs: st.joueurs || 0, gagnants: st.gagnants || 0, recompenses: RECOMPENSES_DEVINE_JOUR };
+}
+route("GET", "devine-jour", async ({ request, env, user }) => {
+  return json(await etatDevineJour(env, user, jourBruxelles(), Number(new URL(request.url).searchParams.get("n"))));
+});
+route("POST", "devine-jour/indice", async ({ env, user }) => {
+  const jour = jourBruxelles();
+  await env.DB.prepare(`INSERT INTO devine_jour (jour, user_id, indices, maj) VALUES (?, ?, 2, ?)
+    ON CONFLICT(jour, user_id) DO UPDATE SET indices = MIN(3, devine_jour.indices + 1), maj = excluded.maj WHERE devine_jour.fini = 0`).bind(jour, user.id, maintenant()).run();
+  return json(await etatDevineJour(env, user, jour));
+}, { connecte: true });
+route("POST", "devine-jour/reponse", async ({ request, env, user, ctx }) => {
+  const b = await corps(request), jour = jourBruxelles(), d = await devinetteDuJour(env, jour), rep = String(b.reponse || "");
+  if (!d.choix.includes(rep)) return erreur("Choisissez une des réponses proposées.");
+  if (!user) return json({ juste: rep === d.reponse, solution: { reponse: d.reponse, explication: d.explication } });
+  const moi = await env.DB.prepare("SELECT indices, fini FROM devine_jour WHERE jour = ? AND user_id = ?").bind(jour, user.id).first();
+  if (moi?.fini) return erreur("Vous avez déjà répondu à la devinette du jour. Revenez demain !");
+  const juste = rep === d.reponse, n = moi?.indices || 1;
+  await env.DB.prepare(`INSERT INTO devine_jour (jour, user_id, indices, reponse, juste, fini, maj) VALUES (?, ?, ?, ?, ?, 1, ?)
+    ON CONFLICT(jour, user_id) DO UPDATE SET reponse = excluded.reponse, juste = excluded.juste, fini = 1, maj = excluded.maj WHERE devine_jour.fini = 0`).bind(jour, user.id, n, rep, juste ? 1 : 0, maintenant()).run();
+  let recompense = 0;
+  if (juste) {
+    recompense = RECOMPENSES_DEVINE_JOUR[n];
+    await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, ?, 0, ?, ?)").bind(user.id, recompense, `Devinette du jour n° ${numeroDefi(jour)} trouvée avec ${n} indice${n > 1 ? "s" : ""} !`, maintenant()).run();
+    enArrierePlan(ctx, pointsNations(env, user.id, 4 - n));
+  }
+  return json({ ...(await etatDevineJour(env, user, jour)), recompense });
+}, {});
+
+/* =====================================================================
+   Défi Devinettes entre amis : la même série de 10 devinettes pour tous,
+   le meilleur score gagne. Lien à partager : /#devine?defi=CODE
+   ===================================================================== */
+route("POST", "devine-defi", async ({ request, env, user }) => {
+  const b = await corps(request), cat = String(b.cat || "tout");
+  const cats = cat === "tout" ? Object.keys(BANQUE_DEVINE) : [cat];
+  if (!cats.every((k) => BANQUE_DEVINE[k])) return erreur("Catégorie inconnue.");
+  const { results } = await env.DB.prepare("SELECT id FROM devinettes_admin WHERE masque = 1").all();
+  const masques = new Set(results.map((x) => x.id));
+  const pool = cats.flatMap((k) => BANQUE_DEVINE[k].map((_, i) => `dv:${k}:${i}`)).filter((id) => !masques.has(id));
+  const ids = [];
+  while (ids.length < 10 && ids.length < pool.length) { const id = pool[Math.floor(Math.random() * pool.length)]; if (!ids.includes(id)) ids.push(id); }
+  const code = [...aleatoire(5)].map((x) => "abcdefghjkmnpqrstuvwxyz23456789"[x % 31]).join("");
+  await env.DB.prepare("INSERT INTO devine_defis (code, createur, cat, ids, cree_le) VALUES (?, ?, ?, ?, ?)").bind(code, user.id, cat, JSON.stringify(ids), maintenant()).run();
+  return json({ code, cat, ids });
+}, { connecte: true });
+route("GET", "devine-defi/([a-z0-9]{5})", async ({ env, user, p }) => {
+  const d = await env.DB.prepare("SELECT d.code, d.cat, d.ids, d.cree_le, u.pseudo FROM devine_defis d JOIN users u ON u.id = d.createur WHERE d.code = ?").bind(p[1]).first();
+  if (!d) return erreur("Ce défi n'existe pas (ou plus).", 404);
+  const { results } = await env.DB.prepare(`SELECT u.pseudo, s.score, s.bonnes, s.user_id = ? AS moi FROM devine_defis_scores s JOIN users u ON u.id = s.user_id
+    WHERE s.code = ? AND u.banni = 0 ORDER BY s.score DESC, s.maj LIMIT 50`).bind(user?.id || 0, p[1]).all();
+  return json({ code: d.code, cat: d.cat, ids: JSON.parse(d.ids), createur: d.pseudo, cree_le: d.cree_le, scores: results, dejaJoue: results.some((x) => x.moi) });
+});
+route("POST", "devine-defi/([a-z0-9]{5})/score", async ({ request, env, user, p }) => {
+  const b = await corps(request), d = await env.DB.prepare("SELECT createur FROM devine_defis WHERE code = ?").bind(p[1]).first();
+  if (!d) return erreur("Ce défi n'existe pas (ou plus).", 404);
+  const bonnes = Math.max(0, Math.min(10, Math.floor(Number(b.bonnes) || 0))), score = Math.max(0, Math.min(40, Math.floor(Number(b.score) || 0)));
+  await env.DB.prepare("INSERT OR IGNORE INTO devine_defis_scores (code, user_id, score, bonnes, maj) VALUES (?, ?, ?, ?, ?)").bind(p[1], user.id, score, bonnes, maintenant()).run();
+  if (d.createur !== user.id) await notifierUneFois(env, d.createur, "devine-defi", `${p[1]}:${user.id}`, { titre: "Défi Devinettes", texte: `${user.pseudo} a relevé votre défi : ${score} points !`, url: `./#devine?defi=${p[1]}` }).catch(() => {});
+  return json({ ok: true });
+}, { connecte: true });
+
+/* =====================================================================
+   Économie : pièces en circulation (relevé quotidien) et pièces distribuées
+   ===================================================================== */
+async function releveEconomie(env) {
+  const jour = jourBruxelles();
+  const t = await env.DB.prepare(`SELECT COUNT(*) AS joueurs, SUM(maj > ?) AS actifs, COALESCE(SUM(MAX(0, COALESCE(json_extract(data, '$.sauvegarde.coins'), json_extract(data, '$.coins'), 0))), 0) AS total FROM sauvegardes`).bind(maintenant() - 7 * JOUR).first();
+  const debut = Date.parse(jour + "T00:00:00+02:00");
+  const c = await env.DB.prepare("SELECT COALESCE(SUM(pieces), 0) AS n FROM cadeaux WHERE cree_le >= ?").bind(debut).first();
+  const moyenne = t.joueurs ? Math.round(t.total / t.joueurs) : 0;
+  await env.DB.prepare("INSERT INTO economie_jour (jour, joueurs, actifs, total, moyenne, distribues) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(jour) DO UPDATE SET joueurs = excluded.joueurs, actifs = excluded.actifs, total = excluded.total, moyenne = excluded.moyenne, distribues = excluded.distribues")
+    .bind(jour, t.joueurs || 0, t.actifs || 0, t.total || 0, moyenne, c.n || 0).run();
+}
+route("GET", "admin/economie", async ({ env }) => {
+  await releveEconomie(env);
+  const { results: jours } = await env.DB.prepare("SELECT * FROM economie_jour ORDER BY jour DESC LIMIT 30").all();
+  const { results: riches } = await env.DB.prepare(`SELECT u.pseudo, CAST(COALESCE(json_extract(s.data, '$.sauvegarde.coins'), json_extract(s.data, '$.coins'), 0) AS INTEGER) AS pieces, s.maj FROM sauvegardes s JOIN users u ON u.id = s.user_id ORDER BY pieces DESC LIMIT 15`).all();
+  const { results: tranches } = await env.DB.prepare(`SELECT CASE WHEN c < 1000 THEN 0 WHEN c < 5000 THEN 1 WHEN c < 20000 THEN 2 WHEN c < 100000 THEN 3 ELSE 4 END AS t, COUNT(*) AS n
+    FROM (SELECT COALESCE(json_extract(data, '$.sauvegarde.coins'), json_extract(data, '$.coins'), 0) AS c FROM sauvegardes) GROUP BY t`).all();
+  const { results: sources } = await env.DB.prepare(`SELECT substr(message, 1, 40) AS source, COUNT(*) AS n, SUM(pieces) AS pieces FROM cadeaux WHERE cree_le > ? AND pieces > 0 GROUP BY substr(message, 1, 12) ORDER BY pieces DESC LIMIT 12`).bind(maintenant() - 7 * JOUR).all();
+  return json({ jours, riches, tranches, sources });
 }, { admin: true });
 route("POST", "defi-photo/essai", async ({ request, env, user, ctx }) => {
   const b = await corps(request), jour = jourBruxelles(), c = await photoDuJour(env, jour), id = String(b.id || "");

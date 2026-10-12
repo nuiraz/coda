@@ -245,16 +245,28 @@ function vueDevine(v) {
   if (!p) {
     const rec = S.devineRecords || {};
     v.innerHTML = `<header class="page-tete"><h1>🧠 Devinettes</h1><p>Pays, villes, drapeaux, plats, animaux, inventions, personnages… Les indices se dévoilent un par un : moins vous en utilisez, plus vous marquez de points.</p></header>
+      <div id="dvJour"></div><div id="dvDefi"></div>
       <section class="panel dv-choix"><h3 style="margin-top:0">1. Choisissez une catégorie</h3>
         <div class="dv-cats">${CATS_DEVINE.map(([k, ic, n]) => `<button class="dv-cat ${devine.cat === k ? "on" : ""}" data-cat="${k}"><span>${ic}</span><b>${n}</b><small>${banqueDevine(k).length + poolDevine(k).length} devinettes${rec[`classique:${k}`] ? ` · record ${rec[`classique:${k}`]}` : ""}</small></button>`).join("")}</div>
         <h3>2. Choisissez le mode</h3>
         <div class="dv-modes"><button class="dv-mode ${devine.mode === "classique" ? "on" : ""}" data-mode="classique"><b>🎯 Classique</b><small>${QUESTIONS_DEVINE} questions, jusqu'à 3 indices chacune</small></button>
           <button class="dv-mode ${devine.mode === "chrono" ? "on" : ""}" data-mode="chrono"><b>⏱️ Contre la montre</b><small>${DUREE_CHRONO} secondes, un maximum de bonnes réponses</small></button></div>
-        <button class="btn primary" id="dvGo" style="margin-top:16px;width:100%">C'est parti !</button>${COMPTE.admin ? `<button class="btn" data-aller="devine-admin" style="margin-top:8px;width:100%">Gérer les devinettes (admin)</button>` : ""}
+        <button class="btn primary" id="dvGo" style="margin-top:16px;width:100%">C'est parti !</button>
+        <button class="btn" id="dvDefier" style="margin-top:8px;width:100%">Défier mes amis sur cette catégorie</button>${COMPTE.admin ? `<button class="btn" data-aller="devine-admin" style="margin-top:8px;width:100%">Gérer les devinettes (admin)</button>` : ""}
         <p class="muted" style="font-size:13px;margin-bottom:0">Jusqu'à ${PIECES_DEVINE_JOUR} 🪙 à gagner par jour aux Devinettes${S.devineJour?.d === today() ? ` (déjà ${S.devineJour.pieces} aujourd'hui)` : ""}.</p></section>`;
     $$("[data-cat]", v).forEach((b) => b.onclick = () => { devine.cat = b.dataset.cat; aller("devine"); });
     $$("[data-mode]", v).forEach((b) => b.onclick = () => { devine.mode = b.dataset.mode; aller("devine"); });
     brancherLiens(v);
+    blocDevineJour($("#dvJour"));
+    if (devine.defiCode) blocDefiDevine($("#dvDefi"));
+    v.querySelector(".dv-choix").insertAdjacentHTML("afterend", `<details class="panel dv-succes" id="dvSucces"></details>`); blocSuccesDevine($("#dvSucces"));
+    $("#dvDefier").onclick = async () => {
+      if (typeof connecte !== "function" || !connecte()) return toast("Connectez-vous pour défier vos amis.");
+      try {
+        const d = await api("devine-defi", { methode: "POST", corps: { cat: devine.cat } });
+        devine.defiCode = d.code; partagerDefiDevine(d.code); aller("devine");
+      } catch (e) { toast("⚠ " + e.message); }
+    };
     $("#dvGo").onclick = () => {
       devine.partie = { cat: devine.cat, mode: devine.mode, n: 0, score: 0, bonnes: 0, serie: 0, deja: new Set(), fin: devine.mode === "chrono" ? Date.now() + DUREE_CHRONO * 1000 : 0, q: null, indice: 1 };
       aller("devine");
@@ -262,7 +274,14 @@ function vueDevine(v) {
     return;
   }
   const finie = p.mode === "classique" ? p.n >= QUESTIONS_DEVINE : Date.now() >= p.fin;
+  if (finie && p.defi) {
+    // Fin d'un défi entre amis : le score est envoyé, puis on montre le classement du défi
+    devine.partie = null; devine.defiCode = p.defi.code; finPartieDevine(p);
+    if (!p.envoye) { p.envoye = true; api(`devine-defi/${p.defi.code}/score`, { methode: "POST", corps: { score: p.score, bonnes: p.bonnes } }).then(() => { toast(`Défi terminé : ${p.score} points !`); if (S.vue === "devine") aller("devine"); }).catch((e) => toast("⚠ " + e.message)); }
+    aller("devine"); return;
+  }
   if (finie) {
+    finPartieDevine(p);
     const cle = `${p.mode}:${p.cat}`, rec = (S.devineRecords ||= {}), record = p.score > (rec[cle] || 0);
     if (record) rec[cle] = p.score;
     sauver();
@@ -276,7 +295,7 @@ function vueDevine(v) {
     $("#dvPartager").onclick = () => { const t = `🧠 Play2F1 · Devinettes ${CATS_DEVINE.find((x) => x[0] === p.cat)[2]} : ${p.score} points (${p.bonnes}/${p.n})\nhttps://play2f1.com/#devine`; (navigator.share ? navigator.share({ text: t }) : navigator.clipboard.writeText(t).then(() => toast("📋 Copié !"))).catch(() => {}); };
     return;
   }
-  if (!p.q) { p.q = questionDevine(p.cat, p.deja); p.indice = p.mode === "chrono" ? 2 : 1; p.deja.add(p.q.c.id); }
+  if (!p.q) { p.q = p.defi ? questionDefi(p) : questionDevine(p.cat, p.deja); p.indice = p.mode === "chrono" ? 2 : 1; p.deja.add(p.q.c.id); }
   const { c, choix } = p.q, indices = indicesDevine(c);
   const points = p.mode === "chrono" ? 2 : [0, 3, 2, 1][p.indice];
   v.innerHTML = `<section class="panel dv-jeu">
@@ -298,7 +317,7 @@ function vueDevine(v) {
     if (!bon) b.classList.add("bad");
     p.n++;
     let gain = 0;
-    if (bon) { p.bonnes++; p.serie++; const pts = points + (p.serie >= 3 ? 1 : 0); p.score += pts; gain = piecesDevine(pts * 4); gagnerXP?.(2); }
+    if (bon) { p.bonnes++; p.serie++; const pts = points + (p.serie >= 3 ? 1 : 0); p.score += pts; gain = piecesDevine(pts * 4); gagnerXP?.(2); statsDevine(c, p); }
     else p.serie = 0;
     majCoins(); sauver();
     $("#dvFb").innerHTML = `${p.mode === "classique" ? imgDevine(c, "dv-photo dv-photo-rep") : ""}<p style="font-weight:700;margin:6px 0">${bon ? `✅ Bravo ! +${points + (p.serie >= 3 ? 1 : 0)} pt${gain ? ` · +${gain} 🪙` : ""}` : `❌ C'était <b>${esc(c.nom)}</b>`}</p>${!bon || p.mode === "classique" ? `<p class="muted" style="margin:4px 0">${esc(c.anecdote || "")}</p>` : ""}
@@ -404,3 +423,154 @@ function editerDevinette(c) {
 ajouterPage("devine-admin", "🧠", "Devinettes · admin", vueDevineAdmin);
 // Page réservée à l'admin : pas dans le menu Plus ni la recherche
 { const i = DESTINATIONS.findIndex((d) => d[0] === "devine-admin"); if (i >= 0) DESTINATIONS.splice(i, 1); }
+
+/* ---------- Devinette du jour ---------- */
+const lireLocal = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const ecrireLocal = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+async function blocDevineJour(el) {
+  if (!el) return;
+  const co = typeof connecte === "function" && connecte(), cleAnon = "worldcards:devine-jour";
+  let anon = lireLocal(cleAnon, {});
+  let d;
+  try { d = await api(`devine-jour${co ? "" : `?n=${anon.n || 1}`}`); } catch (e) { el.innerHTML = ""; return; }
+  if (!co) { if (anon.jour !== d.jour) anon = { jour: d.jour, n: 1 }; if (anon.fini) Object.assign(d, { fini: true, juste: anon.juste, maReponse: anon.reponse, solution: anon.solution }); }
+  const rendre = () => {
+    const cat = CATS_DEVINE.find((x) => x[0] === d.cat), c = (BANQUE_DEVINE && banqueDevine(d.cat, true).find((x) => x.id === d.id)) || { id: d.id, banque: d.cat, nom: d.solution?.reponse || "" };
+    const n = d.nIndices, pieces = d.recompenses[n];
+    el.innerHTML = `<section class="panel dv-jour"><div class="dv-jour-tete"><div><small class="muted">Même devinette pour tout le monde · nouvelle chaque jour</small><h3 style="margin:2px 0">Devinette du jour n° ${d.numero}</h3></div><span class="pill-cat">${cat ? cat[1] + " " + cat[2] : ""}</span></div>
+      <div class="dv-indices">${d.indices.map((t, i) => `<div class="dv-indice"><small>Indice ${i + 1}</small><p class="dv-texte">${esc(t)}</p></div>`).join("")}</div>
+      ${d.fini ? `<div class="dv-jour-fin ${d.juste ? "ok" : "ko"}">${imgDevine(c)}<p style="font-weight:700;margin:8px 0 2px">${d.juste ? `✅ Trouvée avec ${n} indice${n > 1 ? "s" : ""} !` : `❌ C'était <b>${esc(d.solution.reponse)}</b>`}${d.recompense ? ` · +${d.recompense} 🪙` : ""}</p>
+          <p class="muted" style="margin:2px 0 8px">${esc(d.solution.explication || "")}</p>
+          <button class="btn small" id="djPartager">📤 Partager mon résultat</button></div>`
+      : `${n < 3 ? `<button class="lien-chances" id="djIndice">💡 Voir l'indice suivant (la bonne réponse rapportera ${d.recompenses[n + 1]} 🪙 au lieu de ${pieces})</button>` : ""}
+        <div class="answers dv-reps">${d.choix.map((x) => `<button data-dj="${esc(x)}">${esc(x)}</button>`).join("")}</div>
+        <p class="muted" style="font-size:12.5px;margin:6px 0 0">Une seule réponse possible${co ? ` · ${pieces} 🪙 si vous trouvez maintenant` : " · connectez-vous pour gagner des pièces et entrer au classement"}.</p>`}
+      ${d.top.length ? `<details class="dv-top"><summary>Classement du jour · ${d.gagnants || 0} trouvé${d.gagnants > 1 ? "s" : ""} sur ${d.joueurs} joueur${d.joueurs > 1 ? "s" : ""}</summary><ol>${d.top.map((t) => `<li><b>${esc(t.pseudo)}</b> <span class="muted">· ${t.indices} indice${t.indices > 1 ? "s" : ""}</span></li>`).join("")}</ol></details>` : ""}
+    </section>`;
+    $("#djIndice", el)?.addEventListener("click", async () => {
+      try {
+        if (co) d = await api("devine-jour/indice", { methode: "POST", corps: {} });
+        else { anon.n = Math.min(3, (anon.n || 1) + 1); ecrireLocal(cleAnon, anon); d = await api(`devine-jour?n=${anon.n}`); }
+        rendre();
+      } catch (e) { toast("⚠ " + e.message); }
+    });
+    $$("[data-dj]", el).forEach((b) => b.onclick = async () => {
+      $$("[data-dj]", el).forEach((x) => x.disabled = true);
+      try {
+        const r = await api("devine-jour/reponse", { methode: "POST", corps: { reponse: b.dataset.dj } });
+        if (co) { d = r; if (r.recompense && typeof verifierCadeaux === "function") verifierCadeaux(); }
+        else { Object.assign(d, { fini: true, juste: r.juste, maReponse: b.dataset.dj, solution: r.solution }); Object.assign(anon, { fini: true, juste: r.juste, reponse: b.dataset.dj, solution: r.solution }); ecrireLocal(cleAnon, anon); }
+        if (d.juste) { navigator.vibrate?.([30, 50, 80]); if (typeof son === "function") son("niveau"); }
+        rendre();
+      } catch (e) { toast("⚠ " + e.message); $$("[data-dj]", el).forEach((x) => x.disabled = false); }
+    });
+    $("#djPartager", el)?.addEventListener("click", () => {
+      const cases = [1, 2, 3].map((i) => d.juste && i <= d.nIndices ? (i === d.nIndices ? "🟩" : "🟨") : d.juste ? "⬜" : "🟥").join("");
+      const t = `Play2F1 · Devinette du jour n° ${d.numero}\n${d.juste ? `Trouvée avec ${d.nIndices} indice${d.nIndices > 1 ? "s" : ""}` : "Ratée…"} ${cases}\nhttps://play2f1.com/#devine`;
+      (navigator.share ? navigator.share({ text: t }) : navigator.clipboard.writeText(t).then(() => toast("Copié !"))).catch(() => {});
+    });
+  };
+  rendre();
+}
+
+/* ---------- Défi Devinettes entre amis ---------- */
+function partagerDefiDevine(code) {
+  const t = `Je te défie aux Devinettes de Play2F1 ! Même série de 10 questions : fais mieux que moi.\nhttps://play2f1.com/#devine?defi=${code}`;
+  (navigator.share ? navigator.share({ text: t }) : navigator.clipboard.writeText(t).then(() => toast("Lien du défi copié : envoyez-le à vos amis !"))).catch(() => {});
+}
+function questionDefi(p) {
+  const id = p.defi.ids[p.n], tous = banqueDevine("tout", true), c = tous.find((x) => x.id === id) || pick(tous);
+  const rng = COMBAT.rng(COMBAT.hash(p.defi.code + id)), choix = [c, ...c.leurres.map((n) => ({ id: "f:" + n, nom: n }))];
+  for (let i = choix.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [choix[i], choix[j]] = [choix[j], choix[i]]; }
+  return { c, choix };
+}
+async function blocDefiDevine(el) {
+  if (!el) return;
+  try {
+    const d = await api(`devine-defi/${devine.defiCode}`), cat = CATS_DEVINE.find((x) => x[0] === d.cat);
+    el.innerHTML = `<section class="panel dv-defi"><div class="dv-jour-tete"><div><small class="muted">Défi lancé par ${esc(d.createur)}</small><h3 style="margin:2px 0">Défi Devinettes · ${cat ? cat[2] : ""}</h3></div><button class="btn small" id="dfFermer">Fermer</button></div>
+      <p class="muted" style="margin:4px 0 10px">10 devinettes, les mêmes pour tout le monde. Le meilleur score gagne.</p>
+      ${d.scores.length ? `<ol class="dv-classement">${d.scores.map((x) => `<li class="${x.moi ? "moi" : ""}"><b>${esc(x.pseudo)}</b><span>${x.score} pts · ${x.bonnes}/10</span></li>`).join("")}</ol>` : `<p class="muted">Personne n'a encore joué : à vous de lancer le score !</p>`}
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">${d.dejaJoue ? "" : `<button class="btn primary" id="dfJouer">Relever le défi</button>`}<button class="btn" id="dfPartager">📤 Inviter des amis</button></div></section>`;
+    $("#dfFermer", el).onclick = () => { devine.defiCode = null; el.innerHTML = ""; };
+    $("#dfPartager", el).onclick = () => partagerDefiDevine(d.code);
+    $("#dfJouer", el)?.addEventListener("click", () => {
+      if (typeof connecte !== "function" || !connecte()) return toast("Connectez-vous pour relever le défi.");
+      devine.partie = { cat: d.cat, mode: "classique", n: 0, score: 0, bonnes: 0, serie: 0, deja: new Set(), fin: 0, q: null, indice: 1, defi: { code: d.code, ids: d.ids } };
+      aller("devine");
+    });
+  } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; devine.defiCode = null; }
+}
+// Lien partagé : /#devine?defi=CODE
+function lienDefiDevine(apresDemarrage) {
+  const m = /^#devine\?defi=([a-z0-9]{5})$/.exec(location.hash);
+  if (!m) return;
+  devine.defiCode = m[1]; devine.partie = null;
+  history.replaceState(null, "", location.pathname + (apresDemarrage ? "" : "#devine"));
+  if (apresDemarrage) aller("devine");
+}
+lienDefiDevine(false);
+addEventListener("hashchange", () => lienDefiDevine(true));
+
+/* ---------- Succès Devinettes ---------- */
+const NOMS_CATS_DEVINE = Object.fromEntries(CATS_DEVINE.map(([k, , n]) => [k, n]));
+const SUCCES_DEVINE = [
+  ["total10", "Premiers pas", "10 bonnes réponses", (st) => [st.total, 10], 100],
+  ["total100", "Curieux", "100 bonnes réponses", (st) => [st.total, 100], 300],
+  ["total500", "Encyclopédie vivante", "500 bonnes réponses", (st) => [st.total, 500], 1000],
+  ["serie10", "Sur sa lancée", "10 bonnes réponses de suite", (st) => [st.serieMax, 10], 200],
+  ["serie20", "Inarrêtable", "20 bonnes réponses de suite", (st) => [st.serieMax, 20], 500],
+  ["parfait", "Sans faute", "10/10 en mode classique", (st) => [st.parfait, 1], 300],
+  ["chrono15", "Éclair", "15 bonnes réponses contre la montre", (st) => [st.chronoMax, 15], 300],
+  ...CATS_BANQUE.map((k) => [`cat-${k}`, `Expert : ${NOMS_CATS_DEVINE[k]}`, `25 bonnes réponses en ${NOMS_CATS_DEVINE[k]}`, (st) => [st.cats[k] || 0, 25], 200]),
+];
+const statsDevineDe = () => (S.devineStats ||= { total: 0, serieMax: 0, parfait: 0, chronoMax: 0, cats: {} });
+function statsDevine(c, p) {
+  const st = statsDevineDe(), k = c.banque || c.type;
+  st.total++; st.cats[k] = (st.cats[k] || 0) + 1; st.serieMax = Math.max(st.serieMax, p.serie);
+  const avant = SUCCES_DEVINE.filter(([cle, , , f]) => !(S.devineSucces || {})[cle] && f(st)[0] >= f(st)[1]).map((x) => x[0]);
+  for (const cle of avant) if (!(st.annonces ||= []).includes(cle)) { st.annonces.push(cle); const x = SUCCES_DEVINE.find((y) => y[0] === cle); setTimeout(() => toast(`Succès débloqué : ${x[1]} ! Récupérez ${x[4]} 🪙 sur la page Devinettes.`, 5000), 900); }
+}
+function finPartieDevine(p) {
+  const st = statsDevineDe();
+  if (p.mode === "classique" && p.n >= QUESTIONS_DEVINE && p.bonnes === QUESTIONS_DEVINE) st.parfait = 1;
+  if (p.mode === "chrono") st.chronoMax = Math.max(st.chronoMax, p.bonnes);
+  sauver();
+}
+function blocSuccesDevine(el) {
+  if (!el) return;
+  const st = statsDevineDe(), pris = S.devineSucces || {};
+  const prets = SUCCES_DEVINE.filter(([k, , , f]) => !pris[k] && f(st)[0] >= f(st)[1]).length, faits = SUCCES_DEVINE.filter(([k]) => pris[k]).length;
+  el.innerHTML = `<summary><b>Succès Devinettes</b> <span class="muted">· ${faits}/${SUCCES_DEVINE.length}</span>${prets ? ` <span class="pill">${prets} à récupérer</span>` : ""}</summary>
+    <div class="dv-succes-grille">${SUCCES_DEVINE.map(([k, nom, desc, f, pieces]) => { const [v, max] = f(st), ok = v >= max; return `<div class="dv-sc ${pris[k] ? "fait" : ok ? "pret" : ""}">
+      <b>${esc(nom)}</b><small class="muted">${esc(desc)} · ${pieces} 🪙</small>
+      <div class="dv-barre"><i style="width:${Math.min(100, Math.round(v / max * 100))}%"></i></div>
+      ${pris[k] ? `<small class="sc-ok">✓ Récupéré</small>` : ok ? `<button class="btn primary small" data-dsc="${k}">Récupérer</button>` : `<small class="muted">${Math.min(v, max)} / ${max}</small>`}</div>`; }).join("")}</div>`;
+  if (prets) el.open = true;
+  $$("[data-dsc]", el).forEach((b) => b.onclick = () => {
+    const x = SUCCES_DEVINE.find((y) => y[0] === b.dataset.dsc), [v, max] = x[3](statsDevineDe());
+    if ((S.devineSucces ||= {})[x[0]] || v < max) return;
+    S.devineSucces[x[0]] = true; S.coins += x[4]; sauver(); majCoins();
+    toast(`${x[1]} : +${x[4]} 🪙`); blocSuccesDevine(el); el.open = true;
+  });
+}
+
+/* ---------- Admin : surveillance de l'économie (pièces) ---------- */
+async function adminEconomie(el) {
+  el.innerHTML = "Chargement…";
+  try {
+    const d = await api("admin/economie"), j = d.jours, auj = j[0] || {}, hier = j[1];
+    const delta = hier ? auj.total - hier.total : 0, noms = ["moins de 1 000", "1 000 à 5 000", "5 000 à 20 000", "20 000 à 100 000", "plus de 100 000"];
+    const maxT = Math.max(1, ...j.map((x) => x.total));
+    el.innerHTML = `<div class="eco-chiffres">
+        <div class="panel"><small class="muted">Pièces en circulation</small><b>${fmt(auj.total || 0)}</b><small class="${delta > 0 ? "eco-hausse" : ""}">${hier ? `${delta >= 0 ? "+" : ""}${fmt(delta)} depuis hier` : "premier relevé"}</small></div>
+        <div class="panel"><small class="muted">Moyenne par joueur</small><b>${fmt(auj.moyenne || 0)}</b><small class="muted">${fmt(auj.joueurs || 0)} comptes · ${fmt(auj.actifs || 0)} actifs (7 j)</small></div>
+        <div class="panel"><small class="muted">Distribuées aujourd'hui par le serveur</small><b>${fmt(auj.distribues || 0)}</b><small class="muted">défis, cadeaux, récompenses</small></div></div>
+      <h3>Pièces en circulation, 30 derniers jours</h3>
+      <div class="eco-graphe">${j.slice().reverse().map((x) => `<div title="${x.jour} : ${fmt(x.total)} pièces · ${fmt(x.distribues)} distribuées"><i style="height:${Math.max(2, Math.round(x.total / maxT * 100))}%"></i><small>${x.jour.slice(8)}</small></div>`).join("")}</div>
+      <div class="eco-deux"><div><h3>Répartition des joueurs</h3>${noms.map((n, i) => `<div class="codex-ligne"><span>${n}</span><b>${fmt(d.tranches.find((t) => t.t === i)?.n || 0)}</b></div>`).join("")}</div>
+      <div><h3>Plus riches</h3>${d.riches.map((r, i) => `<div class="codex-ligne"><span>${i + 1}. ${esc(r.pseudo)}</span><b>${fmt(r.pieces || 0)}</b></div>`).join("")}</div></div>
+      <h3>Sources des pièces distribuées (7 jours)</h3>${d.sources.length ? d.sources.map((x) => `<div class="codex-ligne"><span>${esc(x.source)}…</span><span><b>${fmt(x.pieces)}</b> <small class="muted">(${x.n} fois)</small></span></div>`).join("") : `<p class="muted">Rien pour l'instant.</p>`}
+      <p class="muted" style="font-size:12.5px">Les pièces gagnées dans les mini-jeux sont comptées dans la sauvegarde des joueurs (« en circulation ») ; la liste ci-dessus ne montre que ce que le serveur distribue lui-même. Un relevé est fait chaque heure.</p>`;
+  } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}

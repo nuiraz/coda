@@ -312,3 +312,31 @@ svg.ico-e { width: 1.15em; height: 1.15em; vertical-align: -0.2em; display: inli
 .da-liste { grid-template-columns: minmax(0, 1fr); }
 .da-ligne { width: 100%; min-width: 0; box-sizing: border-box; }
 #daCat { max-width: 100%; }
+/* Devinette du jour, défi entre amis, succès */
+.dv-jour, .dv-defi { margin-bottom: 14px; border: 1.5px solid var(--accent); }
+.dv-jour-tete { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.pill-cat { font-size: 12.5px; padding: 4px 10px; border-radius: 99px; background: rgba(224,86,127,.1); color: var(--accent); white-space: nowrap; }
+.dv-jour-fin { margin-top: 8px; }
+.dv-top summary, .dv-succes summary { cursor: pointer; font-size: 14px; margin-top: 8px; }
+.dv-top ol { margin: 6px 0 0; padding-left: 22px; font-size: 14px; }
+.dv-classement { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; counter-reset: c; }
+.dv-classement li { display: flex; justify-content: space-between; padding: 8px 12px; border-radius: 12px; background: rgba(0,0,0,.035); counter-increment: c; }
+.dv-classement li b::before { content: counter(c) ". "; color: var(--accent); }
+.dv-classement li.moi { background: rgba(224,86,127,.12); }
+.dv-succes { margin-top: 14px; }
+.dv-succes-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin-top: 10px; }
+.dv-sc { display: flex; flex-direction: column; gap: 4px; padding: 10px; border-radius: 14px; background: rgba(0,0,0,.035); }
+.dv-sc.pret { background: rgba(224,86,127,.1); }
+.dv-sc.fait { opacity: .6; }
+.dv-barre { height: 6px; border-radius: 99px; background: rgba(0,0,0,.08); overflow: hidden; }
+.dv-barre i { display: block; height: 100%; background: var(--accent); }
+/* Admin économie */
+.eco-chiffres { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.eco-chiffres .panel { display: flex; flex-direction: column; gap: 2px; margin: 0; }
+.eco-chiffres b { font-size: 26px; font-family: Fraunces, serif; }
+.eco-hausse { color: #d48a06; }
+.eco-graphe { display: flex; align-items: flex-end; gap: 3px; height: 140px; padding: 6px 0; }
+.eco-graphe div { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 2px; min-width: 0; }
+.eco-graphe i { width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; opacity: .8; }
+.eco-graphe small { font-size: 9px; color: var(--muted, #888); }
+.eco-deux { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
