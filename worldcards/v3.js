@@ -163,7 +163,7 @@ function vueForge(v) {
   const dispo = cartesForgeables().filter((c) => (!filtre || c.rarete === filtre) && disponiblesForge(c) > 0)
     .sort((a, b) => ORDRE_FORGE.indexOf(a.rarete) - ORDRE_FORGE.indexOf(b.rarete) || disponiblesForge(b) - disponiblesForge(a));
   const parRarete = Object.fromEntries(ORDRE_FORGE.slice(0, -1).map((r) => [r, cartesForgeables().filter((c) => c.rarete === r).reduce((t, c) => t + (S.owned[c.id] - 1), 0)]));
-  v.innerHTML = `<header class="page-tete"><h1>La Forge</h1><p>Sacrifiez <b>10 doublons de même rareté</b> pour forger une carte de <b>rareté supérieure garantie</b>. Vous gardez toujours un exemplaire de chaque carte.</p></header>
+  v.innerHTML = `<header class="page-tete"><h1>La Forge</h1><p>Vos doublons prennent la poussière ? Réunissez-en <b>10 de la même rareté</b> et la Forge les fond en <b>une carte du niveau au-dessus</b>, de préférence une que vous n'avez pas encore. Un exemplaire de chaque carte reste toujours dans votre album.</p></header>
     <section class="panel forge">
       <div class="forge-haut"><span class="forge-ic">${svgIcone("forge")}</span>
         <div class="forge-txt"><b>Progression : <span class="tag-num">${forgeEtat.slots.length} / 10 cartes</span></b>
@@ -223,9 +223,9 @@ async function vueCodex(v) {
   const miennes = toutes.filter((c) => has(c.id));
   const parRarete = ORDRE_FORGE.map((r) => [r, miennes.filter((c) => c.rarete === r).length, toutes.filter((c) => c.rarete === r).length]);
   v.innerHTML = `<section class="codex-tete">
-      <div style="flex:1;min-width:0"><span class="codex-badge">${svgIcone("codex")} Codex mondial</span>
-        <h1>L'encyclopédie vivante</h1>
-        <p>Toutes les cartes du jeu, même celles que vous n'avez pas encore : explorez-les, voyez à quoi elles ressemblent et partez à leur recherche. Chaque carte porte le nom du premier joueur qui l'a découverte.</p></div>
+      <div style="flex:1;min-width:0"><span class="codex-badge">${svgIcone("codex")} Codex Play2F1</span>
+        <h1>Le grand atlas des cartes</h1>
+        <p>Les 195 pays, les villes, les monuments, les animaux et les plats du jeu, rangés au même endroit. Feuilletez les cartes qui vous manquent, repérez celles à chasser dans les boosters, et voyez quel joueur a trouvé chacune en premier.</p></div>
       <div class="codex-monde"><small>Découvertes mondiales</small><b id="cxMonde">…</b><span class="muted">/ ${fmt(toutes.length)} cartes</span><em>${fmt(miennes.length)} découvertes par vous</em></div>
       <div class="codex-raretes">${parRarete.map(([r, n, t]) => `<div class="r-${r}"><small>${RARETES[r].nom}</small><b>${n}</b><span>/ ${t}</span></div>`).join("")}</div></section>
     <div class="codex-recherche"><input id="cxQ" type="search" placeholder="Rechercher une carte, un pays, une ville…" value="${esc(codexEtat.q)}"><button class="btn" id="cxHasard">Au hasard</button></div>

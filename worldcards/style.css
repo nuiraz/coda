@@ -1688,3 +1688,103 @@ body.ecran-connexion #nav, body.ecran-connexion .pied { display: none !important
 .codex-grille { row-gap: 20px; }
 .cx-grande { width: 220px; margin: 0 auto; pointer-events: none; }
 .photo-perso-apercu { width: 180px; margin: 0 auto 6px; pointer-events: none; }
+
+/* =====================================================================
+   PLAY2F1 — DIRECTION ARTISTIQUE V4 « CARNET D'ATLAS »
+   Identité propre : graphite chaud, papier crème, corail tampon, lignes de relief.
+   (placé en dernier : remplace l'ancienne palette bleu nuit / or)
+   ===================================================================== */
+:root {
+  --titre: "Bricolage Grotesque", "DM Sans", system-ui, sans-serif;
+  --texte: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --accent: #ff5b35; --accent-2: #e2441f; --or: #f2b33d; --cyan: #3ccfa8; --sur-accent: #ffffff; --vert: #3ccfa8;
+  --relief: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420' viewBox='0 0 420 420' fill='none' stroke='%23ff5b35' stroke-opacity='.07' stroke-width='1.2'%3E%3Cpath d='M-20 90c60-40 120 30 190-10s110-70 170-20 80 40 100 20'/%3E%3Cpath d='M-20 130c60-40 120 30 190-10s110-70 170-20 80 40 100 20'/%3E%3Cpath d='M-20 260c80 30 140-40 210 0s100 60 160 10 70-30 90-10'/%3E%3Cpath d='M-20 300c80 30 140-40 210 0s100 60 160 10 70-30 90-10'/%3E%3Ccircle cx='300' cy='200' r='34'/%3E%3Ccircle cx='300' cy='200' r='58'/%3E%3Ccircle cx='90' cy='370' r='26'/%3E%3C/g%3E%3C/svg%3E");
+  --bg: #f6f1e7; --panel: #fffdf8; --panel2: #f1eadc; --text: #1d1a16; --muted: #6e675c; --border: #e3d9c6;
+  --shadow: 0 1px 0 rgba(29, 26, 22, .04), 0 6px 18px rgba(29, 26, 22, .06);
+  --fond: var(--relief), #f6f1e7;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111214; --panel: #18191c; --panel2: #202226; --text: #f2ede4; --muted: #9d978c; --border: #2c2e33;
+    --shadow: 0 1px 0 rgba(255, 255, 255, .025) inset, 0 10px 26px rgba(0, 0, 0, .3); color-scheme: dark;
+    --fond: radial-gradient(900px 420px at 0% -120px, rgba(255, 91, 53, .10), transparent 70%), var(--relief), #111214;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111214; --panel: #18191c; --panel2: #202226; --text: #f2ede4; --muted: #9d978c; --border: #2c2e33;
+  --shadow: 0 1px 0 rgba(255, 255, 255, .025) inset, 0 10px 26px rgba(0, 0, 0, .3); color-scheme: dark;
+  --fond: radial-gradient(900px 420px at 0% -120px, rgba(255, 91, 53, .10), transparent 70%), var(--relief), #111214;
+}
+body { letter-spacing: 0; }
+h1, h2, h3, .brand b, .sectiontitle h3 { font-family: var(--titre); font-weight: 700; letter-spacing: -.025em; }
+
+/* Logo et nom */
+.brand { gap: 9px; align-items: center; }
+.brand-logo { width: 30px; height: 30px; border-radius: 8px; display: block; }
+.brand b { font-size: 21px; color: var(--text); }
+.brand b span { background: none; -webkit-background-clip: initial; background-clip: initial; color: var(--accent); }
+
+/* Boutons, puces, panneaux : plus nets, sans halos */
+.panel { border-radius: 12px; }
+.btn { border-radius: 9px; }
+.btn.primary, .btn.primary.premium { background: var(--accent); color: var(--sur-accent); border-color: var(--accent); box-shadow: 0 2px 0 var(--accent-2); }
+.btn.primary:hover { background: var(--accent-2); }
+.chip { border-radius: 8px; }
+.chip.on, .seg button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+.coins, .nivjoueur, .online-pill { border-radius: 9px !important; }
+
+/* Navigation ordinateur : bande pleine largeur, onglets soulignés, alignés à gauche */
+@media (min-width: 1000px) {
+  .top { padding: 10px 32px; background: color-mix(in srgb, var(--bg) 90%, transparent); }
+  #nav { position: sticky; top: 61px; width: auto; max-width: none; margin: 0; padding: 0 32px; gap: 4px; justify-content: flex-start;
+    border-radius: 0; border: 0; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--bg) 90%, transparent); box-shadow: none; }
+  #nav button { padding: 13px 12px 12px; border-radius: 0; font-size: 14.5px; font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  #nav button:hover { background: none; color: var(--text); }
+  #nav button.on { color: var(--text); background: none; box-shadow: none; border-bottom-color: var(--accent); }
+  #nav button.on .ico { color: var(--accent); }
+  #nav button:last-child { margin-left: auto; }
+}
+@media (max-width: 999px) {
+  #nav button.on { color: var(--accent); }
+}
+
+/* Titres de pages : texte crème, petit trait corail */
+.page-tete h1, .codex-tete h1 { color: var(--text); }
+.page-tete h1::after, .codex-tete h1::after { content: ""; display: block; width: 44px; height: 4px; margin-top: 8px; border-radius: 2px; background: var(--accent); }
+.page-tete b, .codex-monde em { color: var(--accent); }
+
+/* Page booster */
+.booster-hero { border-radius: 14px; background: var(--relief), var(--panel); }
+.bh-pill, .bh-pill.cyan { color: var(--text); background: var(--panel2); border-color: var(--border); border-radius: 8px; }
+.btn-ouvrir { border-radius: 10px; color: #fff; background: var(--accent); box-shadow: 0 3px 0 var(--accent-2); letter-spacing: .04em; }
+.btn-ouvrir:hover { filter: brightness(1.06); }
+.btn-ouvrir:disabled { box-shadow: none; }
+.pk-sous { color: #ffe1d6; }
+
+/* Connexion : carte façon passeport, alignée à gauche */
+.connexion-carte { border-radius: 16px; text-align: left; background: var(--relief), var(--panel); border-top: 5px solid var(--accent); }
+.cx-logo { width: 64px; height: 64px; border-radius: 14px; box-shadow: none; }
+.cx-nom { font-size: 36px; background: none; -webkit-background-clip: initial; background-clip: initial; color: var(--text); }
+.cx-atouts > div { border-radius: 10px; }
+.cx-onglets { border-radius: 10px; } .cx-onglets button { border-radius: 8px; }
+
+/* Forge */
+.forge-ic { border-radius: 10px; background: var(--accent); box-shadow: none; }
+.tag-num { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.forge-flamme { background: radial-gradient(circle, #ff8a65, var(--accent) 60%, transparent 70%); }
+
+/* Codex */
+.codex-tete { border-radius: 14px; border-color: var(--border); background: var(--relief), var(--panel); }
+.codex-badge { color: var(--vert); background: color-mix(in srgb, var(--vert) 10%, transparent); border-color: color-mix(in srgb, var(--vert) 35%, transparent); border-radius: 8px; }
+.codex-monde { border-radius: 10px; } .codex-monde b { color: var(--vert); }
+.codex-raretes > div { border-radius: 8px; }
+.codex-recherche input { border-radius: 10px; }
+
+/* Texte de présentation en bas de page (référencement) */
+.seo-texte { max-width: 760px; margin: 6px auto 0; font-size: 13px; line-height: 1.6; color: var(--muted); text-align: center; }
+.seo-texte h2 { font-size: 15px; margin: 0 0 4px; color: var(--text); }
+.seo-texte p { margin: 0 0 6px; }
+.cx-accroche { margin: 0 0 18px; }
+.cx-onglets button.on, :root[data-theme="light"] .cx-onglets button.on { background: var(--accent); color: #fff; box-shadow: none; }
+.cx-forms .form label.check { display: block; font-weight: 500; line-height: 1.5; }
+.cx-forms .form label.check input { margin: 0 6px 0 0; vertical-align: -2px; }
