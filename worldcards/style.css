@@ -1521,7 +1521,7 @@ h1, h2, h3, .brand b, .sectiontitle h3 { font-family: var(--titre); font-weight:
 .brand { font-weight: 800; }
 @media (min-width: 1000px) {
   .sidebar { display: none !important; }
-  body > .top, body > main, body > .pied, #adminSecurityAlert { margin-left: 0 !important; }
+  body > .top { margin-left: 0 !important; } body > main, body > .pied, #adminSecurityAlert { margin-left: auto !important; margin-right: auto !important; }
   .top { max-width: none; justify-content: space-between; padding: 12px 28px; }
   .top > .brand { display: flex !important; } .titre-vue { display: none; }
   #feedbackBtn, #hubBtn { display: none !important; }
@@ -1532,7 +1532,7 @@ h1, h2, h3, .brand b, .sectiontitle h3 { font-family: var(--titre); font-weight:
   #nav button:hover { color: var(--text); background: var(--panel2); }
   #nav button.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
   #nav .pill { background: var(--accent); color: var(--sur-accent); font-weight: 800; }
-  main { max-width: 1200px; margin: 0 auto; padding: 24px 28px 32px; }
+  main { max-width: 1200px; padding: 24px 28px 32px; }
 }
 @media (max-width: 999px) {
   #nav { background: color-mix(in srgb, var(--panel) 94%, transparent); border-top: 1px solid var(--border); }
