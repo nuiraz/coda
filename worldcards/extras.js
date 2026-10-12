@@ -171,7 +171,7 @@ async function hubAmis(el) {
         ${avatarHTML(a.pseudo)}
         <div class="ami-infos"><b>${esc(a.pseudo)}${a.premium ? " 💎" : ""} ${a.enLigne ? `<span class="enligne">● en ligne</span>` : ""}</b>
           <small class="muted">${fmt(a.cartes)} cartes · ${a.palier.nom} · 🏆 ${fmt(a.trophees)}${a.reciproque ? "" : " · ne vous a pas encore ajouté"}</small></div>
-        <div class="row" style="gap:6px"><button class="btn small" data-ecrire="${esc(a.pseudo)}">✉️</button><button class="btn small" data-collec="${esc(a.pseudo)}">📚 Collection</button>
+        <div class="row" style="gap:6px">${a.reciproque ? `<button class="btn small ${a.enLigne ? "primary" : ""}" data-direct="${esc(a.pseudo)}" title="Duel en direct">⚡ Direct</button>` : ""}<button class="btn small" data-ecrire="${esc(a.pseudo)}">✉️</button><button class="btn small" data-collec="${esc(a.pseudo)}">📚 Collection</button>
           <button class="btn small primary" data-defier="${esc(a.pseudo)}" ${a.deck ? "" : "disabled title=\"Pas encore de deck de défense\""}>⚔️ Défier</button>
           <button class="btn small" data-retirer="${esc(a.pseudo)}">✕</button></div></div>`).join("")}</div>`
         : `<p class="muted">Pas encore d'amis. Ajoutez un joueur avec son pseudo (il apparaît dans le fil et le classement).</p>`}`;
@@ -179,6 +179,7 @@ async function hubAmis(el) {
     $$("[data-retirer]", el).forEach((b) => b.onclick = async () => { await api("amis/" + encodeURIComponent(b.dataset.retirer), { methode: "DELETE" }).catch(() => {}); hubAmis(el); });
     $$("[data-collec]", el).forEach((b) => b.onclick = () => voirCollectionAmi(b.dataset.collec));
     $$("[data-ecrire]", el).forEach((b) => b.onclick = () => ouvrirConversation(b.dataset.ecrire));
+    $$("[data-direct]", el).forEach((b) => b.onclick = () => defierEnDirect(b.dataset.direct));
     $$("[data-defier]", el).forEach((b) => b.onclick = async () => {
       if (!deckPret()) return;
       try { await envoyerDeckArene(); defier(b.dataset.defier); } catch (e) { toast("⚠ " + e.message); }
@@ -359,13 +360,15 @@ function ficheJoueur(pseudo) {
     <div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px">
       <button class="btn primary" id="fjMp">✉️ Message privé</button>
       <button class="btn" id="fjAmi">➕ Ajouter en ami</button>
-      <button class="btn" id="fjCollec">📚 Collection</button></div>
+      <button class="btn" id="fjCollec">📚 Collection</button>
+      <button class="btn" id="fjDuel">⚡ Duel en direct</button></div>
     <div class="row" style="gap:8px;justify-content:center;margin-top:10px">
       <button class="btn small" id="fjSignaler">🚩 Signaler sa photo</button>
       <button class="btn small danger" id="fjBloquer">🚫 Bloquer / débloquer</button></div></div>`);
   $("#fjMp").onclick = () => { fermerModal(); ouvrirConversation(pseudo); };
   $("#fjAmi").onclick = async () => { try { await api("amis", { methode: "POST", corps: { pseudo } }); toast(`👫 ${pseudo} ajouté à vos amis !`); } catch (e) { toast("⚠ " + e.message); } };
   $("#fjCollec").onclick = () => voirCollectionAmi(pseudo);
+  $("#fjDuel").onclick = () => defierEnDirect(pseudo);
   $("#fjSignaler").onclick = async () => { try { await api(`avatar/${encodeURIComponent(pseudo)}/signaler`, { methode: "POST", corps: {} }); toast("🚩 Merci, l'admin va vérifier."); } catch (e) { toast("⚠ " + e.message); } };
   $("#fjBloquer").onclick = async () => {
     try { const r = await api(`bloquer/${encodeURIComponent(pseudo)}`, { methode: "POST", corps: {} }); toast(r.bloque ? `🚫 ${pseudo} est bloqué : vous ne verrez plus ses messages.` : `${pseudo} est débloqué.`); fermerModal(); if (S.vue === "hub") aller("hub"); }
@@ -389,7 +392,8 @@ function bulleMessage(m, prive) {
       ${carte ? `<div class="bulle-carte" data-carte="${esc(m.carte)}">${carte.emoji || "🃏"} <b>${esc(carte.nom)}</b> <small>${esc(RARETES[carte.rarete]?.nom || "")}</small></div>` : ""}
       <div class="bulle-meta">${heureCourte(m.cree_le)}${prive && m.moi ? (m.lu ? " · ✓✓ lu" : " · ✓") : ""}
         ${prive ? "" : `<button data-repondre="${m.id}" title="Répondre">↩</button>`}
-        ${!prive && (m.moi || COMPTE.admin) ? `<button data-suppr-msg="${m.id}" title="Supprimer">🗑</button>` : ""}</div>
+        ${!prive && (m.moi || COMPTE.admin) ? `<button data-suppr-msg="${m.id}" title="Supprimer">🗑</button>` : ""}
+        ${!prive && !m.moi && connecte() ? `<button data-signaler-msg="${m.id}" title="Signaler ce message">🚩</button>` : ""}</div>
     </div></div>`;
 }
 function brancherBulles(racine) {
@@ -401,6 +405,10 @@ function brancherBulles(racine) {
     $("#chatReponse").innerHTML = `↪ Réponse à <b>${esc(nom)}</b> <button type="button" id="annulerRep">✕</button>`;
     $("#annulerRep").onclick = () => { chatEtat.reponse = null; $("#chatReponse").innerHTML = ""; };
     $("#chatTxt").focus();
+  });
+  $$("[data-signaler-msg]", racine).forEach((b) => b.onclick = async () => {
+    if (!confirm("Signaler ce message à la modération ?")) return;
+    try { await api(`chat/message/${b.dataset.signalerMsg}/signaler`, { methode: "POST", corps: {} }); b.textContent = "✓"; b.disabled = true; toast("🚩 Merci, message signalé."); } catch (e) { toast("⚠ " + e.message); }
   });
   $$("[data-suppr-msg]", racine).forEach((b) => b.onclick = async () => {
     try { await api("chat/message/" + b.dataset.supprMsg, { methode: "DELETE" }); b.closest(".bulle").remove(); } catch (e) { toast("⚠ " + e.message); }
@@ -540,3 +548,46 @@ async function verifierMp() {
 }
 setInterval(() => { if (!document.hidden) verifierMp(); }, 30000);
 setTimeout(verifierMp, 4000);
+
+/* =====================================================================
+   Admin : modération du hub
+   ===================================================================== */
+async function adminModeration(el) {
+  el.innerHTML = `<p class="muted">Chargement…</p>`;
+  try {
+    const r = await api("admin/moderation");
+    el.innerHTML = `<div class="panel row" style="justify-content:space-between;gap:10px">
+        <div><b>🔒 Masquer liens, numéros de téléphone et pseudos de réseaux sociaux</b><br><small class="muted">Protège les mineurs dans la discussion et les messages privés.</small></div>
+        <button class="btn ${r.filtre ? "primary" : ""}" id="modFiltre">${r.filtre ? "✅ Activé" : "Désactivé"}</button></div>
+      <p class="muted">Sourdine automatique de 10 min quand 3 joueurs différents signalent les messages d'une même personne en 1 h.</p>
+      <h3>🚩 Messages signalés</h3>
+      ${r.signalements.length ? r.signalements.map((x) => `<div class="panel signal" data-msg="${x.message_id}" data-p="${esc(x.pseudo)}">
+        <div class="row" style="justify-content:space-between"><b>${esc(x.pseudo)}${x.muet ? " 🔇" : ""}</b><small class="muted">🚩 ${x.nombre} · ${depuis(x.dernier)}${x.existe ? "" : " · déjà supprimé"}</small></div>
+        <p style="margin:6px 0">« ${esc(x.texte || "")} »</p>
+        <div class="row" style="gap:6px;flex-wrap:wrap">${x.existe ? `<button class="btn small danger" data-act="suppr">🗑 Supprimer</button>` : ""}
+          <button class="btn small" data-act="m10">🔇 10 min</button><button class="btn small" data-act="m60">🔇 1 h</button><button class="btn small" data-act="m1440">🔇 24 h</button>
+          <button class="btn small" data-act="hist">📜 Historique</button><button class="btn small" data-act="ignorer">✓ Ignorer</button></div></div>`).join("")
+      : `<p class="muted">Aucun message signalé. 🎉</p>`}`;
+    $("#modFiltre").onclick = async () => { await api("admin/moderation/filtre", { methode: "POST", corps: { actif: !r.filtre } }); adminModeration(el); };
+    $$(".signal", el).forEach((d) => d.querySelectorAll("[data-act]").forEach((b) => b.onclick = async () => {
+      const a = b.dataset.act, id = d.dataset.msg, pseudo = d.dataset.p;
+      try {
+        if (a === "suppr") await api(`chat/message/${id}`, { methode: "DELETE" });
+        else if (a === "ignorer") await api(`admin/moderation/${id}/ignorer`, { methode: "POST", corps: {} });
+        else if (a === "hist") return historiqueModeration(pseudo);
+        else { await api(`admin/sourdine/${encodeURIComponent(pseudo)}`, { methode: "POST", corps: { minutes: Number(a.slice(1)), motif: "message signalé" } }); await api(`admin/moderation/${id}/ignorer`, { methode: "POST", corps: {} }); }
+        toast("✓ Fait."); adminModeration(el);
+      } catch (e) { toast("⚠ " + e.message); }
+    }));
+  } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+async function historiqueModeration(pseudo) {
+  ouvrirModal(`<h2 style="margin-top:0">📜 Historique de ${esc(pseudo)}</h2><div id="histMod">Chargement…</div>`);
+  try {
+    const r = await api("admin/historique/" + encodeURIComponent(pseudo));
+    $("#histMod").innerHTML = `<p class="muted">${r.banni ? "⛔ Banni · " : ""}${r.muetJusqu > Date.now() ? `🔇 En sourdine encore ${Math.ceil((r.muetJusqu - Date.now()) / 60000)} min · ` : ""}🚩 ${r.signalements} signalement(s) reçus au total</p>
+      <div class="row" style="gap:6px;margin-bottom:10px"><button class="btn small" data-m="10">🔇 10 min</button><button class="btn small" data-m="1440">🔇 24 h</button><button class="btn small" data-m="0">🔊 Lever la sourdine</button></div>
+      ${r.historique.length ? `<table class="classement"><tbody>${r.historique.map((h) => `<tr><td><small>${new Date(h.cree_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</small></td><td><b>${esc(h.action)}</b>${h.details ? `<br><small class="muted">${esc(h.details)}</small>` : ""}</td><td><small class="muted">${esc(h.par || "")}</small></td></tr>`).join("")}</tbody></table>` : `<p class="muted">Aucune sanction pour l'instant.</p>`}`;
+    $$("#histMod [data-m]").forEach((b) => b.onclick = async () => { try { await api(`admin/sourdine/${encodeURIComponent(pseudo)}`, { methode: "POST", corps: { minutes: Number(b.dataset.m) } }); historiqueModeration(pseudo); } catch (e) { toast("⚠ " + e.message); } });
+  } catch (e) { $("#histMod").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}

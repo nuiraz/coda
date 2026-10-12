@@ -214,11 +214,12 @@
   }
 
   // Joue un tour : action du joueur (côté 0), l'adversaire (côté 1) joue selon l'IA
-  function jouer(etat, actionJoueur) {
+  // actionAdverse : choix du 2e joueur en duel en direct (sinon l'IA décide)
+  function jouer(etat, actionJoueur, actionAdverse) {
     if (etat.fini) return [];
     const ev = [];
     etat.tour++;
-    const actions = [actionValide(actionJoueur) ? actionJoueur : "attaque", choixIA(etat, 1)];
+    const actions = [actionValide(actionJoueur) ? actionJoueur : "attaque", actionAdverse === undefined ? choixIA(etat, 1) : actionValide(actionAdverse) ? actionAdverse : "attaque"];
     // Changer de carte : la nouvelle entre tout de suite, mais le tour est utilisé
     for (const c of [0, 1]) {
       if (!actions[c].startsWith("changer:")) continue;
@@ -318,6 +319,12 @@
     return etat;
   }
 
-  return { SPECIAUX, TALENTS, TALENTS_TYPE, CYCLE, talentDe, COUT, BUDGET, TAILLE_DECK, PUISSANCE, PROFILS, AVANTAGE, VARIATION, NIVEAU_MAX, BONUS_SHINY, BONUS_DOREE, TOURS_MAX, METEOS,
+  // Duel en direct : rejoue les tours déjà joués (paires [action A, action B]) sans terminer le combat
+  function rejouerDuel(equipeA, equipeB, graine, paires) {
+    const etat = creer(equipeA, equipeB, graine);
+    for (const [a, b] of paires.slice(0, TOURS_MAX)) { if (etat.fini) break; jouer(etat, a, b); }
+    return etat;
+  }
+  return { rejouerDuel, SPECIAUX, TALENTS, TALENTS_TYPE, CYCLE, talentDe, COUT, BUDGET, TAILLE_DECK, PUISSANCE, PROFILS, AVANTAGE, VARIATION, NIVEAU_MAX, BONUS_SHINY, BONUS_DOREE, TOURS_MAX, METEOS,
     hash, rng, base, niveau, tirerQualite, borne, noteQualite, stats, puissance, creer, jouer, rejouer, actif, vivants };
 });

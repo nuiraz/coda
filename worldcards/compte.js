@@ -956,7 +956,7 @@ async function vueAdmin(v) {
   if (!COMPTE.admin) { v.innerHTML = `<div class="panel"><p>Accès réservé à l'administrateur.</p><button class="btn" data-aller="compte">Mon compte</button></div>`; brancherLiens(v); return; }
   v.innerHTML = `<div class="sectiontitle"><h3>👑 Administration</h3><span class="muted">Connecté en tant que ${esc(COMPTE.pseudo)}</span></div>
     <div class="statgrid" id="aStats"><div class="stat"><b>…</b><span>chargement</span></div></div>
-    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["avatars", "🖼️ Photos de profil"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
+    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["avatars", "🖼️ Photos de profil"], ["moderation", "🛡️ Modération"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
     <div id="aCorps"></div>`;
   $$("[data-a]", v).forEach((b) => b.onclick = () => { adminEtat.onglet = b.dataset.a; aller("admin"); });
   api("admin/stats").then((s) => {
@@ -964,7 +964,7 @@ async function vueAdmin(v) {
       .map(([l, n]) => `<div class="stat"><b>${fmt(n)}</b><span>${l}</span></div>`).join("");
   }).catch((e) => { $("#aStats").innerHTML = `<p class="err">${esc(e.message)}</p>`; });
   const corps = $("#aCorps");
-  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, evenements: adminEvenements, photos: adminPhotos, avatars: adminAvatars, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
+  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, evenements: adminEvenements, photos: adminPhotos, avatars: adminAvatars, moderation: adminModeration, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
 }
 async function adminJoueurs(el) {
   el.innerHTML = `<input class="search" id="aq" type="search" placeholder="Rechercher un joueur…" value="${esc(adminEtat.q)}" style="max-width:none;width:100%;margin-bottom:10px">
@@ -978,7 +978,7 @@ async function adminJoueurs(el) {
         <td><button class="pseudo" data-profil="${esc(u.pseudo)}">${esc(u.pseudo)}${u.admin ? " 👑" : ""}${u.banni ? " ⛔" : ""}</button></td>
         <td>${new Date(u.cree_le).toLocaleDateString("fr-FR")}${u.premium_jusqu > Date.now() ? " 💎" : ""}</td><td>${u.derniere_co ? depuis(u.derniere_co) : "—"}</td><td>${fmt(u.cartes)}</td><td>${u.messages}</td>
         <td><div class="row" style="gap:4px;flex-wrap:nowrap">${u.admin ? "" : `<button class="btn small" data-ban>${u.banni ? "Réactiver" : "Bannir"}</button>
-          <button class="btn small" data-mdp>Nouveau mot de passe</button><button class="btn small" data-prem>💎</button><button class="btn small" data-cadeau>🎁</button><button class="btn small" data-reset title="Remettre la progression à zéro">♻️ Reset</button><button class="btn small" data-del style="color:var(--bad)">Supprimer</button>`}</div></td></tr>`).join("") || `<tr><td colspan="6" class="muted">Aucun joueur.</td></tr>`;
+          <button class="btn small" data-mdp>Nouveau mot de passe</button><button class="btn small" data-prem>💎</button><button class="btn small" data-cadeau>🎁</button><button class="btn small" data-hist title="Historique de modération">📜</button><button class="btn small" data-reset title="Remettre la progression à zéro">♻️ Reset</button><button class="btn small" data-del style="color:var(--bad)">Supprimer</button>`}</div></td></tr>`).join("") || `<tr><td colspan="6" class="muted">Aucun joueur.</td></tr>`;
       $$("#aj [data-profil]").forEach((b) => b.onclick = () => ouvrirProfil(b.dataset.profil));
       $$("#aj tr[data-u]").forEach((tr) => {
         const id = tr.dataset.u, pseudo = tr.dataset.p;
@@ -993,6 +993,7 @@ async function adminJoueurs(el) {
               <p class="code">${esc(r.motdepasse)}</p><button class="btn primary" data-close>Fermer</button>`);
           } catch (e) { toast("⚠ " + e.message); }
         }));
+        tr.querySelector("[data-hist]")?.addEventListener("click", () => historiqueModeration(pseudo));
         tr.querySelector("[data-reset]")?.addEventListener("click", () => confirmer(`Réinitialiser complètement le compte de ${pseudo} ? Cartes, pièces, boosters, trophées, tournoi et échanges en cours seront effacés.`, "Continuer", () => {
           // 2e vérification : retaper le pseudo
           ouvrirModal(`<h2 style="margin-top:0">♻️ Confirmation finale</h2>

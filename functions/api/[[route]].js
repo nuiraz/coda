@@ -73,6 +73,11 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS mp_a ON mp (a_id, lu)`,
   `CREATE INDEX IF NOT EXISTS mp_paire ON mp (de_id, a_id, id)`,
   `CREATE TABLE IF NOT EXISTS avatars ( user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, image TEXT NOT NULL, maj INTEGER NOT NULL, signale INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS duels ( id INTEGER PRIMARY KEY AUTOINCREMENT, a_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, b_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, statut TEXT NOT NULL DEFAULT 'invite', graine INTEGER NOT NULL, deck_a TEXT NOT NULL, deck_b TEXT, paires TEXT NOT NULL DEFAULT '[]', choix_a TEXT, choix_b TEXT, limite INTEGER, gagnant INTEGER, cree_le INTEGER NOT NULL, fini_le INTEGER )`,
+  `CREATE INDEX IF NOT EXISTS duels_b ON duels (b_id, statut)`,
+  `CREATE TABLE IF NOT EXISTS signal_chat ( message_id INTEGER NOT NULL, user_id INTEGER NOT NULL, cible_id INTEGER NOT NULL, texte TEXT, cree_le INTEGER NOT NULL, traite INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (message_id, user_id) )`,
+  `CREATE TABLE IF NOT EXISTS moderation ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, action TEXT NOT NULL, details TEXT, par TEXT, cree_le INTEGER NOT NULL )`,
+  `CREATE INDEX IF NOT EXISTS moderation_user ON moderation (user_id, id)`,
   `CREATE TABLE IF NOT EXISTS bloques ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, bloque_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (user_id, bloque_id) )`,
   `CREATE TABLE IF NOT EXISTS combats ( id INTEGER PRIMARY KEY AUTOINCREMENT, attaquant INTEGER NOT NULL, defenseur INTEGER NOT NULL, graine INTEGER NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, cree_le INTEGER NOT NULL, fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER )`,
 ];
@@ -81,6 +86,7 @@ const MIGRATIONS = [
   `ALTER TABLE users ADD COLUMN premium_jusqu INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN temps_jeu INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN reset_le INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE users ADD COLUMN muet_jusqu INTEGER NOT NULL DEFAULT 0`,
 ];
 let schemaPret = false;
 async function preparerSchema(env) {
@@ -403,6 +409,7 @@ route("POST", "admin/utilisateurs/(\\d+)/bannir", async ({ request, env, p }) =>
   const cible = await env.DB.prepare("SELECT admin FROM users WHERE id = ?").bind(p[1]).first();
   if (!cible) return erreur("Joueur introuvable.", 404);
   if (cible.admin) return erreur("Impossible de bannir un administrateur.", 403);
+  await journaliser(env, Number(p[1]), b.banni ? "banni" : "réactivé", b.motif, "admin");
   await env.DB.batch([
     env.DB.prepare("UPDATE users SET banni = ? WHERE id = ?").bind(b.banni ? 1 : 0, p[1]),
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(p[1]),
@@ -430,6 +437,7 @@ route("POST", "admin/utilisateurs/(\\d+)/reinitialiser", async ({ request, env, 
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(id),
     env.DB.prepare("INSERT INTO securite_logs (ip, type, details, niveau, cree_le) VALUES ('admin', 'reinitialisation', ?, 'info', ?)").bind(`${user.pseudo} a réinitialisé le compte de ${cible.pseudo}${b.motif ? " : " + String(b.motif).slice(0, 200) : ""}`, t),
   ]);
+  await journaliser(env, id, "compte réinitialisé", b.motif, user.pseudo);
   enArrierePlan(ctx, envoyerPush(env, id, { titre: "⚠️ Compte réinitialisé", texte: "Votre progression a été remise à zéro par l'administrateur (non-respect des règles).", url: "./" }));
   return json({ ok: true, pseudo: cible.pseudo });
 }, { admin: true });
@@ -1146,6 +1154,19 @@ const SALONS = { general: "💬 Général", echanges: "🤝 Échanges", combat: 
 const ANTI_FLOOD_MS = 3000;
 // Mots interdits masqués (liste courte, l'admin modère le reste)
 const MOTS_MASQUES = /\b(connard|connasse|encul[ée]+|salope|pute|ntm|fdp|nique ta|pd|batard|bâtard)\b/gi;
+// Protection des mineurs : liens et numéros de téléphone masqués (désactivable dans l'admin)
+const RE_LIEN = /\b(?:https?:\/\/|www\.)\S+|\b[\w-]+\.(?:com|fr|net|org|be|ch|ca|io|gg|ly|me|xyz|tk|app|co|link|site|online|shop)\b\S*/gi;
+const RE_TEL = /(?:\+|\b0)\d(?:[\s.-]?\d){7,12}\b/g;
+const RE_RESEAUX = /\b(?:snap(?:chat)?|insta(?:gram)?|tiktok|discord|whatsapp|telegram)\s*[:@]?\s*@?[\w.]{3,}/gi;
+async function filtrerContacts(env, texte) {
+  if ((await lireConfig(env, "filtre_contacts")) === false) return texte;
+  return texte.replace(RE_LIEN, "[lien masqué]").replace(RE_TEL, "[numéro masqué]").replace(RE_RESEAUX, "[contact masqué]");
+}
+async function verifierSourdine(env, user) {
+  if (!user.admin && user.muet_jusqu > maintenant()) throw new ErreurApi(`Vous êtes en sourdine encore ${Math.ceil((user.muet_jusqu - maintenant()) / 60000)} min (signalements des joueurs).`, 403);
+}
+const journaliser = (env, userId, action, details, par = "système") =>
+  env.DB.prepare("INSERT INTO moderation (user_id, action, details, par, cree_le) VALUES (?, ?, ?, ?, ?)").bind(userId, action, String(details || "").slice(0, 300), par, maintenant()).run();
 const nettoyerTexte = (t) => String(t || "").replace(/\s+/g, " ").trim().slice(0, 400).replace(MOTS_MASQUES, (m) => "•".repeat(m.length));
 async function antiFlood(env, table, colonne, userId) {
   const d = await env.DB.prepare(`SELECT cree_le FROM ${table} WHERE ${colonne} = ? ORDER BY id DESC LIMIT 1`).bind(userId).first();
@@ -1170,7 +1191,8 @@ route("GET", "chat/([a-z]+)", async ({ request, env, user, p }) => {
 route("POST", "chat/([a-z]+)", async ({ request, env, user, p }) => {
   if (!SALONS[p[1]]) return erreur("Salon inconnu.", 404);
   const b = await corps(request);
-  const texte = nettoyerTexte(b.texte), carte = b.carte && CARTE_RE.test(b.carte) ? b.carte : null;
+  await verifierSourdine(env, user);
+  const texte = await filtrerContacts(env, nettoyerTexte(b.texte)), carte = b.carte && CARTE_RE.test(b.carte) ? b.carte : null;
   if (!texte && !carte) return erreur("Message vide.");
   if (!user.admin) await antiFlood(env, "chat", "user_id", user.id);
   const r = await env.DB.prepare("INSERT INTO chat (salon, user_id, texte, carte, reponse, cree_le) VALUES (?, ?, ?, ?, ?, ?)")
@@ -1181,9 +1203,58 @@ route("DELETE", "chat/message/(\\d+)", async ({ env, user, p }) => {
   const m = await env.DB.prepare("SELECT user_id FROM chat WHERE id = ?").bind(p[1]).first();
   if (!m) return erreur("Message introuvable.", 404);
   if (m.user_id !== user.id && !user.admin) return erreur("Vous ne pouvez supprimer que vos messages.", 403);
-  await env.DB.prepare("DELETE FROM chat WHERE id = ?").bind(p[1]).run();
+  const msg = await env.DB.prepare("SELECT texte FROM chat WHERE id = ?").bind(p[1]).first();
+  await env.DB.batch([env.DB.prepare("DELETE FROM chat WHERE id = ?").bind(p[1]), env.DB.prepare("UPDATE signal_chat SET traite = 1 WHERE message_id = ?").bind(p[1])]);
+  if (m.user_id !== user.id) await journaliser(env, m.user_id, "message supprimé", msg?.texte, user.pseudo);
   return json({ ok: true });
 }, { connecte: true });
+// Signalement d'un message : 3 joueurs différents en 1 h → sourdine automatique de 10 minutes
+route("POST", "chat/message/(\\d+)/signaler", async ({ env, user, p, ctx }) => {
+  const m = await env.DB.prepare("SELECT c.user_id, c.texte, u.pseudo, u.admin FROM chat c JOIN users u ON u.id = c.user_id WHERE c.id = ?").bind(p[1]).first();
+  if (!m) return erreur("Message introuvable.", 404);
+  if (m.user_id === user.id) return erreur("Vous ne pouvez pas signaler votre propre message.");
+  await env.DB.prepare("INSERT OR IGNORE INTO signal_chat (message_id, user_id, cible_id, texte, cree_le) VALUES (?, ?, ?, ?, ?)").bind(p[1], user.id, m.user_id, m.texte, maintenant()).run();
+  const n = await env.DB.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM signal_chat WHERE cible_id = ? AND cree_le > ? AND traite = 0").bind(m.user_id, maintenant() - 3600000).first();
+  const cible = await env.DB.prepare("SELECT muet_jusqu FROM users WHERE id = ?").bind(m.user_id).first();
+  if (n.n >= 3 && !m.admin && (cible.muet_jusqu || 0) < maintenant()) {
+    await env.DB.prepare("UPDATE users SET muet_jusqu = ? WHERE id = ?").bind(maintenant() + 10 * 60000, m.user_id).run();
+    await journaliser(env, m.user_id, "sourdine auto (10 min)", `${n.n} joueurs ont signalé ses messages`);
+    enArrierePlan(ctx, prevenirAdmins(env, { titre: "🔇 Sourdine automatique", texte: `${m.pseudo} est en sourdine 10 min après ${n.n} signalements.`, url: "./#admin" }));
+  }
+  return json({ ok: true });
+}, { connecte: true });
+route("GET", "admin/moderation", async ({ env }) => {
+  const { results } = await env.DB.prepare(`SELECT s.message_id, s.texte, u.pseudo, u.id AS user_id, u.muet_jusqu, COUNT(*) AS nombre, MAX(s.cree_le) AS dernier,
+      EXISTS (SELECT 1 FROM chat c WHERE c.id = s.message_id) AS existe
+    FROM signal_chat s JOIN users u ON u.id = s.cible_id WHERE s.traite = 0 GROUP BY s.message_id ORDER BY nombre DESC, dernier DESC LIMIT 100`).all();
+  return json({ filtre: (await lireConfig(env, "filtre_contacts")) !== false, signalements: results.map((x) => ({ ...x, existe: !!x.existe, muet: x.muet_jusqu > maintenant() })) });
+}, { admin: true });
+route("POST", "admin/moderation/filtre", async ({ request, env }) => {
+  const b = await corps(request);
+  await ecrireConfig(env, "filtre_contacts", !!b.actif);
+  return json({ ok: true, actif: !!b.actif });
+}, { admin: true });
+route("POST", "admin/moderation/(\\d+)/ignorer", async ({ env, p }) => {
+  await env.DB.prepare("UPDATE signal_chat SET traite = 1 WHERE message_id = ?").bind(p[1]).run();
+  return json({ ok: true });
+}, { admin: true });
+route("POST", "admin/sourdine/([A-Za-z0-9_-]{3,20})", async ({ request, env, user, p, ctx }) => {
+  const b = await corps(request);
+  const minutes = Math.max(0, Math.min(10080, Math.floor(Number(b.minutes) || 0)));
+  const u = await env.DB.prepare("SELECT id, admin FROM users WHERE pseudo = ?").bind(p[1]).first();
+  if (!u || u.admin) return erreur("Joueur introuvable.", 404);
+  await env.DB.prepare("UPDATE users SET muet_jusqu = ? WHERE id = ?").bind(minutes ? maintenant() + minutes * 60000 : 0, u.id).run();
+  await journaliser(env, u.id, minutes ? `sourdine ${minutes} min` : "sourdine levée", b.motif, user.pseudo);
+  if (minutes) enArrierePlan(ctx, envoyerPush(env, u.id, { titre: "🔇 Sourdine", texte: `Vous ne pouvez plus écrire pendant ${minutes} min (règles du hub).`, url: "./#hub" }));
+  return json({ ok: true });
+}, { admin: true });
+route("GET", "admin/historique/([A-Za-z0-9_-]{3,20})", async ({ env, p }) => {
+  const u = await env.DB.prepare("SELECT id, pseudo, banni, muet_jusqu, reset_le FROM users WHERE pseudo = ?").bind(p[1]).first();
+  if (!u) return erreur("Joueur introuvable.", 404);
+  const { results } = await env.DB.prepare("SELECT action, details, par, cree_le FROM moderation WHERE user_id = ? ORDER BY id DESC LIMIT 100").bind(u.id).all();
+  const sig = await env.DB.prepare("SELECT COUNT(*) AS n FROM signal_chat WHERE cible_id = ?").bind(u.id).first();
+  return json({ pseudo: u.pseudo, banni: !!u.banni, muetJusqu: u.muet_jusqu, signalements: sig.n, historique: results });
+}, { admin: true });
 
 // Messages privés
 route("GET", "mp", async ({ env, user }) => {
@@ -1218,7 +1289,8 @@ route("GET", "mp/([A-Za-z0-9_-]{3,20})", async ({ request, env, user, p }) => {
 route("POST", "mp/([A-Za-z0-9_-]{3,20})", async ({ request, env, user, p, ctx }) => {
   const u = await autreJoueur(env, user, p[1]);
   const b = await corps(request);
-  const texte = nettoyerTexte(b.texte), carte = b.carte && CARTE_RE.test(b.carte) ? b.carte : null;
+  await verifierSourdine(env, user);
+  const texte = await filtrerContacts(env, nettoyerTexte(b.texte)), carte = b.carte && CARTE_RE.test(b.carte) ? b.carte : null;
   if (!texte && !carte) return erreur("Message vide.");
   if (await env.DB.prepare("SELECT 1 FROM bloques WHERE (user_id = ?1 AND bloque_id = ?2) OR (user_id = ?2 AND bloque_id = ?1)").bind(u.id, user.id).first())
     return erreur("Vous ne pouvez pas écrire à ce joueur.", 403);
@@ -1274,9 +1346,106 @@ route("DELETE", "admin/avatars/([A-Za-z0-9_-]{3,20})", async ({ env, p, ctx }) =
   const u = await env.DB.prepare("SELECT id FROM users WHERE pseudo = ?").bind(p[1]).first();
   if (!u) return erreur("Joueur introuvable.", 404);
   await env.DB.prepare("DELETE FROM avatars WHERE user_id = ?").bind(u.id).run();
+  await journaliser(env, u.id, "photo de profil supprimée", "", "admin");
   enArrierePlan(ctx, envoyerPush(env, u.id, { titre: "🛡️ Photo de profil retirée", texte: "Votre photo de profil ne respectait pas les règles et a été supprimée par l'administrateur.", url: "./#compte" }));
   return json({ ok: true });
 }, { admin: true });
+/* =====================================================================
+   Duels en direct entre amis : les deux joueurs choisissent leur action à chaque tour (20 s max)
+   ===================================================================== */
+const CHRONO_DUEL = 20000, DUELS_RECOMPENSES_JOUR = 10;
+const sontAmis = async (env, x, y) => !!(await env.DB.prepare("SELECT 1 FROM amis WHERE (user_id = ?1 AND ami_id = ?2) OR (user_id = ?2 AND ami_id = ?1)").bind(x, y).first());
+// Fait avancer le duel : tour résolu quand les deux ont choisi, ou à la fin du chrono (« attaque » par défaut)
+async function avancerDuel(env, d) {
+  if (d.statut !== "encours") return d;
+  const paires = JSON.parse(d.paires);
+  let { choix_a: ca, choix_b: cb, limite } = d, change = false;
+  for (let i = 0; i < 40 && (ca && cb || maintenant() > limite + 1500); i++) {
+    paires.push([ca || "attaque", cb || "attaque"]);
+    ca = cb = null; limite = Math.max(limite + CHRONO_DUEL, maintenant() + CHRONO_DUEL); change = true;
+    const etat = COMBAT.rejouerDuel(JSON.parse(d.deck_a), JSON.parse(d.deck_b), d.graine, paires);
+    if (etat.fini) { d.statut = "fini"; d.gagnant = etat.gagnant === 0 ? d.a_id : d.b_id; d.fini_le = maintenant(); break; }
+  }
+  if (!change) return d;
+  Object.assign(d, { paires: JSON.stringify(paires), choix_a: ca, choix_b: cb, limite });
+  await env.DB.prepare("UPDATE duels SET paires = ?, choix_a = ?, choix_b = ?, limite = ?, statut = ?, gagnant = ?, fini_le = ? WHERE id = ?")
+    .bind(d.paires, ca, cb, limite, d.statut, d.gagnant ?? null, d.fini_le ?? null, d.id).run();
+  return d;
+}
+async function vueDuel(env, d, user) {
+  const moiA = d.a_id === user.id;
+  const pseudos = await env.DB.prepare("SELECT id, pseudo FROM users WHERE id IN (?, ?)").bind(d.a_id, d.b_id).all();
+  const nom = (id) => pseudos.results.find((x) => x.id === id)?.pseudo || "?";
+  let pieces = 0;
+  if (d.statut === "fini" && d.gagnant) {
+    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM duels WHERE statut = 'fini' AND (a_id = ?1 OR b_id = ?1) AND fini_le > ? AND id <= ?").bind(user.id, maintenant() - 86400000, d.id).first();
+    if (n.n <= DUELS_RECOMPENSES_JOUR && JSON.parse(d.paires).length >= 3) pieces = d.gagnant === user.id ? 50 : 15;
+  }
+  return { id: d.id, statut: d.statut, cote: moiA ? 0 : 1, adversaire: nom(moiA ? d.b_id : d.a_id), graine: d.graine,
+    deckA: JSON.parse(d.deck_a), deckB: d.deck_b ? JSON.parse(d.deck_b) : null, paires: JSON.parse(d.paires),
+    jaiChoisi: !!(moiA ? d.choix_a : d.choix_b), luiAChoisi: !!(moiA ? d.choix_b : d.choix_a), resteMs: d.limite ? Math.max(0, d.limite - maintenant()) : null,
+    gagne: d.statut === "fini" ? d.gagnant === user.id : null, pieces };
+}
+const lireDuel = async (env, id, user) => {
+  const d = await env.DB.prepare("SELECT * FROM duels WHERE id = ? AND (a_id = ?2 OR b_id = ?2)").bind(id, user.id).first();
+  if (!d) throw new ErreurApi("Duel introuvable.", 404);
+  return d;
+};
+route("POST", "duels/inviter", async ({ request, env, user, ctx }) => {
+  const b = await corps(request);
+  const ami = await autreJoueur(env, user, String(b.pseudo || ""));
+  if (!(await sontAmis(env, user.id, ami.id))) return erreur("Vous ne pouvez défier en direct que vos amis.");
+  const moi = await ligneArene(env, user.id);
+  if (!moi.deck) return erreur("Enregistrez d'abord votre deck.");
+  await env.DB.prepare("UPDATE duels SET statut = 'annule' WHERE a_id = ? AND statut = 'invite'").bind(user.id).run();
+  const r = await env.DB.prepare("INSERT INTO duels (a_id, b_id, graine, deck_a, cree_le) VALUES (?, ?, ?, ?, ?)")
+    .bind(user.id, ami.id, crypto.getRandomValues(new Uint32Array(1))[0], moi.deck, maintenant()).run();
+  enArrierePlan(ctx, envoyerPush(env, ami.id, { titre: "⚔️ Duel en direct !", texte: `${user.pseudo} vous défie en direct. Acceptez vite !`, url: "./#combat" }));
+  return json({ id: r.meta.last_row_id }, 201);
+}, { connecte: true });
+route("GET", "duels/invitations", async ({ env, user }) => {
+  const { results } = await env.DB.prepare(`SELECT d.id, u.pseudo, d.cree_le FROM duels d JOIN users u ON u.id = d.a_id
+    WHERE d.b_id = ? AND d.statut = 'invite' AND d.cree_le > ? ORDER BY d.id DESC LIMIT 5`).bind(user.id, maintenant() - 5 * 60000).all();
+  const enCours = await env.DB.prepare("SELECT id FROM duels WHERE (a_id = ?1 OR b_id = ?1) AND statut = 'encours' ORDER BY id DESC LIMIT 1").bind(user.id).first();
+  return json({ invitations: results, enCours: enCours?.id || null });
+}, { connecte: true });
+route("POST", "duels/(\\d+)/accepter", async ({ env, user, p }) => {
+  const d = await lireDuel(env, p[1], user);
+  if (d.b_id !== user.id || d.statut !== "invite") return erreur("Cette invitation n'est plus valable.");
+  if (maintenant() - d.cree_le > 5 * 60000) return erreur("Invitation expirée.");
+  const moi = await ligneArene(env, user.id);
+  if (!moi.deck) return erreur("Enregistrez d'abord votre deck (onglet Combat).");
+  await env.DB.prepare("UPDATE duels SET statut = 'encours', deck_b = ?, limite = ? WHERE id = ?").bind(moi.deck, maintenant() + CHRONO_DUEL + 3000, d.id).run();
+  return json({ ok: true, id: d.id });
+}, { connecte: true });
+route("POST", "duels/(\\d+)/refuser", async ({ env, user, p }) => {
+  await env.DB.prepare("UPDATE duels SET statut = 'refuse' WHERE id = ? AND statut = 'invite' AND (a_id = ?2 OR b_id = ?2)").bind(p[1], user.id).run();
+  return json({ ok: true });
+}, { connecte: true });
+route("GET", "duels/(\\d+)", async ({ env, user, p }) => {
+  const d = await avancerDuel(env, await lireDuel(env, p[1], user));
+  return json(await vueDuel(env, d, user));
+}, { connecte: true });
+route("POST", "duels/(\\d+)/action", async ({ request, env, user, p }) => {
+  const b = await corps(request);
+  let d = await avancerDuel(env, await lireDuel(env, p[1], user));
+  if (d.statut !== "encours") return json(await vueDuel(env, d, user));
+  if (Number(b.tour) !== JSON.parse(d.paires).length + 1) return erreur("Ce tour est déjà passé.", 409);
+  const action = String(b.action || "attaque").slice(0, 12);
+  const col = d.a_id === user.id ? "choix_a" : "choix_b";
+  await env.DB.prepare(`UPDATE duels SET ${col} = ? WHERE id = ? AND ${col} IS NULL`).bind(action, d.id).run();
+  d = await avancerDuel(env, await lireDuel(env, p[1], user));
+  return json(await vueDuel(env, d, user));
+}, { connecte: true });
+route("POST", "duels/(\\d+)/abandon", async ({ env, user, p }) => {
+  const d = await lireDuel(env, p[1], user);
+  if (d.statut === "encours" || d.statut === "invite") {
+    const autre = d.a_id === user.id ? d.b_id : d.a_id;
+    await env.DB.prepare("UPDATE duels SET statut = ?, gagnant = ?, fini_le = ? WHERE id = ?").bind(d.statut === "invite" ? "annule" : "fini", d.statut === "invite" ? null : autre, maintenant(), d.id).run();
+  }
+  return json({ ok: true });
+}, { connecte: true });
+
 // Recherche de joueurs (pour ajouter des amis ou écrire)
 route("GET", "joueurs/recherche", async ({ request, env, user }) => {
   const q = String(new URL(request.url).searchParams.get("q") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 20);

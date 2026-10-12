@@ -237,9 +237,12 @@ function entrainement(diff) {
 }
 
 /* ---------- Écran de combat ---------- */
-function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: estArene = false }) {
+// duel (en direct) : { cote, tours: async (tour, action) => [[a0, a1], ...] nouvelles paires, abandon, resteMs }
+// En duel, « moi » et « lui » sont les decks A et B du serveur ; V() retourne le plateau pour que chacun se voie en bas.
+function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: estArene = false, duel = null }) {
   arreterCombat();
   const etat = COMBAT.creer(moi, lui, graine, { ia });
+  const V = (c) => (duel?.cote ? 1 - c : c);
   const met = COMBAT.METEOS?.[etat.meteo] || { nom: "☀️ Climat Équilibré", desc: "Arène standard" };
   let occupe = false, auto = false;
   ouvrirModal(`<div class="arene">
@@ -253,6 +256,7 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: est
         <button class="btn" data-a="supreme" id="btnSupreme" disabled>⚡ Suprême (0%)</button>
         <button class="btn" data-a="garde">🛡️ Garde</button>
         <button class="btn small" id="cbAuto">⏩ Auto</button>
+        ${duel ? `<button class="btn small" id="cbAbandon">🏳️ Abandon</button><span class="chrono-duel" id="cbChrono"></span>` : ""}
       </div>
     </div>`);
   const m = $("#modal");
@@ -260,9 +264,9 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: est
   m.querySelector(".close").classList.add("hidden");
   const ligne = (u, cote) => {
     const c = BY_ID[u.id];
-    const banc = etat.equipes[cote].map((x, i) => {
-      const peut = cote === 0 && x.pv > 0 && i !== etat.actifs[0] && !etat.fini;
-      return `<${peut ? "button" : "span"} class="mini ${x.pv <= 0 ? "ko" : i === etat.actifs[cote] ? "on" : ""} ${peut ? "changeable" : ""}" ${peut ? `data-changer="${i}"` : ""} title="${esc(x.nom)} · ❤️ ${x.pv}/${x.pvMax}${peut ? " — toucher pour la faire entrer" : ""}">${esc(BY_ID[x.id]?.emoji || "🃏")}<i style="width:${(x.pv / x.pvMax) * 100}%"></i></${peut ? "button" : "span"}>`;
+    const banc = etat.equipes[V(cote)].map((x, i) => {
+      const peut = cote === 0 && x.pv > 0 && i !== etat.actifs[V(0)] && !etat.fini;
+      return `<${peut ? "button" : "span"} class="mini ${x.pv <= 0 ? "ko" : i === etat.actifs[V(cote)] ? "on" : ""} ${peut ? "changeable" : ""}" ${peut ? `data-changer="${i}"` : ""} title="${esc(x.nom)} · ❤️ ${x.pv}/${x.pvMax}${peut ? " — toucher pour la faire entrer" : ""}">${esc(BY_ID[x.id]?.emoji || "🃏")}<i style="width:${(x.pv / x.pvMax) * 100}%"></i></${peut ? "button" : "span"}>`;
     }).join("");
     return `<div class="banc">${banc}</div>
       <div class="combattant" data-cote="${cote}">
@@ -275,10 +279,10 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: est
       </div>`;
   };
   const dessiner = () => {
-    $("#cbAdv").innerHTML = ligne(COMBAT.actif(etat, 1), 1);
-    $("#cbMoi").innerHTML = ligne(COMBAT.actif(etat, 0), 0);
+    $("#cbAdv").innerHTML = ligne(COMBAT.actif(etat, V(1)), 1);
+    $("#cbMoi").innerHTML = ligne(COMBAT.actif(etat, V(0)), 0);
     $("#cbTour").textContent = etat.tour + 1;
-    const a = COMBAT.actif(etat, 0);
+    const a = COMBAT.actif(etat, V(0));
     const sp = $("[data-a=special]");
     if (sp) { sp.disabled = !a.special; sp.innerHTML = `✨ ${(COMBAT.SPECIAUX[a.type] || COMBAT.SPECIAUX.ville).nom}`; sp.title = (COMBAT.SPECIAUX[a.type] || COMBAT.SPECIAUX.ville).desc; }
     const sup = $("#btnSupreme");
@@ -308,11 +312,29 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: est
     return "";
   };
   const attendre = (ms) => new Promise((r) => combatTimers.push(setTimeout(r, ms)));
+  // Duel : on envoie notre choix, puis on attend celui de l'ami (le serveur renvoie les tours résolus)
+  let chronoFin = 0;
+  const majChrono = () => {
+    const el = $("#cbChrono"); if (!el) return;
+    const reste = Math.max(0, Math.ceil((chronoFin - Date.now()) / 1000));
+    el.textContent = occupe ? "⏳ L'adversaire choisit…" : `⏱️ ${reste} s`;
+    el.classList.toggle("urgent", !occupe && reste <= 5);
+    if (!occupe && reste <= 0 && !etat.fini) tour("attaque");
+  };
+  if (duel) { chronoFin = Date.now() + (duel.resteMs ?? 20000); combatTimers.push(setInterval(majChrono, 250)); }
   async function tour(action) {
     if (occupe || etat.fini) return;
     occupe = true;
     $$("#cbActions button[data-a]").forEach((b) => b.disabled = true);
-    const evs = COMBAT.jouer(etat, action);
+    let paires = [[action]];
+    if (duel) {
+      majChrono();
+      try { paires = await duel.tours(etat.tour + 1, action); } catch (e) { toast("⚠ " + e.message); paires = []; }
+      if (!paires) return; // duel terminé ailleurs (abandon)
+    }
+    const evs = paires.flatMap(([a0, a1]) => (duel ? COMBAT.jouer(etat, a0, a1) : COMBAT.jouer(etat, a0)))
+      .map((e) => (e.cote === undefined ? e : { ...e, cote: V(e.cote) }));
+    if (duel) chronoFin = Date.now() + 20000;
     for (const e of evs) {
       if (e.t === "fin") continue;
       const t = texte(e);
@@ -341,12 +363,12 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: est
     dessiner();
     occupe = false;
     if (etat.fini) return terminer();
-    $$("#cbActions button[data-a]").forEach((b) => b.disabled = b.dataset.a === "special" && !COMBAT.actif(etat, 0).special);
+    $$("#cbActions button[data-a]").forEach((b) => b.disabled = b.dataset.a === "special" && !COMBAT.actif(etat, V(0)).special);
     if (auto) tour(choixAuto());
   }
-  const choixAuto = () => { const me = COMBAT.actif(etat, 0), lui = COMBAT.actif(etat, 1); return me.special && lui.pv / lui.pvMax > 0.4 ? "special" : "attaque"; };
+  const choixAuto = () => { const me = COMBAT.actif(etat, V(0)), lui = COMBAT.actif(etat, V(1)); return me.special && lui.pv / lui.pvMax > 0.4 ? "special" : "attaque"; };
   async function terminer() {
-    const gagne = etat.gagnant === 0;
+    const gagne = etat.gagnant === V(0);
     $("#cbActions").innerHTML = `<p class="muted">Calcul du résultat…</p>`;
     let detail = "";
     try { detail = await fin(etat); } catch (e) { detail = "⚠ " + e.message; }
@@ -354,11 +376,11 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: est
     m.querySelector(".close")?.classList.remove("hidden");
     // Défis du jour et expérience
     progresDefi("speciaux", etat.journal.filter((a) => a === "special").length);
-    progresDefi("ko", etat.equipes[1].filter((u) => u.pv <= 0).length);
+    progresDefi("ko", etat.equipes[V(1)].filter((u) => u.pv <= 0).length);
     if (gagne) progresDefi("victoires");
     gagnerXP(gagne ? 25 : 8); sauver();
     // Points du tournoi de la semaine (l'arène est comptée directement par le serveur)
-    if (!estArene && typeof connecte === "function" && connecte()) api("tournois/victoire", { methode: "POST", corps: { gagne } }).catch(() => {});
+    if (!estArene && !duel && typeof connecte === "function" && connecte()) api("tournois/victoire", { methode: "POST", corps: { gagne } }).catch(() => {});
     son(gagne ? "victoire" : "defaite");
     $("#cbLog").innerHTML = `<div class="resultat ${gagne ? "gagne" : "perdu"}">${gagne ? "🏆 Victoire !" : "💀 Défaite…"}</div>${gagne ? `<div class="confettis">${Array.from({ length: 24 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--d:${(i % 6) * 0.12}s;--c:${["#ffd34d", "#e0458b", "#3a9bff", "#3ad6a8", "#ff8a65"][i % 5]}"></i>`).join("")}</div>` : ""}`;
     $("#cbActions").innerHTML = `<p style="margin:0 0 8px;font-weight:700">${detail || ""}</p><button class="btn primary" data-close>Continuer</button>`;
@@ -366,6 +388,10 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: est
   }
   $$("#cbActions button[data-a]").forEach((b) => b.onclick = () => tour(b.dataset.a));
   $("#cbAuto").onclick = () => { auto = !auto; $("#cbAuto").classList.toggle("on", auto); if (auto) tour(choixAuto()); };
+  $("#cbAbandon")?.addEventListener("click", async () => {
+    if (!confirm("Abandonner le duel ? Votre ami gagnera.")) return;
+    arreterCombat(); await duel.abandon().catch(() => {}); fermerModal();
+  });
   m._onClose = () => { arreterCombat(); aller(S.vue); };
 }
 
