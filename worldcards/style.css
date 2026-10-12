@@ -1591,7 +1591,7 @@ h1, h2, h3, .brand b, .sectiontitle h3 { font-family: var(--titre); font-weight:
 .bh-extras { justify-content: center; gap: 8px; }
 
 /* Page de connexion */
-body.ecran-connexion #nav, body.ecran-connexion .pied { display: none !important; }
+body.ecran-connexion .pied { display: none !important; } /* la barre de navigation reste visible, même à la création du compte */
 .connexion-carte { max-width: 540px; margin: 10px auto 30px; padding: 34px 28px 26px; border-radius: 26px; border: 1px solid var(--border); text-align: center;
   background: radial-gradient(420px 220px at 50% 0%, rgba(245, 158, 11, .12), transparent 70%), var(--panel); box-shadow: 0 30px 80px rgba(0, 0, 0, .35); }
 .cx-logo { width: 96px; height: 96px; border-radius: 24px; box-shadow: 0 0 0 2px rgba(245, 158, 11, .5), 0 0 40px rgba(245, 158, 11, .35); }
