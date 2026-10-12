@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v40"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v41"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -1394,7 +1394,7 @@ function ouvrirBooster(type) {
         <div class="face front">${etiquette(x, true)}${cardHTML(x.c, { locked: false, shiny: x.shiny, holo: x.holo })}</div></div>`).join("")}</div>
       <div class="row" style="justify-content:center;margin-top:14px">
         ${encore ? `<button class="btn primary" id="again">Ouvrir un booster ${PACKS[encore].nom} (${S.boosters[encore]})</button>` : ""}
-        <button class="btn" data-close>Terminer</button></div>`;
+        <button class="btn" id="pkPartager">📤 Partager</button><button class="btn" data-close>Terminer</button></div>`;
     // Toucher une carte du résumé l'agrandit (toucher encore pour la remettre)
     $$("[data-voir]", scene).forEach((el) => el.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1408,6 +1408,7 @@ function ouvrirBooster(type) {
     setTimeout(() => boutonsResume.forEach((x) => { x.disabled = false; x.classList.remove("attente"); }), 900);
     // « Terminer » est dans la scène, dont le gestionnaire de toucher bloque la propagation : on le branche directement
     $$("[data-close]", scene).forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); if (!b.disabled) fermerModal(); }));
+    $("#pkPartager")?.addEventListener("click", (e) => { e.stopPropagation(); if (typeof partager === "function") partager(ordre.map((x) => x.c), `Mon booster ${p.nom}`); });
     $("#again")?.addEventListener("click", (e) => {
       e.stopPropagation();
       const m = $("#modal"); m._onClose = null; fermerModal();

@@ -1890,3 +1890,11 @@ kbd { font: 700 12px var(--texte); padding: 1px 7px; border-radius: 6px; border:
 #modal.plein .box:has(.arene-plateau) { width: min(1040px, 100%); }
 .score-ko { flex-direction: row; align-items: center; }
 @media (hover: none), (max-width: 999px) { .ordi-seul { display: none; } }
+.partage { display: grid; grid-template-columns: 260px 1fr; gap: 18px; }
+.partage-apercu img { width: 100%; border-radius: 12px; border: 1px solid var(--border); background: var(--panel2); min-height: 200px; }
+.partage-options { display: flex; flex-direction: column; gap: 8px; }
+.partage-options .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.partage-options .seg button { display: flex; flex-direction: column; padding: 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); font: 700 14px var(--texte); cursor: pointer; }
+.partage-options .seg button small { font-weight: 500; color: var(--muted); font-size: 11.5px; }
+.partage-options .seg button.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+@media (max-width: 640px) { .partage { grid-template-columns: 1fr; } .partage-apercu img { max-height: 46vh; object-fit: contain; } }
