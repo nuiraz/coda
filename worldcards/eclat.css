@@ -193,3 +193,9 @@ input, select, textarea { border-radius: 12px; border-color: var(--border); back
 .so-qui { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .so-joueur { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px 2px 10px; border-radius: 99px; background: var(--panel); border: 1px solid var(--border); }
 .so-joueur .btn { padding: 2px 8px; }
+/* iPhone : un champ de saisie en dessous de 16 px fait zoomer Safari, et la page reste agrandie
+   (le menu du bas se retrouve alors au milieu de l'écran). 16 px minimum sur les écrans tactiles. */
+@media (pointer: coarse) {
+  input, select, textarea, .search { font-size: 16px !important; }
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
