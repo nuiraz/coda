@@ -184,7 +184,7 @@ const masquerNom = (texte, c) => {
 // Image d'une devinette : drapeau pour les drapeaux, photo de la carte, sinon l'illustration Wikipédia
 function imageDevine(c) {
   if (c.banque === "drapeau" || c.type === "pays") {
-    const code = c.code || Object.keys(NOM_PAYS).find((k) => sansAccents(NOM_PAYS[k]) === sansAccents(c.nom));
+    const cle = (n) => sansAccents(n).replace(/[^a-z]/g, ""), code = c.code || Object.keys(NOM_PAYS).find((k) => cle(NOM_PAYS[k]) === cle(c.nom));
     if (code) return `flags/${code.toLowerCase()}.svg`;
   }
   return (!c.banque && typeof photoDe === "function" && photoDe(c.id)) || `/api/devine/image?t=${encodeURIComponent(c.wiki || c.nom)}`;
