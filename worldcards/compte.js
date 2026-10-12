@@ -27,7 +27,7 @@ const OFFRES_PREMIUM = {
   an: { nom: "1 an", prix: "29,99 €", lien: PAYPAL + "/29.99EUR", detail: "365 jours de Premium : soit 2,50 € par mois.", ruban: "Populaire" },
   vie: { nom: "À vie", prix: "89 €", lien: PAYPAL + "/89EUR", detail: "Un seul paiement, Premium pour toujours.", ruban: "Meilleure offre" },
 };
-const libelleFormule = (f) => `${OFFRES_PREMIUM[f]?.nom || f} · ${OFFRES_PREMIUM[f]?.prix || ""}`;
+const libelleFormule = (f) => (f === "passe" ? "🎟️ Passe de saison du mois · 7,99 €" : `${OFFRES_PREMIUM[f]?.nom || f} · ${OFFRES_PREMIUM[f]?.prix || ""}`);
 let SYNC = { etat: "", timer: 0, enCours: false, encore: false };
 
 /* =====================================================================
@@ -1318,7 +1318,7 @@ function vuePremium(v) {
         <li>Revenez ici et touchez « J'ai payé » : l'administrateur vérifie le paiement et active votre Premium, en général sous 24 heures. Vous recevez une notification.</li>
       </ol>
       ${connecte() ? `<form class="form" id="fDemande" style="max-width:520px">
-        <label>Formule<select id="dFormule">${Object.keys(OFFRES_PREMIUM).map((k) => `<option value="${k}">${libelleFormule(k)}</option>`).join("")}</select></label>
+        <label>Formule<select id="dFormule">${[...Object.keys(OFFRES_PREMIUM), "passe"].map((k) => `<option value="${k}">${libelleFormule(k)}</option>`).join("")}</select></label>
         <label>Nom ou e-mail utilisé sur PayPal (pour retrouver le paiement)<input id="dNote" maxlength="120" placeholder="Facultatif"></label>
         <button class="btn primary">✅ J'ai payé</button><p class="err" id="dErr"></p></form>` : ""}
       <p class="muted" style="font-size:12.5px;margin-bottom:0">En payant, vous acceptez les ${lienLegal("cgv", "conditions générales de vente")}. Le Premium est un contenu numérique fourni dès son activation : vous renoncez donc à votre droit de rétractation une fois le Premium activé (article L221-28 du Code de la consommation). Une question ? ${esc(CONTACT)}.</p>
@@ -1338,7 +1338,7 @@ function vuePremium(v) {
 async function adminPremium(el) {
   el.innerHTML = `<form class="panel form" id="fPrem" style="max-width:520px"><h3 style="margin:0">Activer le Premium</h3>
       <label>Joueur<input id="prPseudo" value="${esc(adminEtat.pseudoPremium || "")}" required></label>
-      <label>Formule<select id="prFormule">${Object.keys(OFFRES_PREMIUM).map((k) => `<option value="${k}">${k === "vie" ? "" : "+"}${libelleFormule(k)}</option>`).join("")}<option value="retirer">Retirer le Premium</option></select></label>
+      <label>Formule<select id="prFormule">${Object.keys(OFFRES_PREMIUM).map((k) => `<option value="${k}">${k === "vie" ? "" : "+"}${libelleFormule(k)}</option>`).join("")}<option value="passe">🎟️ Passe de saison du mois (7,99 €)</option><option value="retirer">Retirer le Premium</option></select></label>
       <button class="btn primary">💎 Valider</button><p class="err" id="prErr"></p>
       <p class="muted" style="margin:0;font-size:13px">Vérifiez d'abord le paiement dans votre compte PayPal (montant et pseudo dans la note).</p></form>
     <h3>Demandes en attente</h3><div id="prDemandes"><p class="muted">Chargement…</p></div>
@@ -1347,7 +1347,7 @@ async function adminPremium(el) {
   const activer = async (pseudo, formule, demande) => {
     try {
       const r = await api("admin/premium", { methode: "POST", corps: { pseudo, formule, demande } });
-      toast(formule === "retirer" ? `Premium retiré à ${esc(pseudo)}.` : `💎 ${esc(pseudo)} est Premium jusqu'au ${new Date(r.premiumJusqu).toLocaleDateString("fr-FR")}.`);
+      toast(formule === "passe" ? `🎟️ Passe de saison activé pour ${esc(pseudo)}.` : formule === "retirer" ? `Premium retiré à ${esc(pseudo)}.` : `💎 ${esc(pseudo)} est Premium jusqu'au ${new Date(r.premiumJusqu).toLocaleDateString("fr-FR")}.`);
       aller("admin");
     } catch (e) { toast("⚠ " + e.message); }
   };

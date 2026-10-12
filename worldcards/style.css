@@ -1300,3 +1300,70 @@ h1 { font-weight: 800; }
 .presque-pays { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel2); color: inherit; font: inherit; cursor: pointer; text-align: left; }
 .presque-pays small { color: var(--muted); }
 @media (max-width: 640px) { .stats-chiffres { grid-template-columns: repeat(2, 1fr); } .calendrier { grid-template-columns: repeat(3, 1fr); } .jour-cal.grand { grid-column: span 3; } }
+
+/* ===== Guildes ===== */
+.guilde-tete { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.guilde-embleme { width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center; font-size: 36px; flex: none; background: linear-gradient(135deg, var(--accent), #e0458b); }
+.guilde-embleme.petit { width: 40px; height: 40px; font-size: 22px; border-radius: 12px; }
+.tag-guilde { color: var(--accent); font-weight: 800; font-size: .85em; }
+.titre-joueur { display: block; font-weight: 600; font-size: 11px; color: var(--muted); }
+.objectif-guilde .bar.grosse { height: 14px; margin: 10px 0; }
+.emblemes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.emblemes .chip { font-size: 18px; padding: 4px 8px; }
+
+/* ===== Passe de saison ===== */
+.passe-tete { display: flex; gap: 16px; align-items: center; padding: 20px; border-radius: 22px; color: #fff; background: linear-gradient(135deg, var(--p1), var(--p2)); box-shadow: var(--shadow); }
+.passe-tete h2 { margin: 2px 0 8px; font-family: var(--titre); font-size: 28px; }
+.passe-tete small { font-weight: 800; letter-spacing: .08em; opacity: .9; }
+.passe-ic { font-size: 54px; width: 84px; height: 84px; border-radius: 22px; display: grid; place-items: center; background: rgba(255, 255, 255, .2); flex: none; }
+.passe-xp .bar { background: rgba(255, 255, 255, .3); height: 12px; }
+.passe-xp .bar i { background: #fff; }
+.passe-xp span { font-size: 13px; }
+.passe-achat { display: flex; flex-direction: column; gap: 10px; border: 2px solid var(--or, #f5b21b); }
+.passe-ok { border: 2px solid var(--ok); font-weight: 700; }
+.passe-pistes { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.passe-entete, .passe-ligne { display: grid; grid-template-columns: 40px 1fr 1fr; gap: 8px; align-items: stretch; }
+.passe-entete b { text-align: center; }
+.passe-n { display: grid; place-items: center; font-weight: 800; border-radius: 12px; background: var(--panel2); color: var(--muted); }
+.passe-ligne.atteint .passe-n { background: var(--accent); color: #fff; }
+.passe-case { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: inherit; font: inherit; text-align: left; cursor: default; min-height: 52px; }
+.passe-case span { font-size: 22px; flex: none; }
+.passe-case small { font-size: 12px; line-height: 1.25; }
+.passe-case.dispo { cursor: pointer; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); animation: pulse-chrono .9s ease-in-out infinite alternate; }
+.passe-case.prise { opacity: .5; }
+.passe-case.verrou { opacity: .55; }
+.passe-case[data-piste="premium"] { background: linear-gradient(135deg, color-mix(in srgb, #f5b21b 12%, var(--panel)), var(--panel)); }
+/* ===== Personnalisation ===== */
+.style-apercu { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.style-apercu .flip { width: auto; height: auto; }
+.cosm-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+.cosm { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 8px; border-radius: 14px; border: 2px solid var(--border); background: var(--panel); color: inherit; font: inherit; cursor: pointer; text-align: center; }
+.cosm.on { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.cosm.verrou { opacity: .5; cursor: not-allowed; }
+.cosm small { color: var(--muted); font-size: 11.5px; }
+.cosm .avatar { width: 46px; height: 46px; font-size: 20px; background: linear-gradient(135deg, var(--accent), #e0458b); color: #fff; font-weight: 800; }
+.cosm-titre { font-size: 30px; }
+.cosm-dos { position: relative; width: 44px; height: 62px; border-radius: 8px; display: grid; place-items: center; font-size: 20px; color: #fff; }
+/* Cadres de profil */
+.avatar.cadre { overflow: visible; }
+.avatar.cadre img { border-radius: 50%; }
+.avatar.cadre-argent { box-shadow: 0 0 0 3px #cfd8dc, 0 0 8px #cfd8dc; }
+.avatar.cadre-or { box-shadow: 0 0 0 3px #f5b21b, 0 0 12px #f5b21b; }
+.avatar.cadre-feu { box-shadow: 0 0 0 3px #ff5722, 0 0 14px #ff9800; animation: cadre-feu 1.2s ease-in-out infinite alternate; }
+@keyframes cadre-feu { to { box-shadow: 0 0 0 3px #ff9800, 0 0 20px #ff3d00; } }
+.avatar.cadre-glace { box-shadow: 0 0 0 3px #81d4fa, 0 0 14px #e1f5fe; }
+.avatar.cadre-arc-en-ciel { animation: cadre-arc 3s linear infinite; }
+@keyframes cadre-arc { 0% { box-shadow: 0 0 0 3px #ff4fa3, 0 0 12px #ff4fa3; } 33% { box-shadow: 0 0 0 3px #3ad6a8, 0 0 12px #3ad6a8; } 66% { box-shadow: 0 0 0 3px #3a9bff, 0 0 12px #3a9bff; } 100% { box-shadow: 0 0 0 3px #ff4fa3, 0 0 12px #ff4fa3; } }
+.avatar.cadre-diamant { box-shadow: 0 0 0 3px #b3e5fc, 0 0 0 5px #4fc3f7, 0 0 18px #4fc3f7; }
+.avatar.cadre-premium { box-shadow: 0 0 0 3px #6c4cf1, 0 0 0 5px #f5b21b, 0 0 14px #6c4cf1; }
+.avatar.cadre-passe { box-shadow: 0 0 0 3px var(--k1), 0 0 0 5px var(--k2), 0 0 16px var(--k1); animation: cadre-passe 1.6s ease-in-out infinite alternate; }
+@keyframes cadre-passe { to { box-shadow: 0 0 0 3px var(--k2), 0 0 0 5px var(--k1), 0 0 22px var(--k2); } }
+/* Dos de cartes */
+.face.back.dos-nuit, .cosm-dos.dos-nuit { background: radial-gradient(circle at 20% 30%, #fff 1px, transparent 2px), radial-gradient(circle at 70% 60%, #fff 1px, transparent 2px), radial-gradient(circle at 40% 80%, #fff 1px, transparent 2px), linear-gradient(160deg, #0d1b4a, #1a0b3a); background-size: 60px 60px, 80px 80px, 70px 70px, 100% 100%; border-color: #5c6bc0; }
+.face.back.dos-ocean, .cosm-dos.dos-ocean { background: repeating-radial-gradient(circle at 50% 120%, #0277bd 0 12px, #0288d1 12px 24px); border-color: #4fc3f7; }
+.face.back.dos-or, .cosm-dos.dos-or { background: repeating-linear-gradient(45deg, #b8860b 0 10px, #daa520 10px 20px); border-color: #ffe082; }
+.face.back.dos-neon, .cosm-dos.dos-neon { background: #120024; border-color: #ff4fa3; box-shadow: inset 0 0 18px #ff4fa3, 0 0 12px #3ad6ff; }
+.face.back.dos-monde, .cosm-dos.dos-monde { background: radial-gradient(circle, #2e7d32 0 30%, transparent 31%), linear-gradient(160deg, #0d47a1, #1565c0); border-color: #a5d6a7; }
+.face.back.dos-premium, .cosm-dos.dos-premium { background: linear-gradient(135deg, #6c4cf1, #2a1a7a 60%, #f5b21b); border-color: #f5b21b; }
+.face.back.dos-passe, .cosm-dos.dos-passe { background: linear-gradient(135deg, var(--d1), var(--d2)); border-color: #fff; }
+.cosm-dos.dos-classique { background: repeating-linear-gradient(45deg, #2a2340 0 6px, #241e38 6px 12px); border: 2px solid #4a3f6b; }

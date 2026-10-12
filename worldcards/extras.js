@@ -168,8 +168,8 @@ async function hubAmis(el) {
     const { amis, demandes } = await api("amis");
     $("#amisListe").innerHTML = `${demandes.length ? `<div class="panel" style="margin-bottom:12px"><b>📨 Ils vous ont ajouté :</b> ${demandes.map((p) => `<button class="chip" data-ajouter="${esc(p)}">➕ ${esc(p)}</button>`).join(" ")}</div>` : ""}
       ${amis.length ? `<div class="amis">${amis.map((a) => `<div class="ami">
-        ${avatarHTML(a.pseudo)}
-        <div class="ami-infos"><b>${esc(a.pseudo)}${a.premium ? " 💎" : ""} ${a.enLigne ? `<span class="enligne">● en ligne</span>` : ""}</b>
+        ${avatarHTML(a.pseudo, "", a.cadre || null)}
+        <div class="ami-infos"><b>${esc(a.pseudo)}${a.premium ? " 💎" : ""} ${a.enLigne ? `<span class="enligne">● en ligne</span>` : ""}</b>${a.titre && typeof nomTitre === "function" && nomTitre(a.titre) ? `<small class="titre-joueur">${esc(nomTitre(a.titre))}</small>` : ""}
           <small class="muted">${fmt(a.cartes)} cartes · ${a.palier.nom} · 🏆 ${fmt(a.trophees)}${a.reciproque ? "" : " · ne vous a pas encore ajouté"}</small></div>
         <div class="row" style="gap:6px">${a.reciproque ? `<button class="btn small ${a.enLigne ? "primary" : ""}" data-direct="${esc(a.pseudo)}" title="Duel en direct">⚡ Direct</button>` : ""}<button class="btn small" data-ecrire="${esc(a.pseudo)}">✉️</button><button class="btn small" data-collec="${esc(a.pseudo)}">📚 Collection</button>
           <button class="btn small primary" data-defier="${esc(a.pseudo)}" ${a.deck ? "" : "disabled title=\"Pas encore de deck de défense\""}>⚔️ Défier</button>
@@ -227,6 +227,7 @@ async function brancherPaypal() {
       onApprove: async (data) => {
         try {
           const r = await api("premium/paypal/valider", { methode: "POST", corps: { commande: data.orderID } });
+          if (formule === "passe") { passeEtat.actif = true; ouvrirModal(`<div class="reveal"><div style="font-size:56px">🎟️</div><h2>Merci ! La piste Premium du passe est débloquée.</h2><button class="btn primary" data-close>Récupérer mes récompenses</button></div>`, () => aller("passe")); return; }
           majPremium(r.premiumJusqu); majBoutonCompte();
           ouvrirModal(`<div class="reveal"><div style="font-size:56px">💎</div><h2>Merci ! Votre Premium est activé.</h2><p>Profitez de vos avantages dès maintenant.</p><button class="btn primary" data-close>Super !</button></div>`, () => aller("premium"));
         } catch (e) { toast("⚠ " + e.message, 6000); }
@@ -384,9 +385,9 @@ const heureCourte = (t) => new Date(t).toLocaleTimeString("fr-FR", { hour: "2-di
 function bulleMessage(m, prive) {
   const carte = m.carte && BY_ID[m.carte];
   return `<div class="bulle ${m.moi ? "moi" : ""}" data-id="${m.id}">
-    ${prive || m.moi ? "" : `<button class="bulle-av" data-joueur="${esc(m.pseudo)}">${avatarHTML(m.pseudo)}</button>`}
+    ${prive || m.moi ? "" : `<button class="bulle-av" data-joueur="${esc(m.pseudo)}">${avatarHTML(m.pseudo, "", m.cadre || null)}</button>`}
     <div class="bulle-corps">
-      ${prive || m.moi ? "" : `<button class="bulle-nom" data-joueur="${esc(m.pseudo)}">${esc(m.pseudo)}${m.admin ? " 🛡️" : ""}${m.premium ? " 💎" : ""}</button>`}
+      ${prive || m.moi ? "" : `<button class="bulle-nom" data-joueur="${esc(m.pseudo)}">${m.tag ? `<span class="tag-guilde">[${esc(m.tag)}]</span> ` : ""}${esc(m.pseudo)}${m.admin ? " 🛡️" : ""}${m.premium ? " 💎" : ""}${m.titre && typeof nomTitre === "function" && nomTitre(m.titre) ? `<small class="titre-joueur">${esc(nomTitre(m.titre))}</small>` : ""}</button>`}
       ${m.cite ? `<div class="bulle-cite">↪ ${esc(m.cite)}</div>` : ""}
       ${m.texte ? `<div class="bulle-texte">${esc(m.texte)}</div>` : ""}
       ${carte ? `<div class="bulle-carte" data-carte="${esc(m.carte)}">${carte.emoji || "🃏"} <b>${esc(carte.nom)}</b> <small>${esc(RARETES[carte.rarete]?.nom || "")}</small></div>` : ""}
@@ -414,8 +415,10 @@ function brancherBulles(racine) {
     try { await api("chat/message/" + b.dataset.supprMsg, { methode: "DELETE" }); b.closest(".bulle").remove(); } catch (e) { toast("⚠ " + e.message); }
   });
 }
-async function hubDiscussion(el) {
+// salonFixe : salon privé de guilde (« g12 »), sans la liste des salons publics
+async function hubDiscussion(el, salonFixe) {
   clearInterval(chatEtat.minuteur); clearInterval(mpEtat.minuteur); chatEtat.dernier = 0;
+  if (salonFixe) chatEtat.salon = salonFixe; else if (/^g\d+$/.test(chatEtat.salon)) chatEtat.salon = "general";
   el.innerHTML = `<div class="chat">
     <div class="chat-salons" id="chatSalons"></div>
     <div class="chat-fil" id="chatFil"><p class="muted">Chargement…</p></div>
@@ -427,7 +430,8 @@ async function hubDiscussion(el) {
     : `<div class="panel"><p style="margin:0">Connectez-vous pour participer à la discussion.</p><button class="btn primary" data-aller="compte" style="margin-top:8px">Se connecter</button></div>`}
   </div>`;
   brancherLiens(el);
-  api("chat/salons").then(({ salons }) => {
+  if (salonFixe) $("#chatSalons").remove();
+  else api("chat/salons").then(({ salons }) => {
     $("#chatSalons").innerHTML = salons.map((s) => `<button class="chip ${s.cle === chatEtat.salon ? "on" : ""}" data-salon="${s.cle}">${esc(s.nom)}${s.messages24h ? ` <small>${s.messages24h}</small>` : ""}</button>`).join("");
     $$("[data-salon]", el).forEach((b) => b.onclick = () => { chatEtat.salon = b.dataset.salon; hubDiscussion(el); });
   }).catch(() => {});

@@ -1307,7 +1307,7 @@ function ouvrirBooster(type) {
     delete scene.dataset.ambiance; points();
     scene.innerHTML = `<div class="pk-carte">
         <div class="flip grand">
-          <div class="face back ${rare ? "glow-" + (x.shiny ? "shiny" : c.rarete) : ""}">${UNIVERS.monde.dos}</div>
+          <div class="face back ${rare ? "glow-" + (x.shiny ? "shiny" : c.rarete) : ""} ${typeof dosChoisi === "function" ? dosChoisi().cls : ""}" style="${typeof dosChoisi === "function" ? dosChoisi().style : ""}">${typeof dosChoisi === "function" ? dosChoisi().ic : UNIVERS.monde.dos}</div>
           <div class="face front">${etiquette(x)}${cardHTML(c, { locked: false, shiny: x.shiny, holo: x.holo })}</div>
         </div></div>
       <div class="pk-rarete"></div>`;

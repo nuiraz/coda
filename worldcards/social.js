@@ -52,7 +52,9 @@ function lancerDuel(v) {
         if (r?.statut === "fini") {
           // L'adversaire a abandonné
           arreterCombat(); fermerModal();
-          if (r.pieces) { S.coins += r.pieces; sauver(); majCoins(); }
+          if (r.gagne) S.duelsGagnes = (S.duelsGagnes || 0) + 1;
+          if (r.pieces) S.coins += r.pieces;
+          sauver(); majCoins();
           ouvrirModal(`<div style="text-align:center"><h2 style="margin-top:0">${r.gagne ? "🏆 Victoire !" : "💀 Défaite"}</h2><p>${r.gagne ? `${esc(v.adversaire)} a abandonné le duel.` : "Le duel est terminé."}${r.pieces ? ` +${r.pieces} 🪙` : ""}</p><button class="btn primary" data-close>Continuer</button></div>`);
           return null;
         }
@@ -63,7 +65,7 @@ function lancerDuel(v) {
       let r = null;
       for (let i = 0; i < 5 && r?.statut !== "fini"; i++) { r = await api(`duels/${id}`).catch(() => null); if (r?.statut !== "fini") await pause(800); }
       if (r?.pieces) { S.coins += r.pieces; sauver(); majCoins(); }
-      if (r?.gagne) S.combat.victoires++; else S.combat.defaites++;
+      if (r?.gagne) { S.combat.victoires++; S.duelsGagnes = (S.duelsGagnes || 0) + 1; } else S.combat.defaites++;
       return `Duel contre ${v.adversaire}${r?.pieces ? ` · +${r.pieces} 🪙` : " · (récompense : 10 duels par jour, 3 tours minimum)"}`;
     },
   });
@@ -144,6 +146,8 @@ function ouvrirCalendrier() {
   $("#calOk")?.addEventListener("click", () => {
     const r = CALENDRIER[e.prochain], carte = r.donner();
     S.connexion = { serie: e.serie + 1, dernier: today() };
+    S.serieMax = Math.max(S.serieMax || 0, e.serie + 1);
+    if (typeof ajouterXPPasse === "function") ajouterXPPasse(50); // la connexion du jour fait aussi avancer le passe
     sauver(); majCoins(); fermerModal(); son?.("victoire");
     if (carte) { ouvrirModal(`<div style="text-align:center"><h2 style="margin-top:0">💎 Jour 7 !</h2><div style="max-width:220px;margin:0 auto">${cardHTML(carte)}</div><p>+ 1 booster Or. Bravo pour votre fidélité !</p><button class="btn primary" data-close>Super !</button></div>`); }
     else toast(`🎁 Jour ${e.prochain + 1} : ${r.txt} !`);
@@ -229,3 +233,329 @@ addEventListener("DOMContentLoaded", () => {
     if ($("#modal").classList.contains("hidden")) { clearInterval(t); ouvrirCalendrier(); }
   }, 2000);
 });
+
+/* =====================================================================
+   Guildes
+   ===================================================================== */
+const guildeEtat = { onglet: "membres" };
+const ROLES = { chef: "👑 Chef", officier: "⭐ Officier", membre: "Membre" };
+const EMBLEMES = ["🛡️", "🦁", "🐉", "🦅", "🐺", "🔥", "⚡", "🌍", "🏔️", "🌊", "🌟", "🗡️", "🏰", "🐻", "🦊", "🌸"];
+async function vueGuilde(v) {
+  if (!connecte()) { v.innerHTML = `<div class="panel"><h2 style="margin-top:0">🛡️ Guildes</h2><p>Connectez-vous pour rejoindre une guilde : 20 joueurs, un salon privé, un objectif commun chaque semaine.</p><button class="btn primary" data-aller="compte">Se connecter</button></div>`; brancherLiens(v); return; }
+  v.innerHTML = `<p class="muted">Chargement…</p>`;
+  try {
+    const { guilde } = await api("guilde/moi");
+    if (!guilde) return listeGuildes(v);
+    const g = guilde, fait = g.victoires >= g.objectif, chef = g.monRole === "chef", gere = chef || g.monRole === "officier";
+    v.innerHTML = `<section class="panel guilde-tete">
+        <span class="guilde-embleme">${esc(g.embleme)}</span>
+        <div style="flex:1;min-width:0"><h2 style="margin:0">${esc(g.nom)} <span class="tag-guilde">[${esc(g.tag)}]</span></h2>
+          <p class="muted" style="margin:4px 0">${esc(g.description) || "Pas encore de description."}</p>
+          <small class="muted">${g.membres.length}/20 membres · ${g.ouverte ? "🔓 ouverte" : "🔒 fermée"} · 🏆 ${fmt(g.score)} pts cette semaine · ${g.rang}e au classement</small></div>
+        <div class="row" style="gap:6px">${chef ? `<button class="btn small" id="gModif">⚙️</button>` : ""}<button class="btn small" id="gQuitter">Quitter</button></div></section>
+      <section class="panel objectif-guilde">
+        <div class="row" style="justify-content:space-between"><b>🎯 Objectif de la semaine : ${fmt(g.objectif)} victoires ensemble</b><small class="muted">fin ${new Date(g.finLe).toLocaleDateString("fr-FR", { weekday: "long" })}</small></div>
+        <div class="bar grosse"><i style="width:${Math.min(100, (g.victoires / g.objectif) * 100)}%"></i></div>
+        <div class="row" style="justify-content:space-between"><span>${fmt(g.victoires)} / ${fmt(g.objectif)} victoires (arène, solo, duels…)</span>
+          ${g.recompenseRecue ? `<span>✅ Récompense récupérée</span>` : `<button class="btn ${fait ? "primary" : ""}" id="gRecompense" ${fait ? "" : "disabled"}>🎁 Booster Or + 300 🪙</button>`}</div></section>
+      <div class="toolbar">${[["membres", "👥 Membres"], ["discussion", "💬 Salon de guilde"], ["classement", "🏆 Classement des guildes"]].map(([k, l]) => `<button class="chip ${guildeEtat.onglet === k ? "on" : ""}" data-go="${k}">${l}</button>`).join("")}</div>
+      <div id="gCorps"></div>`;
+    $$("[data-go]", v).forEach((b) => b.onclick = () => { guildeEtat.onglet = b.dataset.go; vueGuilde(v); });
+    $("#gQuitter").onclick = () => confirmer(`Quitter ${g.nom} ?${chef && g.membres.length > 1 ? " Un autre membre deviendra chef." : g.membres.length === 1 ? " La guilde sera supprimée." : ""}`, "Quitter", async () => {
+      try { await api("guilde/quitter", { methode: "POST", corps: {} }); fermerModal(); aller("guilde"); } catch (e) { toast("⚠ " + e.message); }
+    });
+    $("#gRecompense")?.addEventListener("click", async () => {
+      try { const r = await api("guilde/recompense", { methode: "POST", corps: {} }); S.boosters[r.booster] = (S.boosters[r.booster] || 0) + 1; S.coins += r.pieces; sauver(); majCoins(); toast("🎁 Booster Or + 300 🪙 pour la guilde !"); vueGuilde(v); }
+      catch (e) { toast("⚠ " + e.message); }
+    });
+    $("#gModif")?.addEventListener("click", () => {
+      ouvrirModal(`<h2 style="margin-top:0">⚙️ Ma guilde</h2><form class="form" id="fGModif">
+        <label>Emblème<div class="emblemes">${EMBLEMES.map((e) => `<button type="button" class="chip ${e === g.embleme ? "on" : ""}" data-emb="${e}">${e}</button>`).join("")}</div></label>
+        <label>Description<textarea id="gDesc" maxlength="200" rows="3">${esc(g.description)}</textarea></label>
+        <label class="row" style="gap:8px"><input type="checkbox" id="gOuverte" ${g.ouverte ? "checked" : ""}> Ouverte : tout le monde peut rejoindre</label>
+        <button class="btn primary">Enregistrer</button></form>`);
+      let emb = g.embleme;
+      $$("[data-emb]").forEach((b) => b.onclick = () => { emb = b.dataset.emb; $$("[data-emb]").forEach((x) => x.classList.toggle("on", x === b)); });
+      $("#fGModif").onsubmit = async (e) => { e.preventDefault(); try { await api("guilde/modifier", { methode: "POST", corps: { description: $("#gDesc").value, ouverte: $("#gOuverte").checked, embleme: emb } }); fermerModal(); vueGuilde(v); } catch (err) { toast("⚠ " + err.message); } };
+    });
+    const corps = $("#gCorps");
+    if (guildeEtat.onglet === "discussion") return hubDiscussion(corps, "g" + g.id);
+    if (guildeEtat.onglet === "classement") return classementGuildes(corps, g.id);
+    corps.innerHTML = `<div class="amis">${g.membres.map((m) => `<div class="ami">${avatarHTML(m.pseudo, "", m.cadre || null)}
+      <div class="ami-infos"><b>${esc(m.pseudo)} ${m.enLigne ? `<span class="enligne">●</span>` : ""}</b>${m.titre && nomTitre(m.titre) ? `<small class="titre-joueur">${esc(nomTitre(m.titre))}</small>` : ""}<small class="muted">${ROLES[m.role]} · ⚔️ ${m.victoires} victoires · ${fmt(m.score)} pts · 🏆 ${fmt(m.trophees)}</small></div>
+      <div class="row" style="gap:6px">${m.pseudo !== COMPTE.pseudo ? `<button class="btn small" data-joueur="${esc(m.pseudo)}">👤</button>` : ""}
+        ${gere && m.pseudo !== COMPTE.pseudo && (chef || m.role === "membre") ? `<button class="btn small" data-gerer="${esc(m.pseudo)}" data-role="${m.role}">⚙️</button>` : ""}</div></div>`).join("")}</div>`;
+    $$("[data-joueur]", corps).forEach((b) => b.onclick = () => ficheJoueur(b.dataset.joueur));
+    $$("[data-gerer]", corps).forEach((b) => b.onclick = () => {
+      const ps = b.dataset.gerer, role = b.dataset.role;
+      ouvrirModal(`<h2 style="margin-top:0">${esc(ps)}</h2><div class="row" style="gap:8px;flex-wrap:wrap">
+        ${chef ? (role === "officier" ? `<button class="btn" data-act="membre">Retirer officier</button>` : `<button class="btn" data-act="officier">⭐ Nommer officier</button>`) : ""}
+        ${chef ? `<button class="btn" data-act="chef">👑 Passer chef</button>` : ""}
+        <button class="btn danger" data-act="exclure">Exclure</button></div>`);
+      $$("[data-act]").forEach((x) => x.onclick = async () => {
+        if (["exclure", "chef"].includes(x.dataset.act) && !confirm(x.dataset.act === "chef" ? `Donner la direction à ${ps} ?` : `Exclure ${ps} ?`)) return;
+        try { await api("guilde/membre/" + encodeURIComponent(ps), { methode: "POST", corps: { action: x.dataset.act } }); fermerModal(); vueGuilde(v); } catch (e) { toast("⚠ " + e.message); }
+      });
+    });
+  } catch (e) { v.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+async function listeGuildes(v, q = "") {
+  v.innerHTML = `<section class="panel"><h2 style="margin-top:0">🛡️ Rejoignez une guilde</h2>
+      <p class="muted" style="margin-top:0">Jusqu'à 20 joueurs, un salon privé et un objectif commun chaque semaine : <b>25 victoires par membre</b> (500 pour 20 joueurs) = un <b>booster Or + 300 🪙</b> pour chacun !</p>
+      <div class="row" style="gap:8px"><input class="search" id="gRech" placeholder="🔎 Chercher une guilde…" value="${esc(q)}" style="flex:1;max-width:none"><button class="btn primary" id="gCreer">➕ Créer ma guilde</button></div></section>
+    <div id="gListe"><p class="muted">Chargement…</p></div>`;
+  let t; $("#gRech").oninput = (e) => { clearTimeout(t); t = setTimeout(() => remplir(e.target.value), 300); };
+  $("#gCreer").onclick = creerGuilde;
+  const remplir = async (texte) => {
+    try {
+      const { guildes } = await api("guildes?q=" + encodeURIComponent(texte || ""));
+      $("#gListe").innerHTML = guildes.length ? `<div class="amis">${guildes.map((g, i) => `<div class="ami"><span class="guilde-embleme petit">${esc(g.embleme)}</span>
+        <div class="ami-infos"><b>${i < 3 && !texte ? ["🥇", "🥈", "🥉"][i] + " " : ""}${esc(g.nom)} <span class="tag-guilde">[${esc(g.tag)}]</span></b><small class="muted">${g.membres}/20 · ${fmt(g.score)} pts cette semaine${g.description ? " · " + esc(g.description.slice(0, 60)) : ""}</small></div>
+        <button class="btn small ${g.ouverte && !g.pleine ? "primary" : ""}" data-rejoindre="${g.id}" ${g.ouverte && !g.pleine ? "" : "disabled"}>${g.pleine ? "Pleine" : g.ouverte ? "Rejoindre" : "🔒 Fermée"}</button></div>`).join("")}</div>`
+        : `<p class="muted">Aucune guilde${texte ? " trouvée" : " pour l'instant : créez la première !"}</p>`;
+      $$("[data-rejoindre]").forEach((b) => b.onclick = async () => { try { await api(`guildes/${b.dataset.rejoindre}/rejoindre`, { methode: "POST", corps: {} }); toast("🛡️ Bienvenue dans la guilde !"); aller("guilde"); } catch (e) { toast("⚠ " + e.message); } });
+    } catch (e) { $("#gListe").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  };
+  remplir(q);
+}
+function creerGuilde() {
+  ouvrirModal(`<h2 style="margin-top:0">➕ Créer une guilde</h2><form class="form" id="fGuilde">
+    <label>Nom<input id="gNom" maxlength="24" minlength="3" required placeholder="Les Explorateurs"></label>
+    <label>Tag (2 à 4 caractères)<input id="gTag" maxlength="4" minlength="2" required placeholder="EXPL" style="text-transform:uppercase"></label>
+    <label>Emblème<div class="emblemes">${EMBLEMES.map((e, i) => `<button type="button" class="chip ${i ? "" : "on"}" data-emb="${e}">${e}</button>`).join("")}</div></label>
+    <label>Description<textarea id="gDesc" maxlength="200" rows="2" placeholder="Guilde francophone, entraide et bonne humeur !"></textarea></label>
+    <button class="btn primary">Créer</button></form>`);
+  let emb = EMBLEMES[0];
+  $$("[data-emb]").forEach((b) => b.onclick = () => { emb = b.dataset.emb; $$("[data-emb]").forEach((x) => x.classList.toggle("on", x === b)); });
+  $("#fGuilde").onsubmit = async (e) => {
+    e.preventDefault();
+    try { await api("guildes", { methode: "POST", corps: { nom: $("#gNom").value, tag: $("#gTag").value, embleme: emb, description: $("#gDesc").value } }); fermerModal(); toast("🛡️ Guilde créée !"); aller("guilde"); }
+    catch (err) { toast("⚠ " + err.message); }
+  };
+}
+async function classementGuildes(el, monId) {
+  el.innerHTML = `<p class="muted">Chargement…</p>`;
+  try {
+    const { guildes } = await api("guildes");
+    el.innerHTML = `<div class="panel" style="padding:0;overflow-x:auto"><table class="classement"><thead><tr><th>#</th><th>Guilde</th><th>Membres</th><th>Points (semaine)</th></tr></thead><tbody>
+      ${guildes.map((g, i) => `<tr class="${g.id === monId ? "moi" : ""}"><td>${["🥇", "🥈", "🥉"][i] || i + 1}</td><td>${esc(g.embleme)} ${esc(g.nom)} <span class="tag-guilde">[${esc(g.tag)}]</span></td><td>${g.membres}/20</td><td>${fmt(g.score)}</td></tr>`).join("")}</tbody></table></div>`;
+  } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+ajouterPage("guilde", "🛡️", "Guilde", vueGuilde);
+
+/* =====================================================================
+   Passe de saison : un thème différent chaque mois, 30 paliers, piste gratuite + piste Premium (7,99 €)
+   ===================================================================== */
+const THEMES_PASSE = [
+  { nom: "Aurores boréales", ic: "🌌", c1: "#3ad6a8", c2: "#6c4cf1" },
+  { nom: "Grand Carnaval", ic: "🎭", c1: "#ff4fa3", c2: "#ffb300" },
+  { nom: "Cerisiers en fleur", ic: "🌸", c1: "#ff8fc2", c2: "#b388ff" },
+  { nom: "Jungle sauvage", ic: "🌿", c1: "#1fa971", c2: "#c0e64a" },
+  { nom: "Routes de la soie", ic: "🐫", c1: "#e0913a", c2: "#8d4a1c" },
+  { nom: "Océans profonds", ic: "🌊", c1: "#1e88e5", c2: "#26c6da" },
+  { nom: "Soleil d'été", ic: "☀️", c1: "#ff9800", c2: "#ffd54f" },
+  { nom: "Terre de volcans", ic: "🌋", c1: "#e53935", c2: "#ff9100" },
+  { nom: "Grands explorateurs", ic: "🧭", c1: "#8d6e63", c2: "#f5b21b" },
+  { nom: "Nuit des légendes", ic: "🎃", c1: "#7b1fa2", c2: "#ff6f00" },
+  { nom: "Sommets du monde", ic: "🏔️", c1: "#546e7a", c2: "#90caf9" },
+  { nom: "Étoiles d'hiver", ic: "❄️", c1: "#42a5f5", c2: "#e1f5fe" },
+];
+const moisPasse = () => new Date().toISOString().slice(0, 7);
+const themeDe = (mois) => THEMES_PASSE[(Number(String(mois).slice(5, 7)) || 1) - 1];
+const nomMois = (mois) => new Date(mois + "-15T12:00").toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+const XP_PALIER = 80, PALIERS_PASSE = 30;
+const passeEtat = { actif: null, mois: null };
+function passe() {
+  if (!S.passe || S.passe.mois !== moisPasse()) S.passe = { mois: moisPasse(), xp: 0, gratuit: [], premium: [] };
+  return S.passe;
+}
+const palierPasse = () => Math.min(PALIERS_PASSE, Math.floor(passe().xp / XP_PALIER));
+// Récompenses : identiques chaque mois, mais les objets exclusifs changent avec le thème
+function recompensesPasse(n, mois = moisPasse()) {
+  const gratuit = n === 30 ? { t: "cosm", type: "titre", id: `passe-${mois}`, txt: `Titre « ${nomTitre(`passe-${mois}`)} »` }
+    : n % 5 === 0 ? { t: "booster", k: n % 10 === 0 ? "argent" : "monde" }
+    : n % 3 === 0 ? { t: "poussiere", n: 40 } : { t: "pieces", n: 50 + n * 5 };
+  const premium = n === 10 ? { t: "cosm", type: "cadre", id: `passe-${mois}`, txt: "Cadre de profil exclusif du mois" }
+    : n === 20 ? { t: "cosm", type: "dos", id: `passe-${mois}`, txt: "Dos de cartes exclusif du mois" }
+    : n === 30 ? { t: "cosm", type: "titre", id: `passe-${mois}-elite`, txt: `Titre « ${nomTitre(`passe-${mois}-elite`)} » + carte épique`, carte: "epique" }
+    : n === 15 || n === 25 ? { t: "carte", r: "epique" }
+    : n % 5 === 0 ? { t: "booster", k: n === 5 ? "or" : "prestige" }
+    : n % 2 === 0 ? { t: "poussiere", n: 100 } : { t: "pieces", n: 150 + n * 10 };
+  return { gratuit, premium };
+}
+function texteRecompense(r) {
+  if (r.txt) return r.txt;
+  if (r.t === "pieces") return `${r.n} 🪙`;
+  if (r.t === "poussiere") return `${r.n} ✨ poussière`;
+  if (r.t === "booster") return `Booster ${PACKS[r.k]?.nom || r.k}`;
+  if (r.t === "carte") return `Carte ${RARETES[r.r].nom.toLowerCase()} garantie`;
+  return "";
+}
+const iconeRecompense = (r) => ({ pieces: "🪙", poussiere: "✨", booster: PACKS[r.k]?.emoji || "🎁", carte: "💎", cosm: r.type === "titre" ? "🏷️" : r.type === "cadre" ? "🖼️" : "🂠" }[r.t] || "🎁");
+function carteGarantie(rarete) {
+  const pool = CARDS.filter((c) => c.rarete === rarete && !c.saisonnier && c.type !== "secrete");
+  const neuves = pool.filter((c) => !has(c.id)), l = neuves.length ? neuves : pool;
+  const c = l[Math.floor(Math.random() * l.length)]; gagner(c.id); return c;
+}
+function donnerRecompense(r) {
+  if (r.t === "pieces") S.coins += r.n;
+  else if (r.t === "poussiere") S.poussiere = (S.poussiere || 0) + r.n;
+  else if (r.t === "booster") S.boosters[r.k] = (S.boosters[r.k] || 0) + 1;
+  else if (r.t === "carte") return carteGarantie(r.r);
+  else if (r.t === "cosm") { debloquerCosm(r.type, r.id); if (r.carte) return carteGarantie(r.carte); }
+  return null;
+}
+function ajouterXPPasse(n) { const p = passe(), avant = palierPasse(); p.xp += n; if (palierPasse() > avant) toast(`🎟️ Passe : palier ${palierPasse()} atteint !`); }
+const _gagnerXP = gagnerXP;
+gagnerXP = function (n, pourquoi) { ajouterXPPasse(n); return _gagnerXP(n, pourquoi); };
+async function chargerPasse() {
+  if (!connecte()) { passeEtat.actif = false; return; }
+  try { const r = await api("passe/moi"); passeEtat.actif = r.actif; passeEtat.mois = r.mois; } catch { passeEtat.actif = false; }
+}
+async function vuePasse(v) {
+  const p = passe(), th = themeDe(p.mois), niv = palierPasse(), fin = new Date(Date.UTC(+p.mois.slice(0, 4), +p.mois.slice(5, 7), 1));
+  const jours = Math.max(0, Math.ceil((fin - Date.now()) / 86400000));
+  v.innerHTML = `<p class="muted">Chargement…</p>`;
+  await chargerPasse();
+  const actif = passeEtat.actif;
+  const peutGratuit = (n) => n <= niv && !p.gratuit.includes(n), peutPremium = (n) => actif && n <= niv && !p.premium.includes(n);
+  const aRecuperer = [...Array(PALIERS_PASSE).keys()].map((i) => i + 1).filter((n) => peutGratuit(n) || peutPremium(n)).length;
+  v.innerHTML = `<section class="passe-tete" style="--p1:${th.c1};--p2:${th.c2}">
+      <div class="passe-ic">${th.ic}</div>
+      <div style="flex:1;min-width:0"><small>PASSE DE SAISON · ${esc(nomMois(p.mois)).toUpperCase()}</small><h2>${esc(th.nom)}</h2>
+        <div class="passe-xp"><div class="bar"><i style="width:${niv >= PALIERS_PASSE ? 100 : ((p.xp % XP_PALIER) / XP_PALIER) * 100}%"></i></div>
+        <span>Palier <b>${niv}</b>/${PALIERS_PASSE}${niv < PALIERS_PASSE ? ` · ${p.xp % XP_PALIER}/${XP_PALIER} XP` : " · terminé !"} · encore ${jours} j</span></div></div>
+    </section>
+    <p class="muted">Gagnez de l'XP en jouant (boosters, combats, quiz, quêtes, connexion du jour). Chaque mois, un nouveau thème et de nouvelles récompenses exclusives.</p>
+    ${actif ? `<div class="panel passe-ok">💎 Piste Premium débloquée pour ${esc(nomMois(p.mois))} !</div>`
+      : connecte() ? `<div class="panel passe-achat"><div><b>🔓 Débloquez la piste Premium — 7,99 €</b><br><small class="muted">Cadre et dos de cartes exclusifs, titre « ${esc(nomTitre(`passe-${p.mois}-elite`))} », cartes épiques, boosters Or et Prestige… Valable jusqu'à la fin du mois.</small></div>
+        <div class="row" style="gap:8px;flex-wrap:wrap"><a class="btn primary premium" href="${PAYPAL}/7.99EUR" target="_blank" rel="noopener" id="passePayer">Payer 7,99 € avec PayPal</a><button class="btn" id="passeDemande">✅ J'ai payé</button></div>
+        <div class="zone-paypal hidden" data-paypal="passe"></div></div>`
+      : `<div class="panel"><a href="#" data-aller="compte">Connectez-vous</a> pour pouvoir débloquer la piste Premium.</div>`}
+    ${aRecuperer ? `<button class="btn primary" id="passeTout" style="width:100%;margin:10px 0">🎁 Tout récupérer (${aRecuperer})</button>` : ""}
+    <div class="passe-pistes"><div class="passe-entete"><span></span><b>Gratuit</b><b>💎 Premium</b></div>
+      ${[...Array(PALIERS_PASSE).keys()].map((i) => {
+        const n = i + 1, r = recompensesPasse(n, p.mois), ok = n <= niv;
+        const caseR = (rec, pris, peut, piste) => `<button class="passe-case ${pris ? "prise" : ""} ${peut ? "dispo" : ""} ${piste === "premium" && !actif ? "verrou" : ""}" data-n="${n}" data-piste="${piste}" ${peut ? "" : "disabled"}>
+          <span>${pris ? "✅" : iconeRecompense(rec)}</span><small>${esc(texteRecompense(rec))}</small></button>`;
+        return `<div class="passe-ligne ${ok ? "atteint" : ""}"><span class="passe-n">${n}</span>${caseR(r.gratuit, p.gratuit.includes(n), peutGratuit(n), "gratuit")}${caseR(r.premium, p.premium.includes(n), peutPremium(n), "premium")}</div>`;
+      }).join("")}</div>`;
+  brancherLiens(v);
+  const recuperer = (n, piste) => {
+    const r = recompensesPasse(n, p.mois)[piste];
+    const carte = donnerRecompense(r);
+    p[piste].push(n);
+    return { r, carte };
+  };
+  const apres = (gains) => {
+    sauver(); majCoins();
+    const cartes = gains.map((g) => g.carte).filter(Boolean);
+    if (cartes.length) ouvrirModal(`<div style="text-align:center"><h2 style="margin-top:0">🎟️ Récompenses du passe</h2><div class="cards" style="justify-content:center">${cartes.map((c) => cardHTML(c)).join("")}</div><p>${gains.map((g) => esc(texteRecompense(g.r))).join(" · ")}</p><button class="btn primary" data-close>Super !</button></div>`, () => aller("passe"));
+    else { toast(`🎁 ${gains.map((g) => texteRecompense(g.r)).join(" · ")}`); aller("passe"); }
+  };
+  $$("[data-n]", v).forEach((b) => b.onclick = () => apres([recuperer(Number(b.dataset.n), b.dataset.piste)]));
+  $("#passeTout")?.addEventListener("click", () => {
+    const gains = [];
+    for (let n = 1; n <= niv; n++) { if (peutGratuit(n)) gains.push(recuperer(n, "gratuit")); if (peutPremium(n)) gains.push(recuperer(n, "premium")); }
+    apres(gains);
+  });
+  $("#passeDemande")?.addEventListener("click", async () => {
+    try { await api("premium/demande", { methode: "POST", corps: { formule: "passe", note: "" } }); ouvrirModal(`<div class="reveal"><div style="font-size:52px">🎟️</div><h2>Demande envoyée !</h2><p>L'administrateur vérifie votre paiement et débloque la piste Premium, en général sous 24 h. N'oubliez pas d'indiquer votre pseudo dans la note PayPal.</p><button class="btn primary" data-close>OK</button></div>`); }
+    catch (e) { toast("⚠ " + e.message); }
+  });
+  if (!actif && connecte()) brancherPaypal();
+}
+ajouterPage("passe", "🎟️", "Passe", vuePasse);
+
+/* =====================================================================
+   Personnalisation : titres, cadres de profil, dos de cartes
+   ===================================================================== */
+const nbCartesMonde = () => count(of("monde").map((c) => c.id));
+const pctContinent = (k) => { const l = of("monde").filter((c) => c.continent === k && c.type !== "secrete" && !c.saisonnier); return l.length ? count(l.map((c) => c.id)) / l.length : 0; };
+const nbShiny = () => CARDS.filter((c) => S.shiny?.[c.id]).length;
+const COSM = {
+  titre: {
+    nouveau: { nom: "Nouvel explorateur", aide: "Par défaut", ok: () => true },
+    voyageur: { nom: "Voyageur", aide: "100 cartes", ok: () => nbCartesMonde() >= 100 },
+    collectionneur: { nom: "Collectionneur", aide: "500 cartes", ok: () => nbCartesMonde() >= 500 },
+    "grand-collectionneur": { nom: "Grand collectionneur", aide: "1 000 cartes", ok: () => nbCartesMonde() >= 1000 },
+    "maitre-du-monde": { nom: "Maître du monde", aide: "Les 195 pays", ok: () => count(of("monde", "pays").map((c) => c.id)) >= of("monde", "pays").length },
+    ...Object.fromEntries(Object.entries(CONTINENTS).map(([k, ct]) => [`explorateur-${k.toLowerCase()}`, { nom: `Explorateur · ${ct.nom}`, aide: `50 % des cartes ${ct.emoji} ${ct.nom}`, ok: () => pctContinent(k) >= 0.5 }])),
+    "chasseur-shiny": { nom: "Chasseur de Shiny", aide: "10 cartes Shiny", ok: () => nbShiny() >= 10 },
+    stratege: { nom: "Stratège", aide: "60 étoiles en mode Solo", ok: () => Object.values(S.solo || {}).reduce((a, b) => a + b, 0) >= 60 },
+    duelliste: { nom: "Duelliste", aide: "10 duels en direct gagnés", ok: () => (S.duelsGagnes || 0) >= 10 },
+    fidele: { nom: "Fidèle", aide: "7 jours de connexion d'affilée", ok: () => (S.serieMax || 0) >= 7 },
+    "champion-or": { nom: "Champion 🥇 Or", aide: "1 300 trophées d'arène", ok: () => (S.meilleurTrophees || 0) >= 1300 },
+    "champion-diamant": { nom: "Champion 💠 Diamant", aide: "1 700 trophées d'arène", ok: () => (S.meilleurTrophees || 0) >= 1700 },
+    expeditionnaire: { nom: "Expéditionnaire", aide: "Finir l'Expédition d'un continent", ok: () => Object.values(S.expedition || {}).some((x) => x?.fini) },
+    mecene: { nom: "Mécène 💎", aide: "Être Premium", ok: () => premium() },
+  },
+  cadre: {
+    aucun: { nom: "Sans cadre", aide: "Par défaut", ok: () => true },
+    argent: { nom: "Argent", aide: "Niveau 5", ok: () => niveauJoueur().niveau >= 5 },
+    or: { nom: "Or", aide: "Niveau 15", ok: () => niveauJoueur().niveau >= 15 },
+    feu: { nom: "Flammes", aide: "50 victoires", ok: () => S.combat.victoires >= 50 },
+    glace: { nom: "Glace", aide: "100 pays", ok: () => count(of("monde", "pays").map((c) => c.id)) >= 100 },
+    "arc-en-ciel": { nom: "Arc-en-ciel", aide: "25 badges", ok: () => badgesDe().filter((b) => S.badges[b.id]).length >= 25 },
+    diamant: { nom: "Diamant", aide: "1 700 trophées d'arène", ok: () => (S.meilleurTrophees || 0) >= 1700 },
+    premium: { nom: "Premium", aide: "Être Premium", ok: () => premium() },
+  },
+  dos: {
+    classique: { nom: "Classique", aide: "Par défaut", ok: () => true, ic: "🌐" },
+    nuit: { nom: "Nuit étoilée", aide: "10 boosters ouverts", ok: () => (S.ouverts || 0) >= 10, ic: "✨" },
+    ocean: { nom: "Océan", aide: "50 boosters ouverts", ok: () => (S.ouverts || 0) >= 50, ic: "🌊" },
+    or: { nom: "Or royal", aide: "Niveau 20", ok: () => niveauJoueur().niveau >= 20, ic: "👑" },
+    neon: { nom: "Néon", aide: "20 cartes Shiny", ok: () => nbShiny() >= 20, ic: "⚡" },
+    monde: { nom: "Planisphère", aide: "1 000 cartes", ok: () => nbCartesMonde() >= 1000, ic: "🗺️" },
+    premium: { nom: "Premium", aide: "Être Premium", ok: () => premium(), ic: "💎" },
+  },
+};
+// Objets du passe (un par mois) : « passe-2026-10 » et « passe-2026-10-elite »
+function infoCosm(type, id) {
+  if (COSM[type]?.[id]) return COSM[type][id];
+  const m = /^passe-(\d{4}-\d{2})(-elite)?$/.exec(id || "");
+  if (!m) return null;
+  const th = themeDe(m[1]), mois = nomMois(m[1]);
+  if (type === "titre") return { nom: m[2] ? `Légende · ${th.nom}` : `Pionnier · ${th.nom}`, aide: `Passe de ${mois}${m[2] ? " (Premium)" : ""}`, ok: () => false, passe: true };
+  return { nom: `${th.nom}`, aide: `Passe de ${mois} (Premium)`, ok: () => false, ic: th.ic, th, passe: true };
+}
+const nomTitre = (id) => infoCosm("titre", id)?.nom || "";
+function debloquerCosm(type, id) { S.cosmetiques = S.cosmetiques || {}; S.cosmetiques.debloques = { ...(S.cosmetiques.debloques || {}), [`${type}:${id}`]: true }; }
+const cosmDebloque = (type, id) => !!(infoCosm(type, id)?.ok() || S.cosmetiques?.debloques?.[`${type}:${id}`]);
+const cosmChoisi = (type) => { const id = S.cosmetiques?.[type]; return id && cosmDebloque(type, id) ? id : null; };
+function styleCadre(id) { const i = infoCosm("cadre", id); return i?.th ? `--k1:${i.th.c1};--k2:${i.th.c2}` : ""; }
+function dosChoisi() {
+  const id = cosmChoisi("dos") || "classique", i = infoCosm("dos", id);
+  return { cls: `dos-${i?.passe ? "passe" : id}`, style: i?.th ? `--d1:${i.th.c1};--d2:${i.th.c2}` : "", ic: i?.ic || "🌐" };
+}
+// Avatar avec cadre : avatarHTML(pseudo, classe, cadre)
+const _avatarHTML = avatarHTML;
+avatarHTML = function (pseudo, classe = "", cadre) {
+  if (cadre === undefined && pseudo === COMPTE.pseudo) cadre = cosmChoisi("cadre");
+  if (!cadre || cadre === "aucun") return _avatarHTML(pseudo, classe);
+  const i = infoCosm("cadre", cadre);
+  return _avatarHTML(pseudo, `${classe} cadre cadre-${i?.passe ? "passe" : cadre}`).replace('<span class="avatar', `<span style="${styleCadre(cadre)}" class="avatar`);
+};
+async function vueStyle(v) {
+  if (connecte()) api("arene/moi").then((a) => { if (a.trophees > (S.meilleurTrophees || 0)) { S.meilleurTrophees = a.trophees; sauver(); } }).catch(() => {});
+  const passeIds = Object.keys(S.cosmetiques?.debloques || {}).map((k) => k.split(":"));
+  const liste = (type) => [...Object.keys(COSM[type]), ...passeIds.filter(([t]) => t === type).map(([, id]) => id)];
+  const actuel = (type, def) => cosmChoisi(type) || def;
+  const apercu = () => `<div class="style-apercu">${avatarHTML(COMPTE.pseudo || "?", "grand", actuel("cadre", "aucun"))}
+      <div><b style="font-size:20px">${esc(COMPTE.pseudo || "Vous")}</b><br><span class="titre-joueur" style="font-size:14px">${esc(nomTitre(actuel("titre", "nouveau")))}</span></div>
+      <div class="flip"><div class="face back ${dosChoisi().cls}" style="${dosChoisi().style};position:relative;width:74px;height:104px;font-size:30px">${dosChoisi().ic}</div></div></div>`;
+  const section = (type, titre) => `<h3>${titre}</h3><div class="cosm-grille">${liste(type).map((id) => {
+    const i = infoCosm(type, id), ok = cosmDebloque(type, id), on = actuel(type, Object.keys(COSM[type])[0]) === id;
+    const visu = type === "titre" ? `<span class="cosm-titre">🏷️</span>` : type === "cadre" ? avatarHTML(COMPTE.pseudo || "?", "", id === "aucun" ? null : id)
+      : `<span class="cosm-dos face back dos-${i.passe ? "passe" : id}" style="${i.th ? `--d1:${i.th.c1};--d2:${i.th.c2}` : ""}">${i.ic || "🌐"}</span>`;
+    return `<button class="cosm ${on ? "on" : ""} ${ok ? "" : "verrou"}" data-type="${type}" data-id="${id}" ${ok ? "" : "disabled"}>${visu}<b>${esc(i.nom)}</b><small>${ok ? (on ? "✓ Équipé" : "Débloqué") : "🔒 " + esc(i.aide)}</small></button>`;
+  }).join("")}</div>`;
+  v.innerHTML = `<div class="panel">${apercu()}<p class="muted" style="margin-bottom:0">Votre titre et votre cadre sont visibles par les autres joueurs (discussion, amis, guilde). Le dos de cartes s'affiche quand vous ouvrez des boosters.</p></div>
+    ${section("titre", "🏷️ Titres")}${section("cadre", "🖼️ Cadres de profil")}${section("dos", "🂠 Dos de cartes")}`;
+  $$("[data-type]", v).forEach((b) => b.onclick = () => {
+    S.cosmetiques = { ...(S.cosmetiques || {}), [b.dataset.type]: b.dataset.id }; sauver();
+    if (connecte()) api("profil/apparence", { methode: "POST", corps: { titre: cosmChoisi("titre"), cadre: cosmChoisi("cadre") } }).catch(() => {});
+    vueStyle(v);
+  });
+}
+ajouterPage("style", "🎨", "Personnaliser", vueStyle);
