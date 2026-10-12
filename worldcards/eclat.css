@@ -213,3 +213,8 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   .ec-intro { font-size: 15px; margin: 12px auto 16px; }
   .ec-stats { margin-top: 18px; } .ec-stats dd { font-size: 23px; }
 }
+/* Vue 3D d'une carte : fond sombre (titre, boutons et « Fermer » sont clairs) */
+#modal.sombre .box { background: radial-gradient(circle at 50% 38%, #2e2522, #121315 72%); color: #fff; border-color: #2c2e33; box-shadow: 0 20px 60px rgba(0, 0, 0, .5); }
+#modal.sombre .box .muted, #modal.sombre .box small { color: rgba(255, 255, 255, .72); }
+#modal.sombre .box .btn:not(.primary) { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .22); color: #fff; }
+#modal.sombre .box .close { color: rgba(255, 255, 255, .8); }
