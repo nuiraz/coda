@@ -105,6 +105,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS defi_jour ( jour TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, essais TEXT NOT NULL DEFAULT '[]', fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL, PRIMARY KEY (jour, user_id) )`,
   `CREATE TABLE IF NOT EXISTS nations_points ( semaine TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, nation TEXT NOT NULL, points INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (semaine, user_id) )`,
   `CREATE TABLE IF NOT EXISTS souhaits ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, carte TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, carte) )`,
+  `CREATE TABLE IF NOT EXISTS devinettes_admin ( id TEXT PRIMARY KEY, cat TEXT NOT NULL, donnees TEXT, image TEXT, wiki TEXT, sans_image INTEGER NOT NULL DEFAULT 0, masque INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS cartes_admin ( id TEXT PRIMARY KEY, nom TEXT NOT NULL, type TEXT NOT NULL, pays TEXT NOT NULL, emoji TEXT, rarete TEXT NOT NULL, anecdote TEXT, wiki TEXT, evenement TEXT, sortie INTEGER NOT NULL, actif INTEGER NOT NULL DEFAULT 1, annoncee INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS propositions ( id INTEGER PRIMARY KEY AUTOINCREMENT, de_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, a_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, carte_donnee TEXT NOT NULL, carte_recue TEXT NOT NULL, statut TEXT NOT NULL DEFAULT 'ouverte', cree_le INTEGER NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS defi_photo ( jour TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, essais TEXT NOT NULL DEFAULT '[]', fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL, PRIMARY KEY (jour, user_id) )`,
@@ -3440,6 +3441,51 @@ route("GET", "devine/image", async ({ request, ctx }) => {
     return rep;
   } catch { return erreur("Image indisponible.", 502); }
 });
+/* =====================================================================
+   Devinettes modifiées par l'admin : textes, image envoyée, titre Wikipédia,
+   sans image, masquée — et devinettes créées par l'admin (« dvp:cat:xxx »).
+   Dans l'URL, les « : » de l'identifiant deviennent des « ~ ».
+   ===================================================================== */
+const DEVINE_ID_RE = /^dvp?:[a-z]{2,15}:[a-z0-9]{1,12}$/;
+const CATS_BANQUE = ["pays", "ville", "monument", "nature", "animal", "plat", "culture", "drapeau", "sport", "invention", "personnage"];
+route("GET", "devinettes/perso", async ({ env }) => {
+  const { results } = await env.DB.prepare("SELECT id, cat, donnees, image IS NOT NULL AS img, wiki, sans_image, masque, maj FROM devinettes_admin").all();
+  return json({ perso: Object.fromEntries(results.map((x) => [x.id, { cat: x.cat, donnees: x.donnees ? JSON.parse(x.donnees) : null, img: x.img ? x.maj : 0, wiki: x.wiki || "", sansImage: !!x.sans_image, masque: !!x.masque }])) }, 200, { "cache-control": "public, max-age=30" });
+});
+route("GET", "devinette-image/(dvp?~[a-z]{2,15}~[a-z0-9]{1,12})", async ({ env, p }) => {
+  const v = await env.DB.prepare("SELECT image FROM devinettes_admin WHERE id = ?").bind(p[1].replaceAll("~", ":")).first();
+  return reponseImage(env, "devinettes/" + p[1], v?.image);
+});
+route("PUT", "admin/devinettes/(dvp?~[a-z]{2,15}~[a-z0-9]{1,12})", async ({ request, env, p }) => {
+  const id = p[1].replaceAll("~", ":"), b = await corps(request), cat = String(b.cat || "");
+  if (!DEVINE_ID_RE.test(id) || !CATS_BANQUE.includes(cat)) return erreur("Devinette ou catégorie inconnue.");
+  let donnees = null;
+  if (b.donnees) {
+    const t = (x, n) => String(x || "").trim().slice(0, n);
+    const d = b.donnees, rep = t(d[0], 80), faux = (d[1] || []).map((x) => t(x, 80)), ind = (d[2] || []).map((x) => t(x, 200));
+    if (!rep || faux.length !== 3 || faux.some((x) => !x) || ind.length !== 3 || ind.some((x) => !x)) return erreur("Il faut une réponse, 3 mauvaises réponses et 3 indices.");
+    if (new Set([rep, ...faux].map((x) => x.toLowerCase())).size < 4) return erreur("Les 4 réponses doivent être différentes.");
+    donnees = JSON.stringify([rep, faux, ind, t(d[3], 300)]);
+  } else if (id.startsWith("dvp:")) return erreur("Une nouvelle devinette a besoin de son texte.");
+  const ancien = await env.DB.prepare("SELECT image FROM devinettes_admin WHERE id = ?").bind(id).first();
+  let image = ancien?.image || null;
+  if (b.image === "") { image = null; await env.IMAGES?.delete("devinettes/" + p[1]).catch(() => {}); }
+  else if (b.image) {
+    const m = VISUEL_RE.exec(String(b.image));
+    if (!m) return erreur("Image invalide (WebP, JPEG ou PNG).");
+    if (m[2].length > 1400000) return erreur("Image trop lourde : 1 Mo maximum après compression.");
+    image = await stockerImage(env, "devinettes/" + p[1], b.image);
+  }
+  await env.DB.prepare(`INSERT INTO devinettes_admin (id, cat, donnees, image, wiki, sans_image, masque, maj) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET cat = excluded.cat, donnees = excluded.donnees, image = excluded.image, wiki = excluded.wiki, sans_image = excluded.sans_image, masque = excluded.masque, maj = excluded.maj`)
+    .bind(id, cat, donnees, image, String(b.wiki || "").trim().slice(0, 120) || null, b.sansImage ? 1 : 0, b.masque ? 1 : 0, maintenant()).run();
+  return json({ ok: true, maj: maintenant() });
+}, { admin: true });
+route("DELETE", "admin/devinettes/(dvp?~[a-z]{2,15}~[a-z0-9]{1,12})", async ({ env, p }) => {
+  await env.DB.prepare("DELETE FROM devinettes_admin WHERE id = ?").bind(p[1].replaceAll("~", ":")).run();
+  await env.IMAGES?.delete("devinettes/" + p[1]).catch(() => {});
+  return json({ ok: true });
+}, { admin: true });
 route("POST", "defi-photo/essai", async ({ request, env, user, ctx }) => {
   const b = await corps(request), jour = jourBruxelles(), c = await photoDuJour(env, jour), id = String(b.id || "");
   if (!POOL_PHOTO.some((x) => x.id === id)) return erreur("Choisissez un monument de la liste.");

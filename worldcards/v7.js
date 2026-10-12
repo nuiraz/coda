@@ -163,15 +163,28 @@ const CATS_DEVINE = [
 ];
 // Banque de devinettes écrites (indépendantes des cartes), chargée à la demande :
 // { cat: [[réponse, [3 leurres], [3 indices du plus dur au plus facile], explication], …] }
-let BANQUE_DEVINE = null;
-function chargerBanqueDevine() {
-  if (BANQUE_DEVINE || chargerBanqueDevine.p) return chargerBanqueDevine.p;
-  chargerBanqueDevine.p = fetch(`data/devinettes.json?v=${VERSION_JEU}`).then((r) => r.json()).then((d) => { BANQUE_DEVINE = d; }).catch(() => { BANQUE_DEVINE = {}; });
+let BANQUE_DEVINE = null, DEVINE_PERSO = {};
+function chargerBanqueDevine(forcer) {
+  if (!forcer && (BANQUE_DEVINE || chargerBanqueDevine.p)) return chargerBanqueDevine.p;
+  chargerBanqueDevine.p = Promise.all([
+    BANQUE_DEVINE ? null : fetch(`data/devinettes.json?v=${VERSION_JEU}`).then((r) => r.json()).then((d) => { BANQUE_DEVINE = d; }).catch(() => { BANQUE_DEVINE = {}; }),
+    api(forcer ? `devinettes/perso?t=${Date.now()}` : "devinettes/perso").then((d) => { DEVINE_PERSO = d.perso || {}; }).catch(() => {}),
+  ]);
   return chargerBanqueDevine.p;
 }
-const banqueDevine = (cat) => {
-  const B = BANQUE_DEVINE || {};
-  return (cat === "tout" ? Object.keys(B) : [cat]).flatMap((k) => (B[k] || []).map((e, i) => ({ id: `dv:${k}:${i}`, nom: e[0], leurres: e[1], indices: e[2], anecdote: e[3], banque: k })));
+const CATS_BANQUE = ["pays", "ville", "monument", "nature", "animal", "plat", "culture", "drapeau", "sport", "invention", "personnage"];
+// Une devinette avec les modifications de l'admin appliquées
+function devinetteDe(id, cat, e, admin) {
+  const m = DEVINE_PERSO[id] || {}, d = m.donnees || e;
+  if (!d) return null;
+  return { id, nom: d[0], leurres: d[1], indices: d[2], anecdote: d[3] || "", banque: cat, wiki: m.wiki || "", img: m.img || 0, sansImage: !!m.sansImage, masque: !!m.masque, modifiee: !!DEVINE_PERSO[id], creee: id.startsWith("dvp:") };
+}
+// Toutes les devinettes d'une catégorie (admin : y compris les masquées)
+const banqueDevine = (cat, admin) => {
+  const B = BANQUE_DEVINE || {}, cats = cat === "tout" ? CATS_BANQUE : [cat];
+  const liste = cats.flatMap((k) => (B[k] || []).map((e, i) => devinetteDe(`dv:${k}:${i}`, k, e)));
+  for (const [id, m] of Object.entries(DEVINE_PERSO)) if (id.startsWith("dvp:") && cats.includes(m.cat)) liste.push(devinetteDe(id, m.cat, null));
+  return liste.filter((x) => x && (admin || !x.masque));
 };
 const PIECES_DEVINE_JOUR = 400, QUESTIONS_DEVINE = 10, DUREE_CHRONO = 60;
 const devine = { cat: "tout", mode: "classique", partie: null };
@@ -187,11 +200,13 @@ function imageDevine(c) {
     const cle = (n) => sansAccents(n).replace(/[^a-z]/g, ""), code = c.code || Object.keys(NOM_PAYS).find((k) => cle(NOM_PAYS[k]) === cle(c.nom));
     if (code) return `flags/${code.toLowerCase()}.svg`;
   }
+  if (c.img) return `/api/devinette-image/${c.id.replaceAll(":", "~")}?v=${c.img}`;
+  if (c.sansImage) return "";
   return (!c.banque && typeof photoDe === "function" && photoDe(c.id)) || `/api/devine/image?t=${encodeURIComponent(c.wiki || c.nom)}`;
 }
-const imgDevine = (c, cls = "dv-photo") => `<div class="${cls}"><img src="${esc(imageDevine(c))}" alt="" loading="lazy" onerror="this.parentNode.remove()"></div>`;
+const imgDevine = (c, cls = "dv-photo") => { const u = imageDevine(c); return u ? `<div class="${cls}"><img src="${esc(u)}" alt="" loading="lazy" onerror="this.parentNode.remove()"></div>` : ""; };
 function indicesDevine(c) {
-  if (c.banque) return c.indices.map((t, i) => `<p class="dv-texte">${esc(t)}</p>${i === 2 && c.banque !== "drapeau" ? imgDevine(c) : ""}`);
+  if (c.banque) return c.indices.map((t, i) => `<p class="dv-texte">${esc(t)}</p>${i === 2 && (c.banque !== "drapeau" || c.img) ? imgDevine(c) : ""}`);
   const cont = CONTINENTS[c.continent], pays = c.pays && NOM_PAYS[c.pays];
   const premier = c.type === "pays"
     ? `<div class="dv-sil">${silhouette(c.code) || ""}</div><p>Un pays d'${esc(cont?.nom || "?")}</p>`
@@ -235,10 +250,11 @@ function vueDevine(v) {
         <h3>2. Choisissez le mode</h3>
         <div class="dv-modes"><button class="dv-mode ${devine.mode === "classique" ? "on" : ""}" data-mode="classique"><b>🎯 Classique</b><small>${QUESTIONS_DEVINE} questions, jusqu'à 3 indices chacune</small></button>
           <button class="dv-mode ${devine.mode === "chrono" ? "on" : ""}" data-mode="chrono"><b>⏱️ Contre la montre</b><small>${DUREE_CHRONO} secondes, un maximum de bonnes réponses</small></button></div>
-        <button class="btn primary" id="dvGo" style="margin-top:16px;width:100%">C'est parti !</button>
+        <button class="btn primary" id="dvGo" style="margin-top:16px;width:100%">C'est parti !</button>${COMPTE.admin ? `<button class="btn" data-aller="devine-admin" style="margin-top:8px;width:100%">Gérer les devinettes (admin)</button>` : ""}
         <p class="muted" style="font-size:13px;margin-bottom:0">Jusqu'à ${PIECES_DEVINE_JOUR} 🪙 à gagner par jour aux Devinettes${S.devineJour?.d === today() ? ` (déjà ${S.devineJour.pieces} aujourd'hui)` : ""}.</p></section>`;
     $$("[data-cat]", v).forEach((b) => b.onclick = () => { devine.cat = b.dataset.cat; aller("devine"); });
     $$("[data-mode]", v).forEach((b) => b.onclick = () => { devine.mode = b.dataset.mode; aller("devine"); });
+    brancherLiens(v);
     $("#dvGo").onclick = () => {
       devine.partie = { cat: devine.cat, mode: devine.mode, n: 0, score: 0, bonnes: 0, serie: 0, deja: new Set(), fin: devine.mode === "chrono" ? Date.now() + DUREE_CHRONO * 1000 : 0, q: null, indice: 1 };
       aller("devine");
@@ -286,10 +302,12 @@ function vueDevine(v) {
     else p.serie = 0;
     majCoins(); sauver();
     $("#dvFb").innerHTML = `${p.mode === "classique" ? imgDevine(c, "dv-photo dv-photo-rep") : ""}<p style="font-weight:700;margin:6px 0">${bon ? `✅ Bravo ! +${points + (p.serie >= 3 ? 1 : 0)} pt${gain ? ` · +${gain} 🪙` : ""}` : `❌ C'était <b>${esc(c.nom)}</b>`}</p>${!bon || p.mode === "classique" ? `<p class="muted" style="margin:4px 0">${esc(c.anecdote || "")}</p>` : ""}
+      ${COMPTE.admin ? `<button class="lien-chances" id="dvModifier">Modifier cette devinette (admin)</button>` : ""}
       ${p.mode === "classique" ? `<button class="btn primary" id="dvSuite">${p.n >= QUESTIONS_DEVINE ? "Voir le résultat" : "Question suivante →"}</button>` : ""}`;
     p.q = null;
     if (p.mode === "chrono") setTimeout(() => { if (devine.partie === p && S.vue === "devine") aller("devine"); }, bon ? 450 : 1100);
     else { $("#dvSuite").onclick = () => aller("devine"); $("#dvSuite").focus(); }
+    $("#dvModifier")?.addEventListener("click", () => c.banque ? editerDevinette(c) : choisirPhotoCarte(c));
   });
 }
 ajouterPage("devine", "🧠", "Devinettes", vueDevine);
@@ -311,3 +329,78 @@ vueAccueil = function (v) {
   }
   return r;
 };
+
+/* ---------- Admin : modifier les devinettes, leurs images, en créer ---------- */
+const devineAdmin = { cat: "pays", q: "" };
+function vueDevineAdmin(v) {
+  if (!COMPTE.admin) return aller("devine");
+  if (!BANQUE_DEVINE) { v.innerHTML = `<p class="muted" style="padding:40px;text-align:center">Chargement…</p>`; chargerBanqueDevine().then(() => S.vue === "devine-admin" && aller("devine-admin")); return; }
+  const q = sansAccents(devineAdmin.q), liste = banqueDevine(devineAdmin.cat, true).filter((x) => !q || sansAccents(x.nom + " " + x.indices.join(" ")).includes(q));
+  v.innerHTML = `<header class="page-tete"><h1>Devinettes · admin</h1><p>Changez une image (envoi de votre fichier ou autre article Wikipédia), corrigez les textes, masquez ou créez des devinettes. Les changements sont visibles par tous les joueurs.</p></header>
+    <section class="panel">
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <select id="daCat">${CATS_DEVINE.filter(([k]) => k !== "tout").map(([k, , n]) => `<option value="${k}" ${devineAdmin.cat === k ? "selected" : ""}>${n} (${banqueDevine(k, true).length})</option>`).join("")}</select>
+        <input id="daQ" placeholder="Chercher une réponse ou un indice" value="${esc(devineAdmin.q)}" style="flex:1;min-width:180px">
+        <button class="btn primary" id="daNouv">+ Nouvelle devinette</button></div>
+      <p class="muted" style="font-size:13px">${liste.length} devinette${liste.length > 1 ? "s" : ""}</p>
+      <div class="da-liste">${liste.map((c) => { const u = imageDevine(c); return `<button class="da-ligne ${c.masque ? "masquee" : ""}" data-da="${esc(c.id)}">
+        <span class="da-img">${u ? `<img src="${esc(u)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</span>
+        <span class="da-txt"><b>${esc(c.nom)}</b><small class="muted">${esc(c.indices[0])}</small></span>
+        <span class="da-tags">${c.creee ? `<i class="da-tag">créée</i>` : c.modifiee ? `<i class="da-tag">modifiée</i>` : ""}${c.img ? `<i class="da-tag">image perso</i>` : ""}${c.masque ? `<i class="da-tag">masquée</i>` : ""}</span></button>`; }).join("")}</div>
+    </section>`;
+  $("#daCat").onchange = (e) => { devineAdmin.cat = e.target.value; aller("devine-admin"); };
+  let t; $("#daQ").oninput = (e) => { devineAdmin.q = e.target.value; clearTimeout(t); t = setTimeout(() => { aller("devine-admin"); const i = $("#daQ"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 300); };
+  $("#daNouv").onclick = () => editerDevinette({ id: `dvp:${devineAdmin.cat}:${Date.now().toString(36)}`, nom: "", leurres: ["", "", ""], indices: ["", "", ""], anecdote: "", banque: devineAdmin.cat, wiki: "", img: 0, creee: true, nouvelle: true });
+  $$("[data-da]", v).forEach((b) => b.onclick = () => editerDevinette(liste.find((x) => x.id === b.dataset.da)));
+}
+function editerDevinette(c) {
+  let image = null; // null = inchangée, "" = retirée, data:… = nouvelle
+  const apercu = () => { const u = image ? image : image === "" ? (c.sansImage ? "" : `/api/devine/image?t=${encodeURIComponent($("#deWiki")?.value || c.nom)}`) : imageDevine({ ...c, wiki: $("#deWiki")?.value ?? c.wiki, sansImage: $("#deSans")?.checked ?? c.sansImage }); return u ? `<img src="${esc(u)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('p'),{className:'muted',textContent:'Aucune image trouvée'}))">` : `<p class="muted">Pas d'image</p>`; };
+  ouvrirModal(`<h2 style="margin-top:0">${c.nouvelle ? "Nouvelle devinette" : "Modifier la devinette"}</h2>
+    <div class="de-form">
+      <label>Catégorie<select id="deCat" ${c.nouvelle ? "" : "disabled"}>${CATS_BANQUE.map((k) => `<option value="${k}" ${c.banque === k ? "selected" : ""}>${CATS_DEVINE.find((x) => x[0] === k)[2]}</option>`).join("")}</select></label>
+      <label>Bonne réponse<input id="deRep" value="${esc(c.nom)}" maxlength="80"></label>
+      ${[0, 1, 2].map((i) => `<label>Mauvaise réponse ${i + 1}<input class="deFaux" value="${esc(c.leurres[i] || "")}" maxlength="80"></label>`).join("")}
+      ${[0, 1, 2].map((i) => `<label>Indice ${i + 1} ${["(difficile)", "(moyen)", "(facile)"][i]}<textarea class="deInd" rows="2" maxlength="200">${esc(c.indices[i] || "")}</textarea></label>`).join("")}
+      <label>Explication (affichée après la réponse)<textarea id="deExpl" rows="2" maxlength="300">${esc(c.anecdote || "")}</textarea></label>
+      <h3 style="margin:10px 0 4px">Image</h3>
+      <div class="de-apercu" id="deApercu">${apercu()}</div>
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <label class="btn primary small" style="cursor:pointer">Envoyer une image<input type="file" id="deFichier" accept="image/*" hidden></label>
+        ${c.img ? `<button class="btn small" id="deRetirer">Retirer mon image</button>` : ""}</div>
+      <label>Ou titre de l'article Wikipédia à utiliser<input id="deWiki" value="${esc(c.wiki || "")}" placeholder="${esc(c.nom || "Ex. : Tour Eiffel")}"></label>
+      <label class="de-coche"><input type="checkbox" id="deSans" ${c.sansImage ? "checked" : ""}> Pas d'image pour cette devinette</label>
+      <label class="de-coche"><input type="checkbox" id="deMasque" ${c.masque ? "checked" : ""}> Masquer cette devinette (plus posée aux joueurs)</label>
+    </div>
+    <p class="err" id="deErr"></p>
+    <div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap">
+      ${c.modifiee || c.creee && !c.nouvelle ? `<button class="btn" id="deReset">${c.creee ? "Supprimer" : "Revenir à l'original"}</button>` : "<span></span>"}
+      <span class="row" style="gap:8px"><button class="btn" id="deAnnuler">Annuler</button><button class="btn primary" id="deOk">Enregistrer</button></span></div>`);
+  const maj = () => { $("#deApercu").innerHTML = apercu(); };
+  let tw; $("#deWiki").oninput = () => { clearTimeout(tw); tw = setTimeout(maj, 600); };
+  $("#deSans").onchange = maj;
+  $("#deFichier").onchange = async (e) => { const f = e.target.files[0]; if (!f) return; try { image = await preparerVisuel(f, true); maj(); } catch (err) { $("#deErr").textContent = err.message; } };
+  $("#deRetirer")?.addEventListener("click", () => { image = ""; c.img = 0; maj(); });
+  $("#deAnnuler").onclick = fermerModal;
+  const url = (id) => "admin/devinettes/" + id.replaceAll(":", "~");
+  const fini = async (msg) => { await chargerBanqueDevine(true); fermerModal(); toast(msg); if (S.vue === "devine-admin") aller("devine-admin"); };
+  $("#deReset")?.addEventListener("click", async () => {
+    if (!confirm(c.creee ? "Supprimer cette devinette ?" : "Annuler toutes vos modifications sur cette devinette ?")) return;
+    try { await api(url(c.id), { methode: "DELETE" }); await fini(c.creee ? "Devinette supprimée." : "Devinette d'origine rétablie."); } catch (err) { $("#deErr").textContent = err.message; }
+  });
+  $("#deOk").onclick = async () => {
+    const d = [$("#deRep").value.trim(), $$(".deFaux").map((x) => x.value.trim()), $$(".deInd").map((x) => x.value.trim()), $("#deExpl").value.trim()];
+    const cat = $("#deCat").value, id = c.nouvelle ? c.id.replace(/^dvp:[a-z]+:/, `dvp:${cat}:`) : c.id;
+    // On n'envoie le texte que s'il a changé (sinon la devinette suit les mises à jour de la banque)
+    const orig = !c.creee && BANQUE_DEVINE[c.banque]?.[Number(c.id.split(":")[2])];
+    const texteChange = !orig || JSON.stringify(d) !== JSON.stringify([orig[0], orig[1], orig[2], orig[3] || ""]);
+    $("#deOk").disabled = true;
+    try {
+      await api(url(id), { methode: "PUT", corps: { cat, donnees: texteChange ? d : null, image, wiki: $("#deWiki").value.trim(), sansImage: $("#deSans").checked, masque: $("#deMasque").checked } });
+      await fini("Devinette enregistrée pour tous les joueurs.");
+    } catch (err) { $("#deErr").textContent = err.message; $("#deOk").disabled = false; }
+  };
+}
+ajouterPage("devine-admin", "🧠", "Devinettes · admin", vueDevineAdmin);
+// Page réservée à l'admin : pas dans le menu Plus ni la recherche
+{ const i = DESTINATIONS.findIndex((d) => d[0] === "devine-admin"); if (i >= 0) DESTINATIONS.splice(i, 1); }
