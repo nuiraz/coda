@@ -39,10 +39,12 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v39"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v40"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
+// Réglables par l'admin (chargés depuis /api/reglages) : progression de la jauge de chance et bonus des cartes jamais obtenues
+let PITY_PAS = 5, BONUS_NOUVELLE = 1;
 
 // Boosters : plus ils sont chers, plus les cartes rares sont fréquentes
 const PACKS = {
@@ -1168,7 +1170,7 @@ function vueBoosters(v) {
     ${S.coins < PACKS.monde.prix ? `<p class="muted">Pas assez de pièces ? <a href="#" id="toQuiz">Jouez au quiz</a>, <a href="#" id="toCombat">combattez</a> ou réussissez les défis du jour.</p>` : ""}
     <div class="panel" style="margin-top:16px">
       <h3 style="margin-top:0">Chances par carte (booster Classique)</h3>
-      <div class="row">${Object.entries(RARETES).filter(([r]) => r !== "secrete").map(([r, x]) => `<span class="rbadge" data-r="${r}">${x.nom} · ${x.poids} %</span>`).join(" ")}</div>
+      <div class="row">${chancesPack("monde").map(([r, pc]) => `<span class="rbadge" data-r="${r}">${RARETES[r].nom} · ${pc} %</span>`).join(" ")}</div>
       <p class="muted" style="margin-bottom:0;font-size:13.5px">Système de tirage : Les cartes non découvertes sortent avec un bonus de découverte, et les doublons permettent de monter de niveau ou de forger la prestigieuse <b>Version Dorée 👑 (+15 % de puissance)</b>. Environ 1 carte sur 10 sort en 🌈 Holo et 1 sur 45 en ✨ Shiny (doublé en Premium).</p>
     </div>`;
   $$("[data-ouvrir]", v).forEach((b) => b.onclick = () => ouvrirBooster(b.dataset.ouvrir));
@@ -1207,6 +1209,12 @@ function toutOuvrir() {
     <div class="row" style="justify-content:center;margin-top:14px"><button class="btn primary" data-close>Super !</button></div></div>`, () => { verifierProgression(); aller(S.vue); });
   $("#modal").classList.add("plein");
 }
+// Probabilités réelles d'un booster (en %), à partir des poids utilisés par le tirage
+function chancesPack(type) {
+  const p = PACKS[type], rs = Object.keys(RARETES).filter((r) => r !== "secrete");
+  const w = rs.map((r) => [r, (p?.poids ? p.poids[r] : RARETES[r].poids) || 0]), tot = w.reduce((t, [, x]) => t + x, 0) || 1;
+  return w.map(([r, x]) => [r, Math.round((x / tot) * 1000) / 10]);
+}
 function tirerBooster(type) {
   const p = PACKS[type];
   const pool = of("monde").filter((c) => c.type !== "secrete" && !c.saisonnier && (!p.filtre || p.filtre(c)));
@@ -1216,7 +1224,7 @@ function tirerBooster(type) {
   const out = [];
 
   // Jauge de chance : +10 % par booster ; seule une Ultra rare ou une Légendaire la remet à zéro
-  S.pity = Math.min(100, (S.pity || 0) + 10);
+  S.pity = Math.min(100, (S.pity || 0) + PITY_PAS);
   const pityDeclenchee = S.pity >= 100;
   let grosLot = false;
 
@@ -1231,7 +1239,7 @@ function tirerBooster(type) {
     let cands = pool.filter((c) => c.rarete === r && !out.includes(c));
     if (!cands.length) cands = pool.filter((c) => !out.includes(c));
     // Les doublons tombent naturellement pour permettre la fusion / évolution dorée et les échanges
-    out.push(weighted(cands, (c) => (has(c.id) ? 2 : 3.5)));
+    out.push(weighted(cands, (c) => (has(c.id) ? 1 : BONUS_NOUVELLE)));
   }
   if (grosLot) S.pity = 0; // une Ultra rare ou une Légendaire vide la jauge
   // Booster d'événement : les deux premières cartes sont des cartes exclusives de l'événement
@@ -1378,7 +1386,11 @@ function ouvrirBooster(type) {
     const neuves = res.filter((x) => x.neuf).length, pieces = res.reduce((t, x) => t + x.bonus, 0);
     indice(`${neuves} nouvelle${neuves > 1 ? "s" : ""} carte${neuves > 1 ? "s" : ""}${pieces ? ` · +${pieces} 🪙 de doublons` : ""} · 🍀 Chance : ${S.pity || 0} %${(S.pity || 0) >= 90 ? " (gros lot au prochain !)" : ""}`);
     const encore = Object.keys(PACKS).find((k) => S.boosters[k] > 0);
-    scene.innerHTML = `<div class="opening">${res.map((x, k) => `<div class="flip done" style="--k:${k}" data-voir="${x.c.id}"><div class="face back"></div>
+    // La meilleure carte du booster est mise en avant, et le résumé se lit de la moins rare à la plus rare
+    const top = ordre[ordre.length - 1], st = statsDe(top.c);
+    scene.innerHTML = `<div class="meilleure-carte r-${top.c.rarete}"><span>🏆 Meilleure carte</span><b>${esc(top.c.nom)}</b>
+        <small>${RARETES[top.c.rarete].nom}${top.shiny ? " · ✨ Shiny" : ""} · ${esc(TYPES[top.c.type] || "")} n° ${String(top.c.num || 0).padStart(3, "0")} · ⚔️ ${st.atk} · 🛡️ ${st.def} · ❤️ ${st.pv}</small></div>
+      <div class="opening">${ordre.map((x, k) => `<div class="flip done${x === top ? " top" : ""}" style="--k:${k}" data-voir="${x.c.id}"><div class="face back"></div>
         <div class="face front">${etiquette(x, true)}${cardHTML(x.c, { locked: false, shiny: x.shiny, holo: x.holo })}</div></div>`).join("")}</div>
       <div class="row" style="justify-content:center;margin-top:14px">
         ${encore ? `<button class="btn primary" id="again">Ouvrir un booster ${PACKS[encore].nom} (${S.boosters[encore]})</button>` : ""}

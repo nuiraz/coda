@@ -119,7 +119,7 @@ vueCompte = function (v, opts) {
   if (!fc || !fi) return;
   const carte = document.createElement("section");
   carte.className = "connexion-carte";
-  carte.innerHTML = `<img class="cx-logo" src="icons/icon.svg" alt="" width="96" height="96">
+  carte.innerHTML = `<img class="cx-logo" src="icons/logo-2f1.png" alt="" width="96" height="96">
     <h1 class="cx-nom">PLAY2F1</h1>
     <p class="cx-accroche">Le jeu de cartes à collectionner du monde entier : pays, villes, monuments, animaux et merveilles. Ouvrez des boosters, complétez votre collection et affrontez les autres joueurs.</p>
     <div class="cx-atouts">

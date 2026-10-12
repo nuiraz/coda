@@ -7,13 +7,25 @@
    ===================================================================== */
 const duelEtat = { attente: null, vues: new Set() };
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
-async function defierEnDirect(pseudo) {
+// Avant d'inviter : choix du duel classé (même règles, compte pour le classement) ou amical
+async function defierEnDirect(pseudo, classe) {
   if (!connecte()) return toast("Connectez-vous pour défier vos amis.");
+  if (classe === undefined) {
+    let info = null; try { info = await api("classe/jour"); } catch {}
+    ouvrirModal(`<div style="text-align:center"><h2 style="margin-top:0">⚔️ Défier ${esc(pseudo)}</h2>
+      <p class="muted">Même plateau, mêmes règles et même journal dans les deux cas. Seuls le classement et les points changent.</p>
+      <div class="choix-duel"><button class="btn primary" id="dClasse">🏆 Duel classé<small>${info ? `${info.restants}/${info.parJour} combats classés restants aujourd'hui${info.restants ? "" : " : il ne rapportera pas de points"}` : "Compte pour le classement"}</small></button>
+      <button class="btn" id="dAmical">🤝 Duel amical<small>Sans effet sur le classement</small></button></div>
+      ${info ? `<p class="muted" style="font-size:12.5px">Contre un même adversaire, ${info.memeAdversaire} duel classé par jour rapporte des points.</p>` : ""}</div>`);
+    $("#dClasse").onclick = () => defierEnDirect(pseudo, true);
+    $("#dAmical").onclick = () => defierEnDirect(pseudo, false);
+    return;
+  }
   if (!deckPret()) return;
   try {
     await envoyerDeckArene();
-    const { id } = await api("duels/inviter", { methode: "POST", corps: { pseudo } });
-    ouvrirModal(`<div style="text-align:center"><h2 style="margin-top:0">⚡ Duel en direct</h2>
+    const { id } = await api("duels/inviter", { methode: "POST", corps: { pseudo, classe: !!classe } });
+    ouvrirModal(`<div style="text-align:center"><h2 style="margin-top:0">${classe ? "🏆 Duel classé" : "🤝 Duel amical"} en direct</h2>
       ${avatarHTML(pseudo, "grand")}<p>Invitation envoyée à <b>${esc(pseudo)}</b>.<br><span class="muted">En attente de sa réponse… (5 min max)</span></p>
       <div class="loader-duel"></div><button class="btn" id="duelAnnuler">Annuler</button></div>`, () => { duelEtat.attente = null; });
     duelEtat.attente = id;
@@ -34,7 +46,7 @@ function lancerDuel(v) {
   duelEtat.vues.add(v.id);
   const id = v.id;
   lancerCombat({
-    titre: `⚡ Duel en direct contre ${v.adversaire}`, adversaire: v.adversaire, moi: v.deckA, lui: v.deckB, graine: v.graine,
+    titre: `${v.classe ? "🏆 Duel classé" : "🤝 Duel amical"} contre ${v.adversaire}`, adversaire: v.adversaire, moi: v.deckA, lui: v.deckB, graine: v.graine, paires: v.paires || [],
     duel: {
       cote: v.cote, resteMs: v.resteMs,
       abandon: () => api(`duels/${id}/abandon`, { methode: "POST", corps: {} }),
@@ -55,7 +67,7 @@ function lancerDuel(v) {
           if (r.gagne) S.duelsGagnes = (S.duelsGagnes || 0) + 1;
           if (r.pieces) S.coins += r.pieces;
           sauver(); majCoins();
-          ouvrirModal(`<div style="text-align:center"><h2 style="margin-top:0">${r.gagne ? "🏆 Victoire !" : "💀 Défaite"}</h2><p>${r.gagne ? `${esc(v.adversaire)} a abandonné le duel.` : "Le duel est terminé."}${r.pieces ? ` +${r.pieces} 🪙` : ""}</p><button class="btn primary" data-close>Continuer</button></div>`);
+          ouvrirModal(`<div style="text-align:center"><h2 style="margin-top:0">${r.gagne ? "🏆 Victoire !" : "💀 Défaite"}</h2><p>${r.gagne ? `${esc(v.adversaire)} a abandonné le duel.` : "Le duel est terminé."}${r.pieces ? ` +${r.pieces} 🪙` : ""}${r.classe && r.points ? ` · ${r.points > 0 ? "+" : ""}${r.points} 🏆` : ""}</p><button class="btn primary" data-close>Continuer</button></div>`);
           return null;
         }
         return [];
@@ -66,7 +78,8 @@ function lancerDuel(v) {
       for (let i = 0; i < 5 && r?.statut !== "fini"; i++) { r = await api(`duels/${id}`).catch(() => null); if (r?.statut !== "fini") await pause(800); }
       if (r?.pieces) { S.coins += r.pieces; sauver(); majCoins(); }
       if (r?.gagne) { S.combat.victoires++; S.duelsGagnes = (S.duelsGagnes || 0) + 1; } else S.combat.defaites++;
-      return `Duel contre ${v.adversaire}${r?.pieces ? ` · +${r.pieces} 🪙` : " · (récompense : 10 duels par jour, 3 tours minimum)"}`;
+      const pts = r?.classe ? (r.points === null || r.points === undefined ? " · points en cours de calcul" : r.points ? ` · ${r.points > 0 ? "+" : ""}${r.points} 🏆` : " · sans points (limite du jour ou même adversaire)") : " · duel amical";
+      return `Duel contre ${v.adversaire}${pts}${r?.pieces ? ` · +${r.pieces} 🪙` : ""}`;
     },
   });
 }
@@ -84,7 +97,7 @@ async function verifierDuels() {
     duelEtat.vues.add("i" + inv.id);
     son?.("special");
     ouvrirModal(`<div style="text-align:center"><h2 style="margin-top:0">⚡ Défi en direct !</h2>${avatarHTML(inv.pseudo, "grand")}
-      <p><b>${esc(inv.pseudo)}</b> vous défie en direct. Chacun choisit son action à chaque tour (20 s).</p>
+      <p><b>${esc(inv.pseudo)}</b> vous défie en direct en <b>${inv.classe ? "duel classé 🏆" : "duel amical 🤝"}</b>. Chacun choisit son action à chaque tour (20 s).</p>
       <div class="row" style="justify-content:center;gap:8px"><button class="btn primary" id="duelOk">⚔️ Accepter</button><button class="btn" id="duelNon">Refuser</button></div></div>`);
     $("#duelNon").onclick = () => { api(`duels/${inv.id}/refuser`, { methode: "POST", corps: {} }).catch(() => {}); fermerModal(); };
     $("#duelOk").onclick = async () => {

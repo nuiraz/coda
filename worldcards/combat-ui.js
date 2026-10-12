@@ -1,7 +1,9 @@
 "use strict";
-/* Mode Combat : deck de 3 cartes, entraînement contre l'ordinateur et arène en ligne contre les decks des autres joueurs.
+/* Mode Combat : deck de 10 cartes (5 K.O. pour gagner), entraînement contre l'ordinateur et arène en ligne contre les decks des autres joueurs.
    Le moteur (combat.js) est partagé avec le serveur, qui rejoue chaque combat d'arène pour vérifier le résultat. */
 
+// Règles des decks réglables par l'admin (chargées au démarrage depuis /api/reglages)
+const REGLES_DECK = { maxLegendaires: 3 };
 const DIFFICULTES = {
   facile: { nom: "Facile", emoji: "🌱", force: 0.9, gain: 15, ia: 1 },
   normal: { nom: "Normal", emoji: "⚔️", force: 1, gain: 30, ia: 2 },
@@ -37,8 +39,8 @@ function deckEtape(ch, n) {
     const top = pool.filter((c) => coutDe(c) <= 6).sort((a, b) => coutDe(b) - coutDe(a) || COMBAT.hash(a.id) - COMBAT.hash(b.id))[0];
     if (top) { choix.push(top); budget -= coutDe(top); }
   }
-  while (choix.length < 3) {
-    const restant = 2 - choix.length;
+  while (choix.length < COMBAT.TAILLE_DECK) {
+    const restant = COMBAT.TAILLE_DECK - 1 - choix.length;
     const cands = pool.filter((c) => !choix.includes(c) && coutDe(c) <= budget - restant);
     const c = (cands.length ? cands : pool)[Math.floor(r() * (cands.length || pool.length))];
     choix.push(c); budget -= coutDe(c);
@@ -101,15 +103,18 @@ function arreterCombat() { combatTimers.forEach(clearTimeout); combatTimers = []
 
 // Le meilleur deck possible dans le budget (essaie les meilleures cartes de chaque coût)
 function deckAuto() {
-  const miennes = CARDS.filter((c) => has(c.id)).map((c) => ({ c, p: puissanceDe(c), k: coutDe(c) })).sort((a, b) => b.p - a.p).slice(0, 45);
-  let meilleur = null;
-  for (let i = 0; i < miennes.length; i++) for (let j = i + 1; j < miennes.length; j++) for (let k = j + 1; k < miennes.length; k++) {
-    const t = [miennes[i], miennes[j], miennes[k]];
-    if (t.reduce((s, x) => s + x.k, 0) > COMBAT.BUDGET) continue;
-    const p = t.reduce((s, x) => s + x.p, 0);
-    if (!meilleur || p > meilleur.p) meilleur = { p, ids: t.map((x) => x.c.id) };
+  // Glouton : les cartes les plus puissantes tant que le budget laisse de quoi remplir les places restantes (coût minimum 1)
+  const N = COMBAT.TAILLE_DECK, maxSp = REGLES_DECK.maxLegendaires;
+  const miennes = CARDS.filter((c) => has(c.id)).map((c) => ({ c, p: puissanceDe(c), k: coutDe(c) })).sort((a, b) => b.p - a.p);
+  const choix = []; let budget = COMBAT.BUDGET, sp = 0;
+  for (const x of miennes) {
+    if (choix.length >= N) break;
+    const speciale = ["legendaire", "secrete"].includes(x.c.rarete);
+    if (speciale && sp >= maxSp) continue;
+    if (x.k > budget - (N - 1 - choix.length)) continue;
+    choix.push(x.c.id); budget -= x.k; if (speciale) sp++;
   }
-  return meilleur?.ids || miennes.slice(0, 3).map((x) => x.c.id);
+  return choix;
 }
 
 function vueCombat(v) {
@@ -125,10 +130,10 @@ function vueCombat(v) {
         <div class="row"><span class="budget ${cout > COMBAT.BUDGET ? "trop" : ""}">Coût ${cout}/${COMBAT.BUDGET}</span><span class="muted">Puissance ${fmt(puissance)}</span></div>
       </div>
       <button class="btn primary meilleur" id="dAuto">⚡ Remplir avec mes meilleures cartes</button>
-      <div class="cards deck" data-noclick>${[0, 1, 2].map((i) => deck[i]
+      <div class="cards deck deck10" data-noclick>${[...Array(COMBAT.TAILLE_DECK).keys()].map((i) => deck[i]
         ? `<div class="slotcarte" data-slot="${i}">${cardHTML(deck[i])}<span class="cout">Coût ${coutDe(deck[i])}</span></div>`
         : `<button class="slot" data-slot="${i}">＋<small>Choisir une carte</small></button>`).join("")}</div>
-      <p class="muted" style="margin-bottom:0;font-size:13.5px">3 cartes, ${COMBAT.BUDGET} points de coût au maximum : commune 1, peu commune 2, rare 3, épique 4, ultra rare 5, légendaire et secrète 6. Les cartes combattent dans l'ordre. Touchez une carte pour la changer.</p>
+      <p class="muted" style="margin-bottom:0;font-size:13.5px">${COMBAT.TAILLE_DECK} cartes différentes, ${COMBAT.BUDGET} points de coût au maximum (commune 1, peu commune 2, rare 3, épique 4, ultra rare 5, légendaire et secrète 6), ${REGLES_DECK.maxLegendaires} légendaires ou secrètes au plus. Le premier qui perd ${COMBAT.KO_VICTOIRE} cartes perd le combat. Touchez une carte pour la changer.</p>
     </div>
     <div class="panel" id="soloBloc" style="margin-top:16px"></div>
     <div class="grid2" style="margin-top:16px">
@@ -159,7 +164,7 @@ function vueCombat(v) {
     S.deck = deckAuto(); sauver(); aller("combat"); toast("✨ Deck le plus puissant composé.");
   };
   $$("[data-diff]", v).forEach((b) => b.onclick = () => entrainement(b.dataset.diff));
-  if (!complet) $$("[data-diff]", v).forEach((b) => b.title = "Complétez votre deck de 3 cartes");
+  if (!complet) $$("[data-diff]", v).forEach((b) => b.title = `Complétez votre deck de ${COMBAT.TAILLE_DECK} cartes`);
   blocSolo($("#soloBloc"), complet);
   blocArene($("#areneBloc"), complet);
 }
@@ -180,24 +185,26 @@ function choisirPourDeck(slot) {
     $$("#dl [data-pid]").forEach((el) => el.onclick = () => {
       const c = BY_ID[el.dataset.pid];
       if (coutDe(c) > reste) return toast(`⚠ Trop cher pour votre budget (${coutDe(c)} > ${reste}).`);
-      const d = S.deck.slice(); d[slot] = c.id; S.deck = d.filter(Boolean).slice(0, 3); sauver(); fermerModal(); aller("combat");
+      const speciales = autres.filter((id) => ["legendaire", "secrete"].includes(BY_ID[id]?.rarete)).length;
+      if (["legendaire", "secrete"].includes(c.rarete) && speciales >= REGLES_DECK.maxLegendaires) return toast(`⚠ ${REGLES_DECK.maxLegendaires} cartes légendaires ou secrètes au maximum par deck.`);
+      const d = S.deck.slice(); d[slot] = c.id; S.deck = d.filter(Boolean).slice(0, COMBAT.TAILLE_DECK); sauver(); fermerModal(); aller(S.vue);
     });
   };
   let t = 0;
   $("#dq").oninput = () => { clearTimeout(t); t = setTimeout(dessiner, 120); };
   dessiner();
-  $("#dRetirer")?.addEventListener("click", () => { S.deck = S.deck.filter((_, i) => i !== slot); sauver(); fermerModal(); aller("combat"); });
+  $("#dRetirer")?.addEventListener("click", () => { S.deck = S.deck.filter((_, i) => i !== slot); sauver(); fermerModal(); aller(S.vue); });
 }
 
 // Deck de l'ordinateur : même budget, puissance ajustée à la difficulté
 function deckOrdinateur(force) {
   const mien = S.deck.map((id) => uniteDe(BY_ID[id]));
-  const cible = mien.reduce((s, u) => s + COMBAT.puissance(u), 0) / 3;
+  const cible = mien.reduce((s, u) => s + COMBAT.puissance(u), 0) / Math.max(1, mien.length);
   const pool = CARDS.filter((c) => c.type !== "secrete");
   const choix = [];
   let budget = COMBAT.BUDGET;
-  for (let i = 0; i < 3; i++) {
-    const restant = 2 - i;
+  for (let i = 0; i < Math.max(3, mien.length); i++) {
+    const restant = Math.max(3, mien.length) - 1 - i;
     const cands = pool.filter((c) => !choix.includes(c) && coutDe(c) <= budget - restant);
     const c = pick(cands.length ? cands : pool);
     choix.push(c); budget -= coutDe(c);
@@ -210,11 +217,27 @@ function deckOrdinateur(force) {
   });
 }
 // Deck incomplet : on le complète automatiquement avec les meilleures cartes
+// Deck incomplet : on garde les cartes choisies et on complète avec les meilleures cartes restantes
 function deckPret() {
-  if (S.deck.length >= 3) return true;
-  const auto = deckAuto();
-  if (auto.length < 3) { toast("Il vous faut au moins 3 cartes : ouvrez des boosters !"); return false; }
-  S.deck = auto; sauver(); toast("⚡ Deck complété avec vos meilleures cartes."); return true;
+  S.deck = S.deck.filter((id) => has(id) && BY_ID[id]);
+  if (S.deck.length >= COMBAT.TAILLE_DECK) return true;
+  const N = COMBAT.TAILLE_DECK;
+  let budget = COMBAT.BUDGET - coutDeck(S.deck), sp = S.deck.filter((id) => ["legendaire", "secrete"].includes(BY_ID[id].rarete)).length;
+  const reste = CARDS.filter((c) => has(c.id) && !S.deck.includes(c.id)).sort((a, b) => puissanceDe(b) - puissanceDe(a));
+  const d = S.deck.slice();
+  for (const c of reste) {
+    if (d.length >= N) break;
+    const speciale = ["legendaire", "secrete"].includes(c.rarete);
+    if ((speciale && sp >= REGLES_DECK.maxLegendaires) || coutDe(c) > budget - (N - 1 - d.length)) continue;
+    d.push(c.id); budget -= coutDe(c); if (speciale) sp++;
+  }
+  if (d.length < N) {
+    const n = CARDS.filter((c) => has(c.id)).length;
+    if (n < N) { toast(`Il vous faut ${N} cartes différentes pour un deck (vous en avez ${n}) : ouvrez des boosters !`); return false; }
+    S.deck = deckAuto();
+    if (S.deck.length < N) { toast("⚠ Impossible de composer un deck dans le budget : retirez des cartes coûteuses."); return false; }
+  } else S.deck = d;
+  sauver(); toast("⚡ Deck complété avec vos meilleures cartes."); return true;
 }
 function entrainement(diff) {
   if (!deckPret()) return;
@@ -239,17 +262,27 @@ function entrainement(diff) {
 /* ---------- Écran de combat ---------- */
 // duel (en direct) : { cote, tours: async (tour, action) => [[a0, a1], ...] nouvelles paires, abandon, resteMs }
 // En duel, « moi » et « lui » sont les decks A et B du serveur ; V() retourne le plateau pour que chacun se voie en bas.
-function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: estArene = false, duel = null, spectateur = false }) {
+function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: estArene = false, duel = null, spectateur = false, paires: pairesInitiales = [] }) {
   arreterCombat();
+  // Contre l'ordinateur, son deck est complété à la taille du vôtre pour que le combat reste équilibré
+  if (!duel && !estArene && !spectateur && lui.length < moi.length) {
+    const base = lui.slice();
+    for (let i = 0; lui.length < moi.length; i++) { const u = base[i % base.length]; lui = [...lui, { ...u, id: u.id, pv: Math.round(u.pv * 0.97) }]; }
+  }
   const etat = COMBAT.creer(moi, lui, graine, { ia });
+  // Reprise d'un duel déjà commencé (rechargement de la page, retour dans l'app) : on rejoue les tours du serveur
+  for (const [a0, a1] of pairesInitiales) { if (etat.fini) break; COMBAT.jouer(etat, a0, a1); }
   const V = (c) => (duel?.cote ? 1 - c : c);
   const met = COMBAT.METEOS?.[etat.meteo] || { nom: "☀️ Climat Équilibré", desc: "Arène standard" };
   let occupe = false, auto = false;
   ouvrirModal(`<div class="arene">
       <div class="arene-top"><span>${esc(titre)}</span><span class="meteo-badge" title="${esc(met.desc)}">${esc(met.nom)}</span><span class="muted">Tour <b id="cbTour">1</b></span></div>
+      <div class="arene-plateau"><div class="arene-terrain">
+      <div class="score-ko" id="cbScore"></div>
       <div class="cote adv" id="cbAdv"></div>
       <div class="cbLog" id="cbLog">Le combat commence contre ${esc(adversaire)} ! (${esc(met.desc)})</div>
-      <div class="cote moi" id="cbMoi"></div>
+      <div class="cote moi" id="cbMoi"></div></div>
+      <aside class="journal-combat"><h4>📜 Journal du combat</h4><ol id="cbJournal"></ol></aside></div>
       <div class="actions" id="cbActions">
         <button class="btn primary" data-a="attaque">⚔️ Attaque</button>
         <button class="btn" data-a="special">✨ Spécial</button>
@@ -279,6 +312,8 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: est
       </div>`;
   };
   const dessiner = () => {
+    const ko = (c) => COMBAT.koDe(etat, V(c)), objectif = (c) => Math.min(COMBAT.KO_VICTOIRE, etat.equipes[V(c)].length);
+    $("#cbScore").innerHTML = `<span class="muted">K.O. infligés</span><span>Vous <b>${ko(1)}</b>/${objectif(1)}</span><span>${esc(adversaire)} <b>${ko(0)}</b>/${objectif(0)}</span><span class="muted">${COMBAT.KO_VICTOIRE} K.O. pour gagner</span>`;
     $("#cbAdv").innerHTML = ligne(COMBAT.actif(etat, V(1)), 1);
     $("#cbMoi").innerHTML = ligne(COMBAT.actif(etat, V(0)), 0);
     $("#cbTour").textContent = etat.tour + 1;
@@ -312,6 +347,15 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: est
     return "";
   };
   const attendre = (ms) => new Promise((r) => combatTimers.push(setTimeout(r, ms)));
+  // Journal permanent, horodaté, consultable pendant et après le combat
+  const debutCombat = Date.now();
+  const noter = (t, cote) => {
+    const j = $("#cbJournal"); if (!j) return;
+    const s = Math.floor((Date.now() - debutCombat) / 1000);
+    j.insertAdjacentHTML("afterbegin", `<li class="${cote === 0 ? "moi" : cote === 1 ? "lui" : ""}"><time>${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}</time> <span class="t">T${etat.tour}</span> ${esc(t)}</li>`);
+  };
+  noter(`Début du combat contre ${adversaire}. ${met.nom}`, null);
+  if (pairesInitiales.length) noter(`Reprise du duel au tour ${etat.tour + 1}.`, null);
   // Duel : on envoie notre choix, puis on attend celui de l'ami (le serveur renvoie les tours résolus)
   let chronoFin = 0;
   const majChrono = () => {
@@ -338,7 +382,7 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: est
     for (const e of evs) {
       if (e.t === "fin") continue;
       const t = texte(e);
-      if (t) $("#cbLog").textContent = t;
+      if (t) { $("#cbLog").textContent = t; noter(t, e.cote); }
       if (e.t === "attaque" || e.t === "special" || e.t === "supreme") {
         // L'attaquant s'élance vers sa cible
         const att = $(`.combattant[data-cote="${e.cote}"]`);
@@ -387,6 +431,7 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: est
     // Points du tournoi de la semaine (l'arène est comptée directement par le serveur)
     if (!estArene && !duel && typeof connecte === "function" && connecte()) api("tournois/victoire", { methode: "POST", corps: { gagne } }).catch(() => {});
     son(gagne ? "victoire" : "defaite");
+    noter(gagne ? "🏆 Victoire !" : "💀 Défaite.", null);
     $("#cbLog").innerHTML = `<div class="resultat ${gagne ? "gagne" : "perdu"}">${gagne ? "🏆 Victoire !" : "💀 Défaite…"}</div>${gagne ? `<div class="confettis">${Array.from({ length: 24 }, (_, i) => `<i style="--x:${(i * 37) % 100}%;--d:${(i % 6) * 0.12}s;--c:${["#ffd34d", "#e0458b", "#3a9bff", "#3ad6a8", "#ff8a65"][i % 5]}"></i>`).join("")}</div>` : ""}`;
     $("#cbActions").innerHTML = `<p style="margin:0 0 8px;font-weight:700">${detail || ""}</p><button class="btn primary" data-close>Continuer</button>`;
     verifierProgression();
@@ -414,9 +459,11 @@ async function blocArene(el, complet) {
     el.innerHTML = `<h3 style="margin-top:0">🏟️ Arène en ligne</h3>
       <p class="palier-arene">${a.palier?.nom || ""} <span class="muted">· saison ${a.saison || ""}, fin dans ${a.finSaison ? Math.ceil((a.finSaison - Date.now()) / 864e5) + " jours" : "—"}</span></p>
       <div class="statgrid petit"><div class="stat"><b>🏆 ${fmt(a.trophees)}</b><span>trophées</span></div><div class="stat"><b>${a.rang ? "#" + a.rang : "—"}</b><span>rang</span></div>
-      <div class="stat"><b>${a.victoires}/${a.defaites}</b><span>V / D</span></div><div class="stat"><b>${a.restants}/${a.limite}</b><span>combats aujourd'hui</span></div></div>
+      <div class="stat"><b>${a.victoires}/${a.defaites}</b><span>V / D</span></div><div class="stat"><b>${a.classes?.restants ?? "—"}/${a.classes?.parJour ?? "—"}</b><span>combats classés restants</span></div></div>
+      ${typeof rangBadge === "function" && a.rangInfo ? `<div class="rang-ligne">${rangBadge(a.rangInfo, "moyen")}<div><b>${esc(a.rangInfo.nom)}${a.rangInfo.division ? " " + ["", "I", "II", "III", "IV", "V"][a.rangInfo.division] : ""}</b><span class="muted">${fmt(a.trophees)} points${a.rangInfo.suivant ? ` · ${fmt(a.rangInfo.suivant.min - a.trophees)} avant ${esc(a.rangInfo.suivant.nom)}` : ""}</span><div class="pvbar"><i style="width:${a.rangInfo.progression}%"></i></div></div></div>` : ""}
+      ${a.classes && !a.classes.restants ? `<p class="muted" style="font-size:13px">Vos ${a.classes.parJour} combats classés du jour sont faits : vous pouvez continuer à jouer, sans points de classement.</p>` : ""}
       <p class="muted" style="font-size:13.5px">Votre deck sert aussi à défendre : les autres joueurs l'affrontent quand vous êtes absent. ${a.deck ? "✅ Deck de défense enregistré." : "⚠ Pas encore de deck de défense."}</p>
-      <div class="row"><button class="btn primary" id="aChercher" ${complet && a.restants ? "" : "disabled"}>🔎 Trouver des adversaires</button>
+      <div class="row"><button class="btn primary" id="aChercher" ${complet ? "" : "disabled"}>🔎 Trouver des adversaires</button>
       <button class="btn" id="aDefense" ${complet ? "" : "disabled"}>🛡️ Mettre à jour ma défense</button><button class="btn" id="aClassement">🏆 Classement</button></div>
       <div id="aListe"></div>`;
     $("#aDefense").onclick = async () => { try { await envoyerDeckArene(); toast("🛡️ Deck de défense enregistré."); aller("combat"); } catch (e) { toast("⚠ " + e.message); } };
@@ -461,7 +508,8 @@ async function defier(pseudo) {
           S.combat.defaites++;
         }
         S.coins += r.pieces; sauver(); majCoins();
-        return `${r.delta >= 0 ? "+" : ""}${r.delta} 🏆 (${fmt(r.trophees)}) · +${r.pieces} 🪙${tournoiBonus}`;
+        const rg = r.rang && typeof rangBadge === "function" ? ` · ${rangBadge(r.rang, "petit")} ${esc(r.rang.nom)}` : "";
+        return r.classe ? `${r.delta >= 0 ? "+" : ""}${r.delta} 🏆 (${fmt(r.trophees)})${rg}${r.pieces ? ` · +${r.pieces} 🪙` : ""}${tournoiBonus}` : `Combat non classé (limite du jour atteinte)${r.pieces ? ` · +${r.pieces} 🪙` : ""}`;
       },
     });
   } catch (e) { toast("⚠ " + e.message); }
@@ -471,7 +519,7 @@ async function classementArene() {
   try {
     const { joueurs } = await api("arene/classement");
     $("#clA").innerHTML = `<div style="overflow-x:auto"><table class="classement"><thead><tr><th>#</th><th>Joueur</th><th>Trophées</th><th>V / D</th></tr></thead><tbody>
-      ${joueurs.map((j, i) => `<tr class="${j.pseudo === COMPTE.pseudo ? "moi" : ""}"><td>${["🥇", "🥈", "🥉"][i] || i + 1}</td><td>${esc(j.pseudo)}${j.premium ? " 💎" : ""}${j.admin ? " 👑" : ""}</td><td>${j.palier?.nom || ""} · ${fmt(j.trophees)}</td><td>${j.victoires} / ${j.defaites}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Personne pour l'instant.</td></tr>`}
+      ${joueurs.map((j, i) => `<tr class="${j.pseudo === COMPTE.pseudo ? "moi" : ""}"><td>${["🥇", "🥈", "🥉"][i] || i + 1}</td><td>${esc(j.pseudo)}${j.premium ? " 💎" : ""}${j.admin ? " 👑" : ""}</td><td>${j.rang && typeof rangBadge === "function" ? rangBadge(j.rang, "petit") + " " + esc(j.rang.nom) : j.palier?.nom || ""} · ${fmt(j.trophees)}</td><td>${j.victoires} / ${j.defaites}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Personne pour l'instant.</td></tr>`}
       </tbody></table></div>`;
   } catch (e) { $("#clA").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }

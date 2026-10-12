@@ -69,9 +69,10 @@
   const MULT_PV = 2.2;
   // Coût d'une carte dans un deck : le total est plafonné pour que les decks restent équilibrés
   const COUT = { "commun": 1, "peu-commun": 2, "rare": 3, "epique": 4, "ultra-rare": 5, "legendaire": 6, "secrete": 6, "perso": 1 };
-  const BUDGET = 12;
-  const TAILLE_DECK = 3;
-  const TOURS_MAX = 80;
+  const BUDGET = 30;        // réglable par l'administrateur (reglages du jeu)
+  const TAILLE_DECK = 10;
+  const KO_VICTOIRE = 5;    // le premier joueur qui perd 5 cartes perd le combat (toutes s'il en a moins)
+  const TOURS_MAX = 150;
 
   function hash(texte) {
     let h = 2166136261;
@@ -158,6 +159,9 @@
   }
   const actif = (etat, cote) => etat.equipes[cote][etat.actifs[cote]];
   const vivants = (etat, cote) => etat.equipes[cote].filter((u) => u.pv > 0).length;
+  const koDe = (etat, cote) => etat.equipes[cote].length - vivants(etat, cote);
+  // Un camp est battu quand il a perdu KO_VICTOIRE cartes (ou toutes, pour un deck plus petit)
+  const battu = (etat, cote) => koDe(etat, cote) >= Math.min(KO_VICTOIRE, etat.equipes[cote].length);
 
   function choixIA(etat, cote) {
     const moi = actif(etat, cote), lui = actif(etat, 1 - cote), r = etat.r();
@@ -295,7 +299,7 @@
         if (suivant >= 0) { etat.actifs[c] = suivant; ev.push({ t: "entree", cote: c, id: actif(etat, c).id }); }
       }
     }
-    const fin = [vivants(etat, 0), vivants(etat, 1)];
+    const fin = [!battu(etat, 0), !battu(etat, 1)];
     if (!fin[0] || !fin[1] || etat.tour >= TOURS_MAX) {
       etat.fini = true;
       if (!fin[0] && !fin[1]) etat.gagnant = 1;
@@ -337,6 +341,6 @@
     }
     return { gagnant: etat.gagnant, paires };
   }
-  return { rejouerDuel, simulerMatch, SPECIAUX, TALENTS, TALENTS_TYPE, CYCLE, talentDe, COUT, BUDGET, TAILLE_DECK, PUISSANCE, PROFILS, AVANTAGE, VARIATION, NIVEAU_MAX, BONUS_SHINY, BONUS_DOREE, TOURS_MAX, METEOS,
-    hash, rng, base, niveau, tirerQualite, borne, noteQualite, stats, puissance, creer, jouer, rejouer, actif, vivants };
+  return { rejouerDuel, simulerMatch, SPECIAUX, TALENTS, TALENTS_TYPE, CYCLE, talentDe, COUT, BUDGET, TAILLE_DECK, KO_VICTOIRE, PUISSANCE, PROFILS, AVANTAGE, VARIATION, NIVEAU_MAX, BONUS_SHINY, BONUS_DOREE, TOURS_MAX, METEOS,
+    hash, rng, base, niveau, tirerQualite, borne, noteQualite, stats, puissance, creer, jouer, rejouer, actif, vivants, koDe, battu, actionValide };
 });

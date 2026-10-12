@@ -98,6 +98,9 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS credits_user ON credits (user_id, cree_le)`,
   `CREATE TABLE IF NOT EXISTS visuels ( cle TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS photos_perso ( carte TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS rangs ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, couleur TEXT NOT NULL DEFAULT '#888888', description TEXT NOT NULL DEFAULT '', min_pts INTEGER NOT NULL DEFAULT 0, max_pts INTEGER, ordre INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, divisions INTEGER NOT NULL DEFAULT 1, montee TEXT NOT NULL DEFAULT '', descente TEXT NOT NULL DEFAULT '', recompense_pieces INTEGER NOT NULL DEFAULT 0, recompense_boosters INTEGER NOT NULL DEFAULT 0, logo TEXT, logo_maj INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS rangs_historique ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, ancien TEXT, nouveau TEXT NOT NULL, trophees INTEGER NOT NULL, cree_le INTEGER NOT NULL )`,
+  `CREATE INDEX IF NOT EXISTS rangs_historique_u ON rangs_historique (user_id, id)`,
   `CREATE TABLE IF NOT EXISTS decouvertes ( carte TEXT PRIMARY KEY, user_id INTEGER NOT NULL, pseudo TEXT NOT NULL, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS bloques ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, bloque_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (user_id, bloque_id) )`,
   `CREATE TABLE IF NOT EXISTS combats ( id INTEGER PRIMARY KEY AUTOINCREMENT, attaquant INTEGER NOT NULL, defenseur INTEGER NOT NULL, graine INTEGER NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, cree_le INTEGER NOT NULL, fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER )`,
@@ -114,6 +117,15 @@ const MIGRATIONS = [
   `ALTER TABLE encheres ADD COLUMN notif_fin INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN parrainage_ok INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN cadre TEXT`,
+  `ALTER TABLE arene ADD COLUMN classes_jour TEXT`,
+  `ALTER TABLE arene ADD COLUMN classes_nb INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE combats ADD COLUMN classe INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE combats ADD COLUMN recompense INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE combats ADD COLUMN delta INTEGER`,
+  `ALTER TABLE duels ADD COLUMN classe INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE duels ADD COLUMN traite INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE duels ADD COLUMN points_a INTEGER`,
+  `ALTER TABLE duels ADD COLUMN points_b INTEGER`,
 ];
 let schemaPret = false;
 async function preparerSchema(env) {
@@ -836,7 +848,10 @@ async function ligneArene(env, userId) {
 }
 const combatsFaits = (a) => (a.jour === jourUTC() ? a.nb : 0);
 async function construireDeck(env, userId, ids) {
-  if (!Array.isArray(ids) || ids.length !== COMBAT.TAILLE_DECK || new Set(ids).size !== ids.length) throw new ErreurApi("Le deck doit contenir 3 cartes différentes.");
+  if (!Array.isArray(ids) || ids.length !== COMBAT.TAILLE_DECK || new Set(ids).size !== ids.length) throw new ErreurApi(`Le deck doit contenir ${COMBAT.TAILLE_DECK} cartes différentes.`);
+  const reg = await reglagesJeu(env);
+  const speciales = ids.filter((id) => ["legendaire", "secrete"].includes(CATALOGUE[id]?.rarete)).length;
+  if (speciales > reg.deck.maxLegendaires) throw new ErreurApi(`Maximum ${reg.deck.maxLegendaires} cartes légendaires ou secrètes par deck.`);
   const s = await env.DB.prepare("SELECT data FROM sauvegardes WHERE user_id = ?").bind(userId).first();
   const save = s ? JSON.parse(s.data).sauvegarde || {} : {};
   let cout = 0;
@@ -848,16 +863,17 @@ async function construireDeck(env, userId, ids) {
     const st = COMBAT.stats(id, c.type, c.rarete, (save.qualite || {})[id], Math.min(16, save.owned[id]), !!(save.shiny || {})[id], doree);
     return { id, type: c.type, nom: c.nom, shiny: !!(save.shiny || {})[id], doree, atk: st.atk, def: st.def, pv: st.pv, niveau: st.niveau, talent: st.talent };
   });
-  if (cout > COMBAT.BUDGET) throw new ErreurApi(`Deck trop coûteux (${cout}/${COMBAT.BUDGET}).`);
+  if (cout > reg.deck.budget) throw new ErreurApi(`Deck trop coûteux (${cout}/${reg.deck.budget}).`);
   return unites;
 }
 const puissanceDeck = (d) => d.reduce((t, u) => t + COMBAT.puissance(u), 0);
 
 route("GET", "arene/moi", async ({ env, user }) => {
-  const a = await ligneArene(env, user.id);
+  const a = await ligneArene(env, user.id), reg = await reglagesJeu(env), rangs = await chargerRangs(env);
   const rang = await env.DB.prepare("SELECT COUNT(*) + 1 AS r FROM arene a JOIN users u ON u.id = a.user_id WHERE a.deck IS NOT NULL AND u.banni = 0 AND u.admin = 0 AND a.trophees > ?").bind(a.trophees).first();
   return json({ trophees: a.trophees, palier: palierArene(a.trophees), saison: saisonCourante(), finSaison: finSaison(), victoires: a.victoires, defaites: a.defaites, deck: !!a.deck, rang: a.deck ? rang.r : null,
-    limite: limiteArene(user), restants: Math.max(0, limiteArene(user) - combatsFaits(a)) });
+    limite: limiteArene(user), restants: Math.max(0, limiteArene(user) - combatsFaits(a)),
+    classes: { parJour: reg.classe.parJour, restants: classesRestants(a, reg) }, rangInfo: rangDe(a.trophees, rangs), tailleDeck: a.deck ? JSON.parse(a.deck).length : 0 });
 }, { connecte: true });
 route("PUT", "arene/deck", async ({ request, env, user }) => {
   const b = await corps(request);
@@ -877,15 +893,17 @@ route("POST", "arene/defi", async ({ request, env, user }) => {
   const b = await corps(request);
   const a = await ligneArene(env, user.id);
   if (!a.deck) return erreur("Enregistrez d'abord votre deck.");
-  if (combatsFaits(a) >= limiteArene(user)) return erreur(`Vous avez fait vos ${limiteArene(user)} combats d'arène du jour. Revenez demain !`, 429);
+  if (combatsFaits(a) >= ARENE_MAX_JOUR) return erreur(`Vous avez fait ${ARENE_MAX_JOUR} combats d'arène aujourd'hui. Revenez demain !`, 429);
+  const recompense = combatsFaits(a) < limiteArene(user) ? 1 : 0;
+  const classe = (await compterClasse(env, user.id)) ? 1 : 0;
   const adv = await env.DB.prepare("SELECT u.id, u.pseudo, a.deck FROM users u JOIN arene a ON a.user_id = u.id WHERE u.pseudo = ? AND u.banni = 0 AND a.deck IS NOT NULL").bind(String(b.pseudo || "")).first();
   if (!adv || adv.id === user.id) return erreur("Adversaire introuvable.", 404);
   const graine = crypto.getRandomValues(new Uint32Array(1))[0];
   const r = await env.DB.batch([
-    env.DB.prepare("INSERT INTO combats (attaquant, defenseur, graine, a, b, cree_le) VALUES (?, ?, ?, ?, ?, ?)").bind(user.id, adv.id, graine, a.deck, adv.deck, maintenant()),
+    env.DB.prepare("INSERT INTO combats (attaquant, defenseur, graine, a, b, cree_le, classe, recompense) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(user.id, adv.id, graine, a.deck, adv.deck, maintenant(), classe, recompense),
     env.DB.prepare("UPDATE arene SET nb = CASE WHEN jour = ? THEN nb + 1 ELSE 1 END, jour = ? WHERE user_id = ?").bind(jourUTC(), jourUTC(), user.id),
   ]);
-  return json({ combat: r[0].meta.last_row_id, graine, adversaire: adv.pseudo, moi: JSON.parse(a.deck), lui: JSON.parse(adv.deck) });
+  return json({ combat: r[0].meta.last_row_id, graine, adversaire: adv.pseudo, moi: JSON.parse(a.deck), lui: JSON.parse(adv.deck), classe: !!classe, recompense: !!recompense });
 }, { connecte: true });
 route("POST", "arene/fin", async ({ request, env, user, ctx }) => {
   const b = await corps(request);
@@ -897,24 +915,32 @@ route("POST", "arene/fin", async ({ request, env, user, ctx }) => {
   const moi = await ligneArene(env, user.id), lui = await ligneArene(env, c.defenseur);
   // Classement façon Elo : battre plus fort que soi rapporte davantage
   const attendu = 1 / (1 + 10 ** ((lui.trophees - moi.trophees) / 400));
-  const delta = Math.round(32 * ((gagne ? 1 : 0) - attendu));
+  // Au-delà des combats classés du jour, le combat reste possible mais ne rapporte plus de points
+  const delta = c.classe ? Math.round(32 * ((gagne ? 1 : 0) - attendu)) : 0;
   const deltaDef = -Math.round(delta / 2);
-  const pieces = gagne ? 60 : 15;
-  await ajouterPointsTournoi(env, user, gagne ? 100 : 25, gagne, true);
+  const pieces = c.recompense ? (gagne ? 60 : 15) : 0;
+  if (c.classe) await ajouterPointsTournoi(env, user, gagne ? 100 : 25, gagne, true);
   await env.DB.batch([
-    env.DB.prepare("UPDATE combats SET fini = 1, gagne = ? WHERE id = ?").bind(gagne ? 1 : 0, c.id),
+    env.DB.prepare("UPDATE combats SET fini = 1, gagne = ?, delta = ? WHERE id = ?").bind(gagne ? 1 : 0, delta, c.id),
     env.DB.prepare("UPDATE arene SET trophees = MAX(0, trophees + ?), victoires = victoires + ?, defaites = defaites + ? WHERE user_id = ?").bind(delta, gagne ? 1 : 0, gagne ? 0 : 1, user.id),
     env.DB.prepare("UPDATE arene SET trophees = MAX(0, trophees + ?) WHERE user_id = ?").bind(deltaDef, c.defenseur),
   ]);
-  enArrierePlan(ctx, envoyerPush(env, c.defenseur, gagne
-    ? { titre: "⚔️ Votre deck a été battu", texte: `${user.pseudo} a vaincu votre défense (${deltaDef} 🏆). Prenez votre revanche !`, url: "./#combat" }
-    : { titre: "🛡️ Défense réussie !", texte: `Votre deck a repoussé ${user.pseudo} (+${deltaDef} 🏆).`, url: "./#combat" }));
-  return json({ gagne, delta, trophees: Math.max(0, moi.trophees + delta), pieces });
+  if (c.classe) {
+    enArrierePlan(ctx, envoyerPush(env, c.defenseur, gagne
+      ? { titre: "⚔️ Votre deck a été battu", texte: `${user.pseudo} a vaincu votre défense (${deltaDef} 🏆). Prenez votre revanche !`, url: "./#combat" }
+      : { titre: "🛡️ Défense réussie !", texte: `Votre deck a repoussé ${user.pseudo} (+${deltaDef} 🏆).`, url: "./#combat" }));
+    const rangs = await chargerRangs(env);
+    await majRang(env, ctx, user.id, moi.trophees, Math.max(0, moi.trophees + delta), rangs);
+    await majRang(env, ctx, c.defenseur, lui.trophees, Math.max(0, lui.trophees + deltaDef), rangs);
+  }
+  const rangs = await chargerRangs(env);
+  return json({ gagne, delta, classe: !!c.classe, trophees: Math.max(0, moi.trophees + delta), pieces, rang: rangDe(Math.max(0, moi.trophees + delta), rangs) });
 }, { connecte: true });
 route("GET", "arene/classement", async ({ env }) => {
+  const rangs = await chargerRangs(env);
   const { results } = await env.DB.prepare(`SELECT u.pseudo, u.admin, u.premium_jusqu, a.trophees, a.victoires, a.defaites FROM arene a JOIN users u ON u.id = a.user_id
     WHERE a.deck IS NOT NULL AND u.banni = 0 AND u.admin = 0 ORDER BY a.trophees DESC, a.victoires DESC LIMIT 50`).all();
-  return json({ saison: saisonCourante(), finSaison: finSaison(), joueurs: results.map((x) => ({ pseudo: x.pseudo, admin: !!x.admin, premium: estPremium(x), trophees: x.trophees, palier: palierArene(x.trophees), victoires: x.victoires, defaites: x.defaites })) });
+  return json({ saison: saisonCourante(), finSaison: finSaison(), joueurs: results.map((x) => ({ pseudo: x.pseudo, admin: !!x.admin, premium: estPremium(x), trophees: x.trophees, palier: palierArene(x.trophees), rang: rangDe(x.trophees, rangs), victoires: x.victoires, defaites: x.defaites })) });
 });
 
 
@@ -1252,9 +1278,12 @@ async function finDeSaison(env) {
   if (derniere === saison) return;
   await ecrireConfig(env, "saison", saison);
   const { results } = await env.DB.prepare("SELECT a.user_id, a.trophees FROM arene a JOIN users u ON u.id = a.user_id WHERE a.deck IS NOT NULL AND (a.victoires + a.defaites) > 0 AND u.banni = 0 AND u.admin = 0").all();
+  const rangs = await chargerRangs(env);
   for (const x of results) {
-    const p = PALIERS.find(([min]) => x.trophees >= min);
-    await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, ?, ?, ?, ?)").bind(x.user_id, p[3], p[4], `Fin de la saison d'arène ${derniere} : palier ${p[2]} !`, maintenant()).run();
+    // Récompense du rang atteint (réglable dans l'admin) ; à défaut, l'ancien barème des paliers
+    const rg = rangDe(x.trophees, rangs), p = PALIERS.find(([min]) => x.trophees >= min);
+    const pieces = rg ? rg.recompense.pieces : p[3], boosters = rg ? rg.recompense.boosters : p[4], nom = rg ? rg.nom : p[2];
+    await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, ?, ?, ?, ?)").bind(x.user_id, pieces, boosters, `Fin de la saison d'arène ${derniere} : rang ${nom} !`, maintenant()).run();
   }
   // Remise à niveau douce : on se rapproche de 1000 trophées
   await env.DB.prepare("UPDATE arene SET trophees = 1000 + (trophees - 1000) / 2, victoires = 0, defaites = 0").run();
@@ -1536,6 +1565,12 @@ const sontAmis = async (env, x, y) => !!(await env.DB.prepare("SELECT 1 FROM ami
 // Fait avancer le duel : tour résolu quand les deux ont choisi, ou à la fin du chrono (« attaque » par défaut)
 async function avancerDuel(env, d) {
   if (d.statut !== "encours") return d;
+  // Plus personne ne joue depuis 10 minutes : le duel est annulé, sans points
+  if (d.limite && maintenant() > d.limite + 10 * 60000) {
+    await env.DB.prepare("UPDATE duels SET statut = 'annule', fini_le = ? WHERE id = ? AND statut = 'encours'").bind(maintenant(), d.id).run();
+    console.log(JSON.stringify({ duel: d.id, evenement: "expire" }));
+    return { ...d, statut: "annule" };
+  }
   const paires = JSON.parse(d.paires);
   let { choix_a: ca, choix_b: cb, limite } = d, change = false;
   for (let i = 0; i < 40 && (ca && cb || maintenant() > limite + 1500); i++) {
@@ -1552,6 +1587,7 @@ async function avancerDuel(env, d) {
   if (r.meta.changes && d.statut === "fini" && d.gagnant) {
     const g = await env.DB.prepare("SELECT id, pseudo FROM users WHERE id = ?").bind(d.gagnant).first();
     if (g) await ajouterPointsTournoi(env, g, 25, true, true);
+    await terminerDuelClasse(env, d);
   }
   return d;
 }
@@ -1567,7 +1603,7 @@ async function vueDuel(env, d, user) {
   return { id: d.id, statut: d.statut, cote: moiA ? 0 : 1, adversaire: nom(moiA ? d.b_id : d.a_id), graine: d.graine,
     deckA: JSON.parse(d.deck_a), deckB: d.deck_b ? JSON.parse(d.deck_b) : null, paires: JSON.parse(d.paires),
     jaiChoisi: !!(moiA ? d.choix_a : d.choix_b), luiAChoisi: !!(moiA ? d.choix_b : d.choix_a), resteMs: d.limite ? Math.max(0, d.limite - maintenant()) : null,
-    gagne: d.statut === "fini" ? d.gagnant === user.id : null, pieces };
+    gagne: d.statut === "fini" ? d.gagnant === user.id : null, pieces, classe: !!d.classe, points: moiA ? d.points_a ?? null : d.points_b ?? null };
 }
 const lireDuel = async (env, id, user) => {
   const d = await env.DB.prepare("SELECT * FROM duels WHERE id = ? AND (a_id = ?2 OR b_id = ?2)").bind(id, user.id).first();
@@ -1580,14 +1616,16 @@ route("POST", "duels/inviter", async ({ request, env, user, ctx }) => {
   if (!(await sontAmis(env, user.id, ami.id))) return erreur("Vous ne pouvez défier en direct que vos amis.");
   const moi = await ligneArene(env, user.id);
   if (!moi.deck) return erreur("Enregistrez d'abord votre deck.");
+  if (JSON.parse(moi.deck).length !== COMBAT.TAILLE_DECK) return erreur(`Votre deck doit contenir ${COMBAT.TAILLE_DECK} cartes.`);
+  const classe = b.classe ? 1 : 0;
   await env.DB.prepare("UPDATE duels SET statut = 'annule' WHERE a_id = ? AND statut = 'invite'").bind(user.id).run();
-  const r = await env.DB.prepare("INSERT INTO duels (a_id, b_id, graine, deck_a, cree_le) VALUES (?, ?, ?, ?, ?)")
-    .bind(user.id, ami.id, crypto.getRandomValues(new Uint32Array(1))[0], moi.deck, maintenant()).run();
-  enArrierePlan(ctx, envoyerPush(env, ami.id, { titre: "⚔️ Duel en direct !", texte: `${user.pseudo} vous défie en direct. Acceptez vite !`, url: "./#combat" }));
+  const r = await env.DB.prepare("INSERT INTO duels (a_id, b_id, graine, deck_a, cree_le, classe) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(user.id, ami.id, crypto.getRandomValues(new Uint32Array(1))[0], moi.deck, maintenant(), classe).run();
+  enArrierePlan(ctx, envoyerPush(env, ami.id, { titre: classe ? "🏆 Duel classé en direct !" : "⚔️ Duel amical en direct !", texte: `${user.pseudo} vous défie en direct. Acceptez vite !`, url: "./#combat" }));
   return json({ id: r.meta.last_row_id }, 201);
 }, { connecte: true });
 route("GET", "duels/invitations", async ({ env, user }) => {
-  const { results } = await env.DB.prepare(`SELECT d.id, u.pseudo, d.cree_le FROM duels d JOIN users u ON u.id = d.a_id
+  const { results } = await env.DB.prepare(`SELECT d.id, u.pseudo, d.cree_le, d.classe FROM duels d JOIN users u ON u.id = d.a_id
     WHERE d.b_id = ? AND d.statut = 'invite' AND d.cree_le > ? ORDER BY d.id DESC LIMIT 5`).bind(user.id, maintenant() - 5 * 60000).all();
   const enCours = await env.DB.prepare("SELECT id FROM duels WHERE (a_id = ?1 OR b_id = ?1) AND statut = 'encours' ORDER BY id DESC LIMIT 1").bind(user.id).first();
   return json({ invitations: results, enCours: enCours?.id || null });
@@ -1598,7 +1636,10 @@ route("POST", "duels/(\\d+)/accepter", async ({ env, user, p }) => {
   if (maintenant() - d.cree_le > 5 * 60000) return erreur("Invitation expirée.");
   const moi = await ligneArene(env, user.id);
   if (!moi.deck) return erreur("Enregistrez d'abord votre deck (onglet Combat).");
-  await env.DB.prepare("UPDATE duels SET statut = 'encours', deck_b = ?, limite = ? WHERE id = ?").bind(moi.deck, maintenant() + CHRONO_DUEL + 3000, d.id).run();
+  if (JSON.parse(moi.deck).length !== COMBAT.TAILLE_DECK) return erreur(`Votre deck doit contenir ${COMBAT.TAILLE_DECK} cartes.`);
+  const r0 = await env.DB.prepare("UPDATE duels SET statut = 'encours', deck_b = ?, limite = ? WHERE id = ? AND statut = 'invite'").bind(moi.deck, maintenant() + CHRONO_DUEL + 3000, d.id).run();
+  if (!r0.meta.changes) return erreur("Cette invitation n'est plus valable.");
+  console.log(JSON.stringify({ duel: d.id, evenement: "debut", classe: d.classe }));
   return json({ ok: true, id: d.id });
 }, { connecte: true });
 route("POST", "duels/(\\d+)/refuser", async ({ env, user, p }) => {
@@ -1614,7 +1655,7 @@ route("POST", "duels/(\\d+)/action", async ({ request, env, user, p }) => {
   let d = await avancerDuel(env, await lireDuel(env, p[1], user));
   if (d.statut !== "encours") return json(await vueDuel(env, d, user));
   if (Number(b.tour) !== JSON.parse(d.paires).length + 1) return erreur("Ce tour est déjà passé.", 409);
-  const action = String(b.action || "attaque").slice(0, 12);
+  const action = COMBAT.actionValide(String(b.action || "")) ? String(b.action) : "attaque";
   const col = d.a_id === user.id ? "choix_a" : "choix_b";
   await env.DB.prepare(`UPDATE duels SET ${col} = ? WHERE id = ? AND ${col} IS NULL`).bind(action, d.id).run();
   d = await avancerDuel(env, await lireDuel(env, p[1], user));
@@ -1624,7 +1665,9 @@ route("POST", "duels/(\\d+)/abandon", async ({ env, user, p }) => {
   const d = await lireDuel(env, p[1], user);
   if (d.statut === "encours" || d.statut === "invite") {
     const autre = d.a_id === user.id ? d.b_id : d.a_id;
-    await env.DB.prepare("UPDATE duels SET statut = ?, gagnant = ?, fini_le = ? WHERE id = ?").bind(d.statut === "invite" ? "annule" : "fini", d.statut === "invite" ? null : autre, maintenant(), d.id).run();
+    const r = await env.DB.prepare("UPDATE duels SET statut = ?, gagnant = ?, fini_le = ? WHERE id = ? AND statut = ?").bind(d.statut === "invite" ? "annule" : "fini", d.statut === "invite" ? null : autre, maintenant(), d.id, d.statut).run();
+    // Un abandon en cours de duel classé compte comme une défaite
+    if (r.meta.changes && d.statut === "encours") { console.log(JSON.stringify({ duel: d.id, evenement: "abandon", joueur: user.id })); await terminerDuelClasse(env, { ...d, statut: "fini", gagnant: autre }); }
   }
   return json({ ok: true });
 }, { connecte: true });
@@ -2323,6 +2366,197 @@ route("POST", "admin/visuels", async ({ request, env }) => {
 }, { admin: true });
 route("DELETE", "admin/visuels/([A-Za-z0-9-]{2,40})", async ({ env, p }) => {
   await env.DB.prepare("DELETE FROM visuels WHERE cle = ?").bind(p[1]).run();
+  return json({ ok: true });
+}, { admin: true });
+
+
+/* =====================================================================
+   Réglages du jeu modifiables par l'admin : chances des boosters, règles des decks, combats classés
+   ===================================================================== */
+const ARENE_MAX_JOUR = 60; // garde-fou anti-spam : au-delà des combats classés, on peut encore jouer pour le plaisir
+const RARETES_CLES = ["commun", "peu-commun", "rare", "epique", "ultra-rare", "legendaire"];
+const REGLAGES_DEFAUT = {
+  // Chances : poids par rareté pour chaque booster (vide = valeurs du jeu), garantie = rareté minimale de la dernière carte
+  chances: { pityPas: 5, bonusNouvelle: 1, packs: {
+    monde: { poids: { "commun": 68, "peu-commun": 22, "rare": 8, "epique": 1.5, "ultra-rare": 0.4, "legendaire": 0.1 }, garantie: 1 },
+  } },
+  deck: { budget: 30, maxLegendaires: 3 },
+  classe: { parJour: 5, memeAdversaire: 1 },
+};
+let reglagesCache = { t: 0, v: null };
+async function reglagesJeu(env) {
+  if (reglagesCache.v && maintenant() - reglagesCache.t < 20000) return reglagesCache.v;
+  const lu = (await lireConfig(env, "reglages_jeu")) || {};
+  const v = {
+    chances: { ...REGLAGES_DEFAUT.chances, ...(lu.chances || {}), packs: { ...REGLAGES_DEFAUT.chances.packs, ...(lu.chances?.packs || {}) } },
+    deck: { ...REGLAGES_DEFAUT.deck, ...(lu.deck || {}) },
+    classe: { ...REGLAGES_DEFAUT.classe, ...(lu.classe || {}) },
+  };
+  reglagesCache = { t: maintenant(), v };
+  return v;
+}
+const nombre = (x, min, max, def) => { const n = Number(x); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
+route("GET", "reglages", async ({ env }) => {
+  const r = await reglagesJeu(env);
+  return json({ ...r, tailleDeck: COMBAT.TAILLE_DECK, koVictoire: COMBAT.KO_VICTOIRE }, 200, { "cache-control": "public, max-age=30" });
+});
+route("PUT", "admin/reglages", async ({ request, env, user }) => {
+  const b = await corps(request), act = await reglagesJeu(env);
+  const packs = {};
+  for (const [k, p] of Object.entries(b.chances?.packs || {}).slice(0, 40)) {
+    if (!/^[a-z0-9-]{2,30}$/.test(k)) continue;
+    const poids = {};
+    for (const r of RARETES_CLES) if (p?.poids?.[r] !== undefined && p.poids[r] !== "") poids[r] = nombre(p.poids[r], 0, 1000, 0);
+    if (Object.values(poids).reduce((t, x) => t + x, 0) <= 0 && Object.keys(poids).length) return erreur(`Booster « ${k} » : au moins une rareté doit avoir une chance positive.`);
+    // garantie absente = celle d'origine du booster ; null = aucune garantie
+    packs[k] = { poids: Object.keys(poids).length ? poids : null };
+    if (p?.garantie === null) packs[k].garantie = null;
+    else if (p?.garantie !== undefined && p.garantie !== "") packs[k].garantie = Math.round(nombre(p.garantie, 0, 5, 0));
+  }
+  const v = {
+    chances: { pityPas: nombre(b.chances?.pityPas, 0, 50, act.chances.pityPas), bonusNouvelle: nombre(b.chances?.bonusNouvelle, 0.2, 5, act.chances.bonusNouvelle), packs },
+    deck: { budget: Math.round(nombre(b.deck?.budget, 10, 60, act.deck.budget)), maxLegendaires: Math.round(nombre(b.deck?.maxLegendaires, 0, 10, act.deck.maxLegendaires)) },
+    classe: { parJour: Math.round(nombre(b.classe?.parJour, 1, 50, act.classe.parJour)), memeAdversaire: Math.round(nombre(b.classe?.memeAdversaire, 0, 10, act.classe.memeAdversaire)) },
+  };
+  await ecrireConfig(env, "reglages_jeu", v);
+  reglagesCache = { t: 0, v: null };
+  await journaliser(env, user.id, "réglages du jeu modifiés", JSON.stringify(v).slice(0, 300), "admin");
+  return json({ ok: true, reglages: v });
+}, { admin: true });
+
+/* ---------- Combats classés : N par jour et par joueur (arène et duels classés confondus) ---------- */
+async function compterClasse(env, userId) {
+  const reg = await reglagesJeu(env);
+  await ligneArene(env, userId);
+  const r = await env.DB.prepare(`UPDATE arene SET classes_nb = CASE WHEN classes_jour = ?1 THEN classes_nb + 1 ELSE 1 END, classes_jour = ?1
+    WHERE user_id = ?2 AND (classes_jour IS NULL OR classes_jour != ?1 OR classes_nb < ?3)`).bind(jourUTC(), userId, reg.classe.parJour).run();
+  return r.meta.changes > 0;
+}
+const classesRestants = (a, reg) => Math.max(0, reg.classe.parJour - (a.classes_jour === jourUTC() ? a.classes_nb || 0 : 0));
+route("GET", "classe/jour", async ({ env, user }) => {
+  const a = await ligneArene(env, user.id), reg = await reglagesJeu(env);
+  return json({ parJour: reg.classe.parJour, restants: classesRestants(a, reg), memeAdversaire: reg.classe.memeAdversaire });
+}, { connecte: true });
+
+// Fin d'un duel classé : points façon Elo pour les deux joueurs, une seule fois, avec garde-fous anti-farm
+async function terminerDuelClasse(env, d) {
+  const r = await env.DB.prepare("UPDATE duels SET traite = 1 WHERE id = ? AND traite = 0").bind(d.id).run();
+  if (!r.meta.changes || !d.classe || !d.gagnant) return;
+  const reg = await reglagesJeu(env), debutJour = Date.parse(jourUTC() + "T00:00:00Z");
+  const deja = await env.DB.prepare(`SELECT COUNT(*) AS n FROM duels WHERE classe = 1 AND traite = 1 AND id != ?3 AND fini_le >= ?4 AND (COALESCE(points_a, 0) != 0 OR COALESCE(points_b, 0) != 0)
+    AND ((a_id = ?1 AND b_id = ?2) OR (a_id = ?2 AND b_id = ?1))`).bind(d.a_id, d.b_id, d.id, debutJour).first();
+  let pa = 0, pb = 0;
+  if (deja.n < reg.classe.memeAdversaire) {
+    const A = await ligneArene(env, d.a_id), B = await ligneArene(env, d.b_id);
+    const okA = await compterClasse(env, d.a_id), okB = await compterClasse(env, d.b_id);
+    const attenduA = 1 / (1 + 10 ** ((B.trophees - A.trophees) / 400)), sA = d.gagnant === d.a_id ? 1 : 0;
+    pa = okA ? Math.round(32 * (sA - attenduA)) : 0;
+    pb = okB ? Math.round(32 * ((1 - sA) - (1 - attenduA))) : 0;
+    const rangs = await chargerRangs(env);
+    await env.DB.batch([
+      env.DB.prepare("UPDATE arene SET trophees = MAX(0, trophees + ?), victoires = victoires + ?, defaites = defaites + ? WHERE user_id = ?").bind(pa, okA ? sA : 0, okA ? 1 - sA : 0, d.a_id),
+      env.DB.prepare("UPDATE arene SET trophees = MAX(0, trophees + ?), victoires = victoires + ?, defaites = defaites + ? WHERE user_id = ?").bind(pb, okB ? 1 - sA : 0, okB ? sA : 0, d.b_id),
+    ]);
+    await majRang(env, null, d.a_id, A.trophees, Math.max(0, A.trophees + pa), rangs);
+    await majRang(env, null, d.b_id, B.trophees, Math.max(0, B.trophees + pb), rangs);
+  }
+  await env.DB.prepare("UPDATE duels SET points_a = ?, points_b = ? WHERE id = ?").bind(pa, pb, d.id).run();
+  console.log(JSON.stringify({ duel: d.id, evenement: "classe", points: [pa, pb] }));
+}
+
+/* =====================================================================
+   Rangs officiels 2F1 : nom, couleur, seuils, logo… tout se règle dans l'admin
+   ===================================================================== */
+const RANGS_DEFAUT = [["bronze", "BRONZE", "#c27a3c", 0], ["argent", "ARGENT", "#b9c3cd", 1100], ["or", "OR", "#f2b33d", 1300], ["platine", "PLATINE", "#9cc3e0", 1500],
+  ["diamant", "DIAMANT", "#5fd4ff", 1700], ["twofone", "TWOFONE", "#d4a72c", 1900], ["nazio", "NAZIO", "#2fbf71", 2100], ["kilio", "KILIO", "#e0393e", 2300]];
+let rangsCache = { t: 0, v: null };
+async function chargerRangs(env) {
+  if (rangsCache.v && maintenant() - rangsCache.t < 20000) return rangsCache.v;
+  let { results } = await env.DB.prepare("SELECT cle, nom, couleur, description, min_pts, max_pts, ordre, actif, divisions, montee, descente, recompense_pieces, recompense_boosters, logo_maj FROM rangs ORDER BY ordre").all();
+  if (!results.length) {
+    await env.DB.batch(RANGS_DEFAUT.map(([cle, nom, couleur, min], i) => env.DB.prepare("INSERT OR IGNORE INTO rangs (cle, nom, couleur, min_pts, ordre, recompense_pieces, recompense_boosters) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .bind(cle, nom, couleur, min, i, [200, 500, 1000, 1800, 3000, 4000, 5000, 6000][i], [0, 1, 2, 3, 4, 5, 6, 7][i])));
+    ({ results } = await env.DB.prepare("SELECT cle, nom, couleur, description, min_pts, max_pts, ordre, actif, divisions, montee, descente, recompense_pieces, recompense_boosters, logo_maj FROM rangs ORDER BY ordre").all());
+  }
+  rangsCache = { t: maintenant(), v: results };
+  return results;
+}
+const rangPublic = (r) => r && ({ cle: r.cle, nom: r.nom, couleur: r.couleur, description: r.description, min: r.min_pts, max: r.max_pts, ordre: r.ordre, actif: !!r.actif, divisions: r.divisions,
+  montee: r.montee, descente: r.descente, recompense: { pieces: r.recompense_pieces, boosters: r.recompense_boosters }, logo: r.logo_maj ? `/api/rang-logo/${r.cle}?v=${r.logo_maj}` : null });
+// Rang d'un nombre de trophées : le rang actif au seuil le plus haut atteint (et dans son maximum s'il en a un)
+function rangDe(trophees, rangs) {
+  const actifs = rangs.filter((r) => r.actif).sort((a, b) => a.min_pts - b.min_pts || a.ordre - b.ordre);
+  if (!actifs.length) return null;
+  let i = 0;
+  actifs.forEach((r, k) => { if (trophees >= r.min_pts && (r.max_pts === null || r.max_pts === undefined || trophees <= r.max_pts)) i = k; });
+  const r = actifs[i], suivant = actifs[i + 1] || null;
+  const haut = suivant ? suivant.min_pts : (r.max_pts ?? null);
+  let division = null;
+  if (r.divisions > 1 && haut) {
+    const pas = (haut - r.min_pts) / r.divisions;
+    division = Math.max(1, r.divisions - Math.floor((trophees - r.min_pts) / pas)); // III → II → I
+  }
+  return { ...rangPublic(r), division, trophees, suivant: suivant ? { cle: suivant.cle, nom: suivant.nom, min: suivant.min_pts } : null,
+    progression: haut ? Math.max(0, Math.min(100, Math.round(((trophees - r.min_pts) / (haut - r.min_pts)) * 100))) : 100 };
+}
+// Changement de rang : historique + notification
+async function majRang(env, ctx, userId, avant, apres, rangs) {
+  const a = rangDe(avant, rangs), n = rangDe(apres, rangs);
+  if (!n || a?.cle === n.cle) return;
+  await env.DB.prepare("INSERT INTO rangs_historique (user_id, ancien, nouveau, trophees, cree_le) VALUES (?, ?, ?, ?, ?)").bind(userId, a?.cle || null, n.cle, apres, maintenant()).run();
+  const monte = !a || n.min >= a.min;
+  const p = envoyerPush(env, userId, { titre: monte ? `🏅 Promotion : rang ${n.nom} !` : `Rang ${n.nom}`, texte: monte ? `Bravo, vous atteignez le rang ${n.nom} avec ${apres} points.` : `Vous redescendez au rang ${n.nom} (${apres} points). Reprenez votre place !`, url: "./#ligues" });
+  if (ctx) enArrierePlan(ctx, p); else await p.catch(() => {});
+}
+route("GET", "rangs", async ({ env, user }) => {
+  const rangs = await chargerRangs(env);
+  let moi = null;
+  if (user) { const a = await env.DB.prepare("SELECT trophees FROM arene WHERE user_id = ?").bind(user.id).first(); moi = rangDe(a?.trophees ?? 1000, rangs); }
+  return json({ rangs: rangs.map(rangPublic), moi });
+});
+route("GET", "rang-logo/([a-z0-9-]{2,30})", async ({ env, p }) => {
+  const v = await env.DB.prepare("SELECT logo FROM rangs WHERE cle = ?").bind(p[1]).first();
+  const m = v?.logo && VISUEL_RE.exec(v.logo);
+  if (!m) return new Response(null, { status: 404 });
+  return new Response(Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/" + m[1], "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+});
+route("GET", "rangs/historique/(.{2,24})", async ({ env, p }) => {
+  const u = await env.DB.prepare("SELECT id FROM users WHERE pseudo = ? AND banni = 0").bind(decodeURIComponent(p[1])).first();
+  if (!u) return erreur("Joueur introuvable.", 404);
+  const { results } = await env.DB.prepare("SELECT ancien, nouveau, trophees, cree_le FROM rangs_historique WHERE user_id = ? ORDER BY id DESC LIMIT 20").bind(u.id).all();
+  return json({ historique: results });
+});
+route("PUT", "admin/rangs/([a-z0-9-]{2,30})", async ({ request, env, user, p }) => {
+  const b = await corps(request);
+  const r = await env.DB.prepare("SELECT cle FROM rangs WHERE cle = ?").bind(p[1]).first();
+  if (!r) return erreur("Rang introuvable.", 404);
+  const nom = String(b.nom || "").trim().slice(0, 24), couleur = /^#[0-9a-f]{6}$/i.test(b.couleur || "") ? b.couleur : null;
+  if (!nom) return erreur("Le nom du rang est obligatoire.");
+  if (!couleur) return erreur("Couleur invalide (format #RRGGBB).");
+  const min = Math.round(nombre(b.min, 0, 100000, NaN)), max = b.max === "" || b.max === null || b.max === undefined ? null : Math.round(nombre(b.max, 0, 100000, NaN));
+  if (!Number.isFinite(min)) return erreur("Points minimum invalides.");
+  if (max !== null && (!Number.isFinite(max) || max < min)) return erreur("Le maximum doit être supérieur ou égal au minimum.");
+  await env.DB.prepare(`UPDATE rangs SET nom = ?, couleur = ?, description = ?, min_pts = ?, max_pts = ?, ordre = ?, actif = ?, divisions = ?, montee = ?, descente = ?, recompense_pieces = ?, recompense_boosters = ? WHERE cle = ?`)
+    .bind(nom, couleur, String(b.description || "").slice(0, 300), min, max, Math.round(nombre(b.ordre, 0, 99, 0)), b.actif ? 1 : 0, Math.round(nombre(b.divisions, 1, 5, 1)),
+      String(b.montee || "").slice(0, 200), String(b.descente || "").slice(0, 200), Math.round(nombre(b.recompensePieces, 0, 100000, 0)), Math.round(nombre(b.recompenseBoosters, 0, 50, 0)), p[1]).run();
+  rangsCache = { t: 0, v: null };
+  await journaliser(env, user.id, `rang ${p[1]} modifié`, `${nom} · ${min}${max !== null ? "-" + max : "+"}`, "admin");
+  return json({ ok: true });
+}, { admin: true });
+route("POST", "admin/rangs/([a-z0-9-]{2,30})/logo", async ({ request, env, user, p }) => {
+  const b = await corps(request);
+  const m = VISUEL_RE.exec(String(b.image || ""));
+  if (!m || !["png", "webp"].includes(m[1])) return erreur("Logo invalide : PNG ou WebP uniquement (pour garder la transparence).");
+  if (m[2].length > 1400000) return erreur("Logo trop lourd : 1 Mo maximum.");
+  const r = await env.DB.prepare("UPDATE rangs SET logo = ?, logo_maj = ? WHERE cle = ?").bind(b.image, maintenant(), p[1]).run();
+  if (!r.meta.changes) return erreur("Rang introuvable.", 404);
+  rangsCache = { t: 0, v: null };
+  await journaliser(env, user.id, `logo du rang ${p[1]} importé`, "", "admin");
+  return json({ ok: true });
+}, { admin: true });
+route("DELETE", "admin/rangs/([a-z0-9-]{2,30})/logo", async ({ env, p }) => {
+  await env.DB.prepare("UPDATE rangs SET logo = NULL, logo_maj = 0 WHERE cle = ?").bind(p[1]).run();
+  rangsCache = { t: 0, v: null };
   return json({ ok: true });
 }, { admin: true });
 
