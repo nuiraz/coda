@@ -97,6 +97,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS credits ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, pieces INTEGER NOT NULL DEFAULT 0, cartes INTEGER NOT NULL DEFAULT 0, boosters INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
   `CREATE INDEX IF NOT EXISTS credits_user ON credits (user_id, cree_le)`,
   `CREATE TABLE IF NOT EXISTS visuels ( cle TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS photos_perso ( carte TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS decouvertes ( carte TEXT PRIMARY KEY, user_id INTEGER NOT NULL, pseudo TEXT NOT NULL, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS bloques ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, bloque_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (user_id, bloque_id) )`,
   `CREATE TABLE IF NOT EXISTS combats ( id INTEGER PRIMARY KEY AUTOINCREMENT, attaquant INTEGER NOT NULL, defenseur INTEGER NOT NULL, graine INTEGER NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, cree_le INTEGER NOT NULL, fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER )`,
@@ -2322,6 +2323,34 @@ route("POST", "admin/visuels", async ({ request, env }) => {
 }, { admin: true });
 route("DELETE", "admin/visuels/([A-Za-z0-9-]{2,40})", async ({ env, p }) => {
   await env.DB.prepare("DELETE FROM visuels WHERE cle = ?").bind(p[1]).run();
+  return json({ ok: true });
+}, { admin: true });
+
+/* =====================================================================
+   Photos de cartes envoyées par l'admin (remplacent la photo Wikipédia)
+   Dans l'URL, le « : » de l'identifiant de carte est remplacé par « ~ ».
+   ===================================================================== */
+route("GET", "photos/perso", async ({ env }) => {
+  const { results } = await env.DB.prepare("SELECT carte, maj FROM photos_perso").all();
+  return json({ perso: Object.fromEntries(results.map((x) => [x.carte, x.maj])) }, 200, { "cache-control": "public, max-age=60" });
+});
+route("GET", "photo-perso/([a-z]+~[A-Za-z0-9_-]{1,40})", async ({ env, p }) => {
+  const v = await env.DB.prepare("SELECT image FROM photos_perso WHERE carte = ?").bind(p[1].replace("~", ":")).first();
+  const m = v && VISUEL_RE.exec(v.image);
+  if (!m) return new Response(null, { status: 404 });
+  return new Response(Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/" + m[1], "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+});
+route("POST", "admin/photo-perso", async ({ request, env }) => {
+  const b = await corps(request);
+  if (!CARTE_RE.test(String(b.carte || ""))) return erreur("Carte inconnue.");
+  const m = VISUEL_RE.exec(String(b.image || ""));
+  if (!m) return erreur("Image invalide (WebP, JPEG ou PNG).");
+  if (m[2].length > 1400000) return erreur("Image trop lourde : 1 Mo maximum après compression.");
+  await env.DB.prepare("INSERT INTO photos_perso (carte, image, maj) VALUES (?, ?, ?) ON CONFLICT(carte) DO UPDATE SET image = excluded.image, maj = excluded.maj").bind(b.carte, b.image, maintenant()).run();
+  return json({ ok: true, maj: maintenant() });
+}, { admin: true });
+route("DELETE", "admin/photo-perso/([a-z]+~[A-Za-z0-9_-]{1,40})", async ({ env, p }) => {
+  await env.DB.prepare("DELETE FROM photos_perso WHERE carte = ?").bind(p[1].replace("~", ":")).run();
   return json({ ok: true });
 }, { admin: true });
 

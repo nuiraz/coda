@@ -1687,3 +1687,4 @@ body.ecran-connexion #nav, body.ecran-connexion .pied { display: none !important
 .cx-etiq.ok { background: color-mix(in srgb, var(--good, #22c55e) 18%, var(--panel)); color: var(--good, #22c55e); border-color: color-mix(in srgb, var(--good, #22c55e) 45%, transparent); }
 .codex-grille { row-gap: 20px; }
 .cx-grande { width: 220px; margin: 0 auto; pointer-events: none; }
+.photo-perso-apercu { width: 180px; margin: 0 auto 6px; pointer-events: none; }

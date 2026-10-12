@@ -310,3 +310,83 @@ async function adminVisuels(el) {
 
 /* ---------- Thème sombre par défaut (nouvelle direction artistique) ---------- */
 if (!S.daV3) { if (!S.theme) S.theme = "dark"; S.daV3 = true; try { sauver(); } catch {} appliquerTheme(); }
+
+/* ---------- Photos de cartes envoyées par l'admin (prioritaires sur Wikipédia) ---------- */
+let PHOTOS_PERSO = {};
+const urlPhotoPerso = (id) => `/api/photo-perso/${id.replace(":", "~")}?v=${PHOTOS_PERSO[id]}`;
+const _photoHTMLv3 = photoHTML;
+photoHTML = function (c, locked) {
+  if (!PHOTOS_PERSO[c.id] || S.photos === false) return _photoHTMLv3(c, locked);
+  if (locked && c.type === "secrete") return "";
+  return `<img class="photo perso${locked ? " teaser" : ""}" src="${esc(urlPhotoPerso(c.id))}" alt="${locked ? "" : "Photo : " + esc(c.nom)}" loading="lazy">`;
+};
+function majPhotosPerso(id) {
+  for (const el of document.querySelectorAll(`.card[data-id="${CSS.escape(id)}"] .art`)) {
+    el.querySelector(".photo")?.remove();
+    const h = photoHTML(BY_ID[id], el.closest(".card").classList.contains("locked")); if (h) el.insertAdjacentHTML("afterbegin", h);
+  }
+}
+(async () => {
+  try {
+    PHOTOS_PERSO = (await api("photos/perso")).perso || {};
+    for (const id of Object.keys(PHOTOS_PERSO)) if (BY_ID[id]) majPhotosPerso(id);
+  } catch {}
+})();
+function choisirPhotoCarte(c) {
+  ouvrirModal(`<h2 style="margin-top:0">📷 Photo de « ${esc(c.nom)} »</h2>
+    <div class="photo-perso-apercu">${cardHTML(c, { locked: false })}</div>
+    <p class="muted">Envoyez votre propre photo pour cette carte : elle remplace la photo Wikipédia chez tous les joueurs. Format paysage conseillé (par exemple 1200 × 800), JPEG, PNG ou WebP ; l'image est compressée automatiquement.</p>
+    <div class="row" style="justify-content:flex-end;gap:8px;flex-wrap:wrap">
+      ${PHOTOS_PERSO[c.id] ? `<button class="btn" id="ppSuppr">Revenir à la photo d'origine</button>` : ""}
+      <label class="btn primary" style="cursor:pointer">Choisir une image<input type="file" id="ppFichier" accept="image/*" hidden></label></div>
+    <p class="muted" id="ppEtat" style="margin-bottom:0"></p>`);
+  $("#ppFichier").onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    $("#ppEtat").textContent = "Envoi en cours…";
+    try {
+      const image = await preparerVisuel(f);
+      const r = await api("admin/photo-perso", { methode: "POST", corps: { carte: c.id, image } });
+      PHOTOS_PERSO[c.id] = r.maj; majPhotosPerso(c.id); fermerModal(); toast("📷 Photo enregistrée pour tous les joueurs.");
+    } catch (err) { $("#ppEtat").textContent = "⚠ " + err.message; }
+  };
+  const sup = $("#ppSuppr");
+  if (sup) sup.onclick = async () => {
+    try { await api("admin/photo-perso/" + c.id.replace(":", "~"), { methode: "DELETE" }); delete PHOTOS_PERSO[c.id]; majPhotosPerso(c.id); fermerModal(); toast("Photo d'origine rétablie."); }
+    catch (err) { $("#ppEtat").textContent = "⚠ " + err.message; }
+  };
+}
+// Pour l'admin, « Photo incorrecte ? » devient « Changer la photo »
+const _signalerPhotoV3 = signalerPhoto;
+signalerPhoto = function (c) { return COMPTE?.admin ? choisirPhotoCarte(c) : _signalerPhotoV3(c); };
+const _ficheCarteV3 = ficheCarte;
+ficheCarte = function (c) {
+  const r = _ficheCarteV3.apply(this, arguments);
+  const a = $("#signalerPhoto"); if (a && COMPTE?.admin) a.textContent = "📷 Changer la photo de cette carte";
+  return r;
+};
+const _ficheCodexV3 = ficheCodex;
+ficheCodex = async function (c) {
+  const r = _ficheCodexV3.apply(this, arguments);
+  if (c && !has(c.id) && COMPTE?.admin) { const f = $(".codex-fiche"); if (f) { f.insertAdjacentHTML("beforeend", `<button class="btn" id="cxPhoto">📷 Changer la photo</button>`); $("#cxPhoto").onclick = () => choisirPhotoCarte(c); } }
+  return r;
+};
+// Onglet admin Photos : envoi direct d'une image pour n'importe quelle carte
+const _adminPhotosV3 = adminPhotos;
+adminPhotos = async function (el) {
+  const r = _adminPhotosV3(el);
+  el.insertAdjacentHTML("afterbegin", `<form class="panel form" id="fPhotoPerso" style="max-width:640px"><h3 style="margin:0">🖼️ Mettre ma propre photo sur une carte</h3>
+    <label>Carte<input id="ppCarte" list="ppListe" placeholder="Tapez le nom de la carte…" required><datalist id="ppListe"></datalist></label>
+    <button class="btn primary">Choisir la photo…</button>
+    <p class="muted" style="margin:0;font-size:13px">${Object.keys(PHOTOS_PERSO).length} carte(s) avec une photo personnalisée. Astuce : depuis la fiche d'une carte, le lien « Changer la photo » fait la même chose.</p></form>`);
+  $("#ppCarte").oninput = (e) => {
+    const q = sansAccents(e.target.value);
+    $("#ppListe").innerHTML = q.length < 2 ? "" : CARDS.filter((c) => sansAccents(c.nom).includes(q)).slice(0, 20).map((c) => `<option value="${esc(c.id)}">${esc(c.nom)} (${TYPES[c.type]})</option>`).join("");
+  };
+  $("#fPhotoPerso").onsubmit = (e) => {
+    e.preventDefault();
+    const v = $("#ppCarte").value.trim(), c = BY_ID[v] || CARDS.find((x) => sansAccents(x.nom) === sansAccents(v));
+    if (!c) return toast("⚠ Carte introuvable : choisissez-la dans la liste.");
+    choisirPhotoCarte(c);
+  };
+  return r;
+};
