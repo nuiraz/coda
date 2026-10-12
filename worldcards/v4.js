@@ -370,7 +370,8 @@ ficheCarte = function (c) {
 const prixEuros = (n) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
 const valeurPieces = (o) => o.pieces + Object.entries(o.boosters || {}).reduce((t, [k, n]) => t + (PACKS[k]?.prix || 0) * n, 0);
 function contenuPack(o) {
-  return [o.pieces ? `${fmt(o.pieces)} 🪙 pièces` : null, ...Object.entries(o.boosters || {}).filter(([k, n]) => n && PACKS[k]).map(([k, n]) => `${n} booster${n > 1 ? "s" : ""} ${PACKS[k].emoji} ${PACKS[k].nom}`)].filter(Boolean);
+  const cosm = o.cosmetique ? (() => { const [t, id] = o.cosmetique.split(":"); const i = infoCosm(t, id); return i ? `${i.ic || "🎨"} ${i.nom} (${{ dos: "dos de cartes", cadre: "cadre de profil", effet: "effet d'ouverture", titre: "titre" }[t] || t})` : o.cosmetique; })() : null;
+  return [cosm, o.pieces ? `${fmt(o.pieces)} 🪙 pièces` : null, ...Object.entries(o.boosters || {}).filter(([k, n]) => n && PACKS[k]).map(([k, n]) => `${n} booster${n > 1 ? "s" : ""} ${PACKS[k].emoji} ${PACKS[k].nom}`)].filter(Boolean);
 }
 async function blocPacks(el) {
   let r; try { r = await api("offres"); } catch { el.remove(); return; }
@@ -379,7 +380,7 @@ async function blocPacks(el) {
     <div class="packs-offres">${r.offres.map((o) => `<article class="offre ${o.badge ? "mise-en-avant" : ""}">
       ${o.badge ? `<span class="offre-badge">${esc(o.badge)}</span>` : ""}<h4>${esc(o.nom)}</h4><p class="muted">${esc(o.description)}</p>
       <ul>${contenuPack(o).map((l) => `<li>${l}</li>`).join("")}</ul>
-      <p class="offre-valeur">Contenu équivalent à ${fmt(valeurPieces(o))} 🪙 en jeu</p>
+      ${valeurPieces(o) ? `<p class="offre-valeur">Contenu équivalent à ${fmt(valeurPieces(o))} 🪙 en jeu</p>` : `<p class="offre-valeur">Purement décoratif : aucun avantage en combat</p>`}
       <div class="offre-prix">${o.prixReference ? `<s title="${esc(o.referenceNote)}">${prixEuros(o.prixReference)}</s>` : ""}<b>${prixEuros(o.prix)}</b></div>
       ${o.prixReference ? `<p class="offre-note">Prix de référence : ${esc(o.referenceNote)}</p>` : ""}
       ${o.uneFois ? `<p class="offre-note">Limité à un achat par compte.</p>` : ""}${o.fin ? `<p class="offre-note">Jusqu'au ${new Date(o.fin).toLocaleDateString("fr-FR")}.</p>` : ""}
@@ -431,6 +432,7 @@ async function adminOffres(el) {
         <label class="large">Justification du prix de référence<input name="referenceNote" value="${esc(o.referenceNote || "")}" maxlength="300" placeholder="Ex. : prix pratiqué du 1er au 30 septembre 2026"></label>
         <label>Pièces<input name="pieces" type="number" min="0" value="${o.pieces ?? 0}"></label>
         ${["monde", "argent", "or", "prestige"].map((k) => `<label>Boosters ${esc(PACKS[k]?.nom || k)}<input name="b_${k}" type="number" min="0" max="500" value="${o.boosters?.[k] ?? 0}"></label>`).join("")}
+        <label>Cosmétique (ex. effet:aurore, dos:galaxie)<input name="cosmetique" value="${esc(o.cosmetique || "")}" pattern="(dos|cadre|effet|titre):[a-z0-9-]{2,30}"></label>
         <label>Ordre<input name="ordre" type="number" min="0" max="99" value="${o.ordre ?? 0}"></label>
         <label>Début (facultatif)<input name="debut" type="datetime-local" value="${dateLocale(o.debut)}"></label>
         <label>Fin (facultatif)<input name="fin" type="datetime-local" value="${dateLocale(o.fin)}"></label>
@@ -1018,3 +1020,81 @@ async function vueAlbums(v) {
 }
 ajouterPage("albums", "📒", "Albums", vueAlbums);
 ICONES.albums = '<path d="M4 4h12a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h12"/>';
+
+/* ---------- Cosmétiques payants, effets d'ouverture ---------- */
+COSM.effet = {
+  aucun: { nom: "Sans effet", aide: "Par défaut", ok: () => true, ic: "▫️" },
+  aurore: { nom: "Aurore", aide: "Boutique (cosmétique)", ok: () => false, ic: "🌌", achat: true },
+  eclairs: { nom: "Éclairs", aide: "Boutique (cosmétique)", ok: () => false, ic: "⚡", achat: true },
+};
+COSM.dos.galaxie = { nom: "Galaxie (animé)", aide: "Boutique (cosmétique)", ok: () => false, ic: "🌌", achat: true };
+COSM.cadre.plasma = { nom: "Plasma (animé)", aide: "Boutique (cosmétique)", ok: () => false, achat: true };
+async function chargerAchatsCosmetiques() {
+  try {
+    const r = await api("cosmetiques/achetes");
+    for (const k of r.cosmetiques) { const [t, id] = k.split(":"); debloquerCosm(t, id); }
+    S.codeCreateur = r.codeCreateur; sauver();
+  } catch {}
+  try { const { dedicaces } = await api("dedicaces/moi"); S.dedicaces = Object.fromEntries(dedicaces.map((d) => [d.carte, d.signature])); sauver(); } catch {}
+}
+setTimeout(() => { if (typeof connecte === "function" && connecte()) chargerAchatsCosmetiques(); }, 3000);
+// Personnaliser : section « Effets d'ouverture » et achat des objets verrouillés
+const _vueStyleV4 = vueStyle;
+vueStyle = async function (v) {
+  await _vueStyleV4.apply(this, arguments);
+  const actuel = cosmChoisi("effet") || "aucun";
+  v.insertAdjacentHTML("beforeend", `<h3>✨ Effets d'ouverture de booster</h3><div class="cosm-grille">${Object.entries(COSM.effet).map(([id, i]) => { const ok = cosmDebloque("effet", id);
+    return `<button class="cosm ${actuel === id ? "on" : ""} ${ok ? "" : "verrou"}" data-effet="${id}" ${ok || i.achat ? "" : "disabled"}><span class="cosm-titre">${i.ic}</span><b>${esc(i.nom)}</b><small>${ok ? (actuel === id ? "✓ Équipé" : "Débloqué") : "🛍️ En boutique"}</small></button>`; }).join("")}</div>
+    <p class="muted" style="font-size:13px">Les objets marqués 🛍️ s'achètent dans la Boutique (section Packs). Ils sont purement décoratifs et n'apportent aucun avantage en combat.</p>`);
+  $$("[data-effet]", v).forEach((b) => b.onclick = () => { if (!cosmDebloque("effet", b.dataset.effet)) return aller("boosters"); S.cosmetiques = { ...(S.cosmetiques || {}), effet: b.dataset.effet }; sauver(); vueStyle(v); });
+  $$(".cosm.verrou[disabled]", v).forEach((b) => { const i = infoCosm(b.dataset.type, b.dataset.id); if (i?.achat) { b.disabled = false; b.onclick = () => aller("boosters"); b.querySelector("small").textContent = "🛍️ En boutique"; } });
+};
+const _ouvrirBoosterV4 = ouvrirBooster;
+ouvrirBooster = function (type) {
+  const r = _ouvrirBoosterV4.apply(this, arguments);
+  const effet = cosmChoisi("effet");
+  if (effet && effet !== "aucun") { const sc = $("#pkScene"); if (sc) { sc.insertAdjacentHTML("afterbegin", `<div class="effet-ouverture effet-${effet}" aria-hidden="true"></div>`); setTimeout(() => $(".effet-ouverture")?.remove(), 6000); } }
+  return r;
+};
+
+/* ---------- Cartes dédicacées ---------- */
+const _cardHTMLV4 = cardHTML;
+cardHTML = function (c, opts = {}) {
+  const h = _cardHTMLV4.apply(this, arguments);
+  const sig = c && S.dedicaces?.[c.id];
+  if (!sig || !(opts.locked === false || has(c.id))) return h;
+  return h.replace('<div class="in">', `<div class="in"><span class="dedicace" title="Carte dédicacée">✍️ ${esc(sig)}</span>`);
+};
+
+/* ---------- Code créateur (Mon compte) ---------- */
+const _vueCompteV4b = vueCompte;
+vueCompte = function (v) {
+  const r = _vueCompteV4b.apply(this, arguments);
+  if (typeof connecte === "function" && connecte() && !$("#blocCreateur", v)) {
+    const s = document.createElement("section"); s.className = "panel"; s.id = "blocCreateur";
+    ($("#monProfilPublic", v)?.closest(".panel") || v.firstChild)?.after(s);
+    s.innerHTML = `<h3 style="margin-top:0">🎙️ Soutenir un créateur</h3><form class="row" id="fCreateur" style="gap:8px;flex-wrap:wrap"><input id="ccCode" placeholder="Code créateur" value="${esc(S.codeCreateur || "")}" maxlength="20" style="padding:9px 11px;border-radius:9px;border:1px solid var(--border);background:var(--panel2);color:var(--text)"><button class="btn">Enregistrer</button></form>
+      <p class="muted" style="font-size:13px;margin-bottom:0">Une partie de vos achats (packs, Premium) est reversée au créateur que vous soutenez, sans rien vous coûter de plus.</p><div id="ccMoi"></div>`;
+    $("#fCreateur").onsubmit = async (e) => {
+      e.preventDefault();
+      try { const r2 = await api("createur/soutien", { methode: "PUT", corps: { code: $("#ccCode").value } }); S.codeCreateur = r2.code; sauver(); toast(r2.code ? `🎙️ Vous soutenez ${esc(r2.createur)} !` : "Code retiré."); } catch (err) { toast("⚠ " + err.message); }
+    };
+    api("createur/moi").then(({ createur: c }) => { if (c) $("#ccMoi").innerHTML = `<div class="statgrid petit" style="margin-top:10px"><div class="stat"><b>${esc(c.code)}</b><span>mon code (${c.part} %)</span></div><div class="stat"><b>${c.soutiens}</b><span>joueurs me soutiennent</span></div><div class="stat"><b>${c.ventes}</b><span>achats</span></div><div class="stat"><b>${c.gains.toFixed(2)} €</b><span>ma part</span></div></div>`; }).catch(() => {});
+  }
+  return r;
+};
+/* ---------- Admin : créateurs et dédicaces ---------- */
+async function adminCreateurs(el) {
+  el.innerHTML = `<section class="panel"><h3 style="margin-top:0">🎙️ Créateurs</h3><p class="muted">Chaque créateur a un code ; ses soutiens reversent une part (en %) de leurs achats Stripe. Le montant dû est calculé automatiquement ; le versement se fait de votre côté.</p>
+      <form class="rf-grille" id="fCr"><label>Pseudo du créateur<input name="pseudo" required></label><label>Code<input name="code" required maxlength="20"></label><label>Part reversée (%)<input name="part" type="number" min="0" max="50" value="10"></label><label class="check"><input name="actif" type="checkbox" checked> Actif</label><button class="btn primary">Enregistrer</button></form><div id="crListe" class="muted">Chargement…</div></section>
+    <section class="panel"><h3 style="margin-top:0">✍️ Offrir une carte dédicacée</h3><form class="rf-grille" id="fDed"><label>Pseudo du joueur<input name="pseudo" required></label><label>Carte<input name="carte" list="dedListe" required placeholder="Nom de la carte…"><datalist id="dedListe"></datalist></label><label>Signature<input name="signature" required maxlength="24" placeholder="Ex. : Skiuez"></label><button class="btn primary">Offrir</button></form></section>`;
+  const charger = async () => { try { const { createurs } = await api("admin/createurs"); $("#crListe").innerHTML = createurs.length ? `<table class="classement"><tbody>${createurs.map((c) => `<tr><td><b>${esc(c.code)}</b></td><td>${esc(c.pseudo)}</td><td>${c.part} %</td><td>${c.soutiens} soutiens</td><td>${c.ventes} ventes</td><td><b>${c.du.toFixed(2)} €</b> dus</td><td>${c.actif ? "✅" : "⏸️"}</td></tr>`).join("")}</tbody></table>` : "Aucun créateur."; } catch (e) { $("#crListe").textContent = e.message; } };
+  $("#fCr").onsubmit = async (e) => { e.preventDefault(); const d = Object.fromEntries(new FormData(e.target)); d.actif = e.target.actif.checked; try { await api("admin/createurs", { methode: "PUT", corps: d }); toast("🎙️ Créateur enregistré."); charger(); } catch (err) { toast("⚠ " + err.message); } };
+  $("#fDed [name=carte]").oninput = (e) => { const q = sansAccents(e.target.value); $("#dedListe").innerHTML = q.length < 2 ? "" : CARDS.filter((c) => sansAccents(c.nom).includes(q)).slice(0, 15).map((c) => `<option value="${esc(c.nom)}">`).join(""); };
+  $("#fDed").onsubmit = async (e) => {
+    e.preventDefault(); const d = Object.fromEntries(new FormData(e.target)); const c = CARDS.find((x) => sansAccents(x.nom) === sansAccents(d.carte));
+    if (!c) return toast("⚠ Choisissez la carte dans la liste.");
+    try { await api("admin/dedicaces", { methode: "POST", corps: { ...d, carte: c.id } }); toast("✍️ Carte dédicacée envoyée."); e.target.reset(); } catch (err) { toast("⚠ " + err.message); }
+  };
+  charger();
+}

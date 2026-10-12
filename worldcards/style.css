@@ -2014,3 +2014,15 @@ body[data-fond-streamer="vert"] { background: #00b140 !important; } body[data-fo
 .albums { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
 .album { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); }
 .album header { display: flex; gap: 10px; align-items: center; } .album header div { display: flex; flex-direction: column; } .al-ic { font-size: 30px; }
+/* Cosmétiques payants */
+.dos-galaxie { background: radial-gradient(circle at 30% 30%, #6b4bd8, transparent 50%), radial-gradient(circle at 70% 70%, #1e88e5, transparent 50%), #0b0b2a !important; background-size: 200% 200% !important; animation: galaxie 6s ease-in-out infinite alternate; }
+@keyframes galaxie { from { background-position: 0% 0%; } to { background-position: 100% 100%; } }
+.avatar.cadre-plasma { box-shadow: 0 0 0 3px #7c4dff, 0 0 14px #00e5ff; animation: plasma 2.4s linear infinite; }
+@keyframes plasma { 0% { box-shadow: 0 0 0 3px #7c4dff, 0 0 12px #00e5ff; } 50% { box-shadow: 0 0 0 3px #00e5ff, 0 0 18px #ff4081; } 100% { box-shadow: 0 0 0 3px #7c4dff, 0 0 12px #00e5ff; } }
+.effet-ouverture { position: absolute; inset: 0; pointer-events: none; z-index: 0; border-radius: 24px; }
+.effet-aurore { background: linear-gradient(120deg, transparent 20%, rgba(80, 255, 180, .25), rgba(120, 140, 255, .3), transparent 80%); background-size: 300% 100%; animation: aurore 3s ease-in-out infinite; }
+@keyframes aurore { 0% { background-position: 0% 0; opacity: .3; } 50% { opacity: 1; } 100% { background-position: 100% 0; opacity: .3; } }
+.effet-eclairs { animation: eclairs 1.6s steps(1) 3; }
+@keyframes eclairs { 0%, 100% { background: transparent; } 10% { background: rgba(200, 220, 255, .35); } 14% { background: transparent; } 18% { background: rgba(255, 255, 255, .5); } 22% { background: transparent; } }
+.poke-scene { position: relative; }
+.card .dedicace { position: absolute; z-index: 6; left: 50%; bottom: 23%; transform: translateX(-50%) rotate(-6deg); padding: 1px 8px; border-radius: 6px; background: rgba(255, 255, 255, .92); color: #2b1d6b; font: italic 700 8cqw "Brush Script MT", "Segoe Script", cursive; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.3); }

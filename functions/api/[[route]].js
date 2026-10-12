@@ -100,6 +100,10 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS photos_perso ( carte TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS rangs ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, couleur TEXT NOT NULL DEFAULT '#888888', description TEXT NOT NULL DEFAULT '', min_pts INTEGER NOT NULL DEFAULT 0, max_pts INTEGER, ordre INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, divisions INTEGER NOT NULL DEFAULT 1, montee TEXT NOT NULL DEFAULT '', descente TEXT NOT NULL DEFAULT '', recompense_pieces INTEGER NOT NULL DEFAULT 0, recompense_boosters INTEGER NOT NULL DEFAULT 0, logo TEXT, logo_maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS offres ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', badge TEXT NOT NULL DEFAULT '', prix_cents INTEGER NOT NULL, prix_reference_cents INTEGER, reference_note TEXT NOT NULL DEFAULT '', pieces INTEGER NOT NULL DEFAULT 0, boosters TEXT NOT NULL DEFAULT '{}', une_fois INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, ordre INTEGER NOT NULL DEFAULT 0, debut INTEGER, fin INTEGER, maj INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS cosmetiques_achats ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, cle TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, cle) )`,
+  `CREATE TABLE IF NOT EXISTS createurs ( code TEXT PRIMARY KEY COLLATE NOCASE, user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE, part INTEGER NOT NULL DEFAULT 10, actif INTEGER NOT NULL DEFAULT 1, cree_le INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS createurs_ventes ( commande TEXT PRIMARY KEY, createur_id INTEGER NOT NULL, acheteur_id INTEGER NOT NULL, montant TEXT NOT NULL, part TEXT NOT NULL, cree_le INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS dedicaces ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, carte TEXT NOT NULL, signature TEXT NOT NULL, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS echanges_directs ( id INTEGER PRIMARY KEY AUTOINCREMENT, a_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, b_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, statut TEXT NOT NULL DEFAULT 'ouvert', offre_a TEXT NOT NULL DEFAULT '{"cartes":[],"pieces":0}', offre_b TEXT NOT NULL DEFAULT '{"cartes":[],"pieces":0}', ok_a INTEGER NOT NULL DEFAULT 0, ok_b INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS guerres ( semaine TEXT NOT NULL, g1 INTEGER NOT NULL, g2 INTEGER, fini INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (semaine, g1) )`,
   `CREATE TABLE IF NOT EXISTS albums_termines ( cle TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, pseudo TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (cle, user_id) )`,
@@ -140,6 +144,8 @@ const MIGRATIONS = [
   `ALTER TABLE users ADD COLUMN confidentialite TEXT`,
   `ALTER TABLE users ADD COLUMN banniere TEXT`,
   `ALTER TABLE combats ADD COLUMN actions TEXT`,
+  `ALTER TABLE offres ADD COLUMN cosmetique TEXT`,
+  `ALTER TABLE users ADD COLUMN code_createur TEXT`,
   `ALTER TABLE duels ADD COLUMN aleatoire INTEGER NOT NULL DEFAULT 0`,
 ];
 let schemaPret = false;
@@ -2004,7 +2010,7 @@ route("POST", "stripe/checkout", async ({ request, env, user }) => {
   if (formule !== "passe" && (user.premium_jusqu || 0) >= PREMIUM_VIE) return erreur("Vous êtes déjà Premium à vie !");
   if (formule !== "passe" && await env.DB.prepare("SELECT 1 FROM abonnements_stripe WHERE user_id = ? AND formule IN ('mois', 'an') AND statut IN ('active', 'trialing')").bind(user.id).first() && formule !== "vie")
     return erreur("Vous avez déjà un abonnement Premium actif : gérez-le avec « Gérer mon abonnement ».");
-  const origine = new URL(request.url).origin, meta = { user_id: String(user.id), formule, pseudo: user.pseudo };
+  const origine = new URL(request.url).origin, meta = { user_id: String(user.id), formule, pseudo: user.pseudo, createur: user.code_createur || undefined };
   const session = await stripeApi(env, "POST", "checkout/sessions", {
     mode: formule === "vie" ? "payment" : "subscription",
     line_items: [{ price: PRIX_STRIPE[formule], quantity: 1 }],
@@ -2042,6 +2048,7 @@ async function activerSessionStripe(env, ctx, s) {
   if (formule === "vie") await env.DB.prepare("UPDATE users SET premium_jusqu = ? WHERE id = ?").bind(PREMIUM_VIE, userId).run();
   else if (s.subscription) await appliquerAbonnement(env, ctx, userId, formule, typeof s.subscription === "string" ? await stripeApi(env, "GET", "subscriptions/" + s.subscription) : s.subscription);
   if (neuf.meta.changes) {
+    await enregistrerVenteCreateur(env, s, userId);
     const u = await env.DB.prepare("SELECT pseudo FROM users WHERE id = ?").bind(userId).first();
     enArrierePlan(ctx, prevenirAdmins(env, { titre: "💰 Paiement Stripe reçu", texte: `${u?.pseudo} : ${NOMS_FORMULES[formule]} (${((s.amount_total || 0) / 100).toFixed(2)} €)`, url: "./#admin" }));
     enArrierePlan(ctx, envoyerPush(env, userId, { titre: formule === "passe" ? "🎟️ Passe de saison activé !" : "💎 Premium activé !", texte: "Merci pour votre achat. Bon jeu !", url: formule === "passe" ? "./#passe" : "./#premium" }));
@@ -2539,16 +2546,27 @@ const OFFRES_DEFAUT = [
   ["legendaire", "Pack Légendaire", "", "Le pack ultime pour les chasseurs de légendaires.", 4999, 40000, { monde: 30, argent: 20, or: 15 }, 0],
 ];
 const TYPES_BOOSTERS_PACK = ["monde", "argent", "or", "prestige", "halloween", "noel"];
+// Cosmétiques payants : n'apportent aucun avantage en jeu
+const OFFRES_COSMETIQUES = [
+  ["cosm-aurore", "Effet d'ouverture « Aurore »", "Des voiles de lumière boréale à chaque booster ouvert.", 199, "effet:aurore"],
+  ["cosm-eclairs", "Effet d'ouverture « Éclairs »", "Un orage électrique quand vous déchirez un booster.", 199, "effet:eclairs"],
+  ["cosm-dos-galaxie", "Dos de cartes animé « Galaxie »", "Un dos de cartes animé, visible à chaque ouverture.", 249, "dos:galaxie"],
+  ["cosm-cadre-plasma", "Cadre de profil « Plasma »", "Un cadre animé autour de votre avatar, visible par tous.", 249, "cadre:plasma"],
+];
 async function chargerOffres(env) {
   let { results } = await env.DB.prepare("SELECT * FROM offres ORDER BY ordre, prix_cents").all();
-  if (!results.length) {
+  if (!results.some((o) => o.cle === "cosm-aurore")) {
+    await env.DB.batch(OFFRES_COSMETIQUES.map(([cle, nom, desc, prix, cosm], i) => env.DB.prepare("INSERT OR IGNORE INTO offres (cle, nom, badge, description, prix_cents, pieces, boosters, une_fois, ordre, maj, cosmetique) VALUES (?, ?, 'Cosmétique', ?, ?, 0, '{}', 1, ?, ?, ?)").bind(cle, nom, desc, prix, 20 + i, maintenant(), cosm)));
+    ({ results } = await env.DB.prepare("SELECT * FROM offres ORDER BY ordre, prix_cents").all());
+  }
+  if (!results.length || !results.some((o) => !o.cosmetique)) {
     await env.DB.batch(OFFRES_DEFAUT.map(([cle, nom, badge, description, prix, pieces, boosters, uneFois], i) =>
       env.DB.prepare("INSERT OR IGNORE INTO offres (cle, nom, badge, description, prix_cents, pieces, boosters, une_fois, ordre, maj) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(cle, nom, badge, description, prix, pieces, JSON.stringify(boosters), uneFois, i, maintenant())));
     ({ results } = await env.DB.prepare("SELECT * FROM offres ORDER BY ordre, prix_cents").all());
   }
   return results.map((o) => ({ ...o, boosters: (() => { try { return JSON.parse(o.boosters) || {}; } catch { return {}; } })() }));
 }
-const offrePublique = (o, deja) => ({ cle: o.cle, nom: o.nom, description: o.description, badge: o.badge, prix: o.prix_cents / 100,
+const offrePublique = (o, deja) => ({ cle: o.cle, nom: o.nom, description: o.description, badge: o.badge, prix: o.prix_cents / 100, cosmetique: o.cosmetique || null,
   prixReference: o.prix_reference_cents ? o.prix_reference_cents / 100 : null, referenceNote: o.reference_note, pieces: o.pieces, boosters: o.boosters,
   uneFois: !!o.une_fois, dejaAchete: !!deja, debut: o.debut, fin: o.fin });
 const offreDisponible = (o) => o.actif && (!o.debut || o.debut <= maintenant()) && (!o.fin || o.fin > maintenant());
@@ -2564,11 +2582,12 @@ route("POST", "stripe/pack", async ({ request, env, user }) => {
   if (b.renonciation !== true) return erreur("Vous devez demander la livraison immédiate du contenu numérique pour continuer.");
   if (o.une_fois && await env.DB.prepare("SELECT 1 FROM paiements WHERE user_id = ? AND formule = ? AND statut = 'paye'").bind(user.id, "pack:" + o.cle).first()) return erreur("Cette offre est limitée à un achat par compte.");
   const origine = new URL(request.url).origin;
-  const contenu = JSON.stringify({ p: o.pieces, b: o.boosters });
-  const meta = { user_id: String(user.id), formule: "pack", pack: o.cle, nom: o.nom, contenu, renonciation: "oui" };
+  const contenu = JSON.stringify({ p: o.pieces, b: o.boosters, c: o.cosmetique || undefined });
+  const meta = { user_id: String(user.id), formule: "pack", pack: o.cle, nom: o.nom, contenu, renonciation: "oui", createur: user.code_createur || undefined };
+  if (o.cosmetique && await env.DB.prepare("SELECT 1 FROM cosmetiques_achats WHERE user_id = ? AND cle = ?").bind(user.id, o.cosmetique).first()) return erreur("Vous possédez déjà cet objet.");
   const session = await stripeApi(env, "POST", "checkout/sessions", {
     mode: "payment",
-    line_items: [{ quantity: 1, price_data: { currency: "eur", unit_amount: o.prix_cents, product_data: { name: `Play2F1 — ${o.nom}`, description: `${o.pieces} pièces et ${Object.values(o.boosters).reduce((t, n) => t + n, 0)} boosters (contenu numérique livré immédiatement)` } } }],
+    line_items: [{ quantity: 1, price_data: { currency: "eur", unit_amount: o.prix_cents, product_data: { name: `Play2F1 — ${o.nom}`, description: o.cosmetique && !o.pieces ? "Objet cosmétique (contenu numérique livré immédiatement)" : `${o.pieces} pièces et ${Object.values(o.boosters).reduce((t, n) => t + n, 0)} boosters (contenu numérique livré immédiatement)` } } }],
     success_url: `${origine}/?stripe_session={CHECKOUT_SESSION_ID}`, cancel_url: `${origine}/?stripe=annule#boosters`,
     client_reference_id: String(user.id), metadata: meta, payment_intent_data: { metadata: meta }, locale: "fr",
     customer: user.stripe_client || undefined, customer_creation: user.stripe_client ? undefined : "always",
@@ -2586,6 +2605,8 @@ async function livrerPack(env, ctx, s, userId) {
   const detail = {};
   for (const [k, n] of Object.entries(contenu.b || {})) if (TYPES_BOOSTERS_PACK.includes(k) && Number(n) > 0) detail[k] = Math.min(500, Math.round(Number(n)));
   const monde = detail.monde || 0; delete detail.monde;
+  if (contenu.c && /^(dos|cadre|effet|titre):[a-z0-9-]{2,30}$/.test(contenu.c)) await env.DB.prepare("INSERT OR IGNORE INTO cosmetiques_achats (user_id, cle, cree_le) VALUES (?, ?, ?)").bind(userId, contenu.c, maintenant()).run();
+  await enregistrerVenteCreateur(env, s, userId);
   await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, boosters_detail, message, cree_le) VALUES (?, ?, ?, ?, ?, ?)")
     .bind(userId, Math.min(1000000, Math.round(Number(contenu.p) || 0)), monde, JSON.stringify(detail), `${s.metadata?.nom || "Pack"} : merci pour votre achat !`, maintenant()).run();
   const u = await env.DB.prepare("SELECT pseudo FROM users WHERE id = ?").bind(userId).first();
@@ -2609,11 +2630,13 @@ route("PUT", "admin/offres/([a-z0-9-]{2,30})", async ({ request, env, user, p })
   const boosters = {};
   for (const k of TYPES_BOOSTERS_PACK) { const n = Math.round(nombre(b.boosters?.[k], 0, 500, 0)); if (n) boosters[k] = n; }
   const date = (x) => (x ? Date.parse(x) || null : null);
+  const cosm = /^(dos|cadre|effet|titre):[a-z0-9-]{2,30}$/.test(b.cosmetique || "") ? b.cosmetique : null;
   await env.DB.prepare(`INSERT INTO offres (cle, nom, description, badge, prix_cents, prix_reference_cents, reference_note, pieces, boosters, une_fois, actif, ordre, debut, fin, maj) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(cle) DO UPDATE SET nom = excluded.nom, description = excluded.description, badge = excluded.badge, prix_cents = excluded.prix_cents, prix_reference_cents = excluded.prix_reference_cents,
     reference_note = excluded.reference_note, pieces = excluded.pieces, boosters = excluded.boosters, une_fois = excluded.une_fois, actif = excluded.actif, ordre = excluded.ordre, debut = excluded.debut, fin = excluded.fin, maj = excluded.maj`)
     .bind(p[1], nom, String(b.description || "").slice(0, 300), String(b.badge || "").slice(0, 40), prix, ref, ref ? note : "", Math.round(nombre(b.pieces, 0, 1000000, 0)), JSON.stringify(boosters),
       b.uneFois ? 1 : 0, b.actif ? 1 : 0, Math.round(nombre(b.ordre, 0, 99, 0)), date(b.debut), date(b.fin), maintenant()).run();
+  await env.DB.prepare("UPDATE offres SET cosmetique = ? WHERE cle = ?").bind(cosm, p[1]).run();
   await journaliser(env, user.id, `offre ${p[1]} enregistrée`, `${nom} · ${(prix / 100).toFixed(2)} €`, "admin");
   return json({ ok: true });
 }, { admin: true });
@@ -2622,6 +2645,75 @@ route("PUT", "admin/offres/([a-z0-9-]{2,30})", async ({ request, env, user, p })
 
 
 
+
+
+/* =====================================================================
+   Cosmétiques achetés, code créateur (part reversée sur les achats des joueurs qui le soutiennent), cartes dédicacées
+   ===================================================================== */
+route("GET", "cosmetiques/achetes", async ({ env, user }) => {
+  const { results } = await env.DB.prepare("SELECT cle FROM cosmetiques_achats WHERE user_id = ?").bind(user.id).all();
+  return json({ cosmetiques: results.map((x) => x.cle), codeCreateur: user.code_createur || null });
+}, { connecte: true });
+async function enregistrerVenteCreateur(env, s, acheteurId) {
+  const code = String(s.metadata?.createur || "");
+  if (!code) return;
+  const c = await env.DB.prepare("SELECT user_id, part FROM createurs WHERE code = ? AND actif = 1").bind(code).first();
+  if (!c || c.user_id === acheteurId) return;
+  const montant = (s.amount_total || 0) / 100;
+  await env.DB.prepare("INSERT OR IGNORE INTO createurs_ventes (commande, createur_id, acheteur_id, montant, part, cree_le) VALUES (?, ?, ?, ?, ?, ?)").bind(s.id, c.user_id, acheteurId, montant.toFixed(2), ((montant * c.part) / 100).toFixed(2), maintenant()).run();
+}
+route("PUT", "createur/soutien", async ({ request, env, user }) => {
+  const b = await corps(request), code = String(b.code || "").trim();
+  if (!code) { await env.DB.prepare("UPDATE users SET code_createur = NULL WHERE id = ?").bind(user.id).run(); return json({ ok: true, code: null }); }
+  const c = await env.DB.prepare("SELECT c.code, u.pseudo, c.user_id FROM createurs c JOIN users u ON u.id = c.user_id WHERE c.code = ? AND c.actif = 1").bind(code).first();
+  if (!c) return erreur("Code créateur inconnu.");
+  if (c.user_id === user.id) return erreur("Vous ne pouvez pas utiliser votre propre code.");
+  await env.DB.prepare("UPDATE users SET code_createur = ? WHERE id = ?").bind(c.code, user.id).run();
+  return json({ ok: true, code: c.code, createur: c.pseudo });
+}, { connecte: true });
+route("GET", "createur/moi", async ({ env, user }) => {
+  const c = await env.DB.prepare("SELECT code, part, actif FROM createurs WHERE user_id = ?").bind(user.id).first();
+  if (!c) return json({ createur: null });
+  const st = await env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(CAST(part AS REAL)), 0) AS gains FROM createurs_ventes WHERE createur_id = ?").bind(user.id).first();
+  const soutiens = await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE code_createur = ?").bind(c.code).first();
+  return json({ createur: { code: c.code, part: c.part, actif: !!c.actif, ventes: st.n, gains: Math.round(st.gains * 100) / 100, soutiens: soutiens.n } });
+}, { connecte: true });
+route("GET", "admin/createurs", async ({ env }) => {
+  const { results } = await env.DB.prepare(`SELECT c.code, c.part, c.actif, u.pseudo, (SELECT COUNT(*) FROM users x WHERE x.code_createur = c.code) AS soutiens,
+      (SELECT COUNT(*) FROM createurs_ventes v WHERE v.createur_id = c.user_id) AS ventes, (SELECT COALESCE(SUM(CAST(v.part AS REAL)), 0) FROM createurs_ventes v WHERE v.createur_id = c.user_id) AS du
+    FROM createurs c JOIN users u ON u.id = c.user_id ORDER BY du DESC`).all();
+  return json({ createurs: results.map((x) => ({ ...x, actif: !!x.actif, du: Math.round(x.du * 100) / 100 })) });
+}, { admin: true });
+route("PUT", "admin/createurs", async ({ request, env, user }) => {
+  const b = await corps(request), code = String(b.code || "").trim().toUpperCase();
+  if (!/^[A-Z0-9_-]{3,20}$/.test(code)) return erreur("Code invalide (3 à 20 lettres, chiffres, - ou _).");
+  const u = await env.DB.prepare("SELECT id FROM users WHERE pseudo = ?").bind(String(b.pseudo || "")).first();
+  if (!u) return erreur("Joueur introuvable.", 404);
+  try {
+    await env.DB.prepare(`INSERT INTO createurs (code, user_id, part, actif, cree_le) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET code = excluded.code, part = excluded.part, actif = excluded.actif`)
+      .bind(code, u.id, Math.round(nombre(b.part, 0, 50, 10)), b.actif === false ? 0 : 1, maintenant()).run();
+  } catch { return erreur("Ce code est déjà utilisé par un autre créateur."); }
+  await journaliser(env, user.id, `créateur ${b.pseudo}`, `${code} · ${b.part}%`, "admin");
+  return json({ ok: true });
+}, { admin: true });
+// Cartes dédicacées : une variante signée, offerte par l'admin (concours, partenariat avec un streamer…)
+route("GET", "dedicaces/moi", async ({ env, user }) => {
+  const { results } = await env.DB.prepare("SELECT id, carte, signature, cree_le FROM dedicaces WHERE user_id = ? ORDER BY id DESC").bind(user.id).all();
+  return json({ dedicaces: results });
+}, { connecte: true });
+route("POST", "admin/dedicaces", async ({ request, env, user, ctx }) => {
+  const b = await corps(request);
+  const u = await env.DB.prepare("SELECT id FROM users WHERE pseudo = ?").bind(String(b.pseudo || "")).first();
+  if (!u) return erreur("Joueur introuvable.", 404);
+  if (!CATALOGUE[b.carte]) return erreur("Carte inconnue.");
+  const sig = nettoyerTexte(b.signature).slice(0, 24);
+  if (sig.length < 2) return erreur("Signature invalide.");
+  await env.DB.prepare("INSERT INTO dedicaces (user_id, carte, signature, cree_le) VALUES (?, ?, ?, ?)").bind(u.id, b.carte, sig, maintenant()).run();
+  await env.DB.prepare("INSERT INTO livraisons (user_id, carte, pieces, message, cree_le) VALUES (?, ?, 0, ?, ?)").bind(u.id, b.carte, `✍️ Carte dédicacée par ${sig}`, maintenant()).run();
+  enArrierePlan(ctx, envoyerPush(env, u.id, { titre: "✍️ Carte dédicacée !", texte: `Vous recevez ${CATALOGUE[b.carte].nom} dédicacée par ${sig}.`, url: "./#album" }));
+  await journaliser(env, user.id, `dédicace pour ${b.pseudo}`, `${b.carte} · ${sig}`, "admin");
+  return json({ ok: true });
+}, { admin: true });
 
 /* =====================================================================
    Échange en direct entre amis : chacun compose son offre, l'échange se fait quand les deux ont validé la même version
