@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v54"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v55"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -315,7 +315,8 @@ function chargerCarteMonde() {
     if (typeof d3 === "undefined") await script("vendor/d3.min.js");
     if (typeof topojson === "undefined") await script("vendor/topojson-client.min.js");
     if (typeof CARTE_MONDE === "undefined") await script("data/carte.js");
-    topojson.feature(CARTE_MONDE, CARTE_MONDE.objects.countries).features.forEach((f) => { if (f.id) FEATURES[f.id] = f; });
+    // Plusieurs objets peuvent porter le même code (ex. l'Australie et les îles Ashmore) : on garde le plus grand
+    topojson.feature(CARTE_MONDE, CARTE_MONDE.objects.countries).features.forEach((f) => { if (f.id && (!FEATURES[f.id] || d3.geoArea(f) > d3.geoArea(FEATURES[f.id]))) FEATURES[f.id] = f; });
     NUM_TO_CODE = Object.fromEntries(Object.entries(CODES_NUMERIQUES).map(([c, n]) => [n, c]));
   })();
   cartePrete.catch(() => { cartePrete = null; });
@@ -1785,7 +1786,7 @@ async function demarrer() {
   verifierProgression();
   chargerPhotos();
   initCompte();
-  if (!S.ouverts && !count(CARDS.map((c) => c.id))) {
+  if (!S.ouverts && !count(CARDS.map((c) => c.id)) && S.vue !== "defi") { // un visiteur venu jouer au défi du jour n'est pas interrompu
     ouvrirModal(`<div style="text-align:center"><div style="font-size:56px">🌐</div><h2>Bienvenue dans Play2F1 !</h2>
       <p>Collectionnez le monde : <b>195 pays</b>, des centaines de <b>villes</b>, de <b>monuments</b> et de <b>sites naturels</b>, des <b>animaux</b>, des <b>plats</b> et les <b>merveilles</b> du monde. Chaque carte a ses points d'attaque, de défense et de vie : construisez votre deck et combattez !</p>
       <p class="muted">Vous recevez <b>3 boosters</b> et <b>200 🪙</b> pour commencer, puis un <b>booster gratuit toutes les 12 heures</b>.</p>

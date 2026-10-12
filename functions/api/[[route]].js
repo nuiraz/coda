@@ -24,6 +24,8 @@ import PAYS_MOYENS from "../../worldcards/data/pays-moyens.js";
 import PAYS_PLUS from "../../worldcards/data/pays-plus.js";
 import SAISONS_DATA from "../../worldcards/data/saisons.js";
 import EVENEMENTS_DATA from "../../worldcards/data/evenements.js";
+import CENTRES_DATA from "../../worldcards/data/centres.js";
+import SILHOUETTES_DATA from "../../worldcards/data/silhouettes.js";
 
 const JOUR = 864e5;
 const SESSION_JOURS = 365; // on reste connecté un an (la session est prolongée à chaque visite)
@@ -100,6 +102,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS photos_perso ( carte TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS rangs ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, couleur TEXT NOT NULL DEFAULT '#888888', description TEXT NOT NULL DEFAULT '', min_pts INTEGER NOT NULL DEFAULT 0, max_pts INTEGER, ordre INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, divisions INTEGER NOT NULL DEFAULT 1, montee TEXT NOT NULL DEFAULT '', descente TEXT NOT NULL DEFAULT '', recompense_pieces INTEGER NOT NULL DEFAULT 0, recompense_boosters INTEGER NOT NULL DEFAULT 0, logo TEXT, logo_maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS offres ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', badge TEXT NOT NULL DEFAULT '', prix_cents INTEGER NOT NULL, prix_reference_cents INTEGER, reference_note TEXT NOT NULL DEFAULT '', pieces INTEGER NOT NULL DEFAULT 0, boosters TEXT NOT NULL DEFAULT '{}', une_fois INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, ordre INTEGER NOT NULL DEFAULT 0, debut INTEGER, fin INTEGER, maj INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS defi_jour ( jour TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, essais TEXT NOT NULL DEFAULT '[]', fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL, PRIMARY KEY (jour, user_id) )`,
   `CREATE TABLE IF NOT EXISTS activite ( user_id INTEGER NOT NULL, jour TEXT NOT NULL, PRIMARY KEY (user_id, jour) )`,
   `CREATE TABLE IF NOT EXISTS notifs_campagnes ( id INTEGER PRIMARY KEY AUTOINCREMENT, titre TEXT NOT NULL, texte TEXT NOT NULL, url TEXT NOT NULL, cible TEXT NOT NULL, total INTEGER NOT NULL DEFAULT 0, envoyes INTEGER NOT NULL DEFAULT 0, par TEXT, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS notifs_file ( campagne_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (campagne_id, user_id) )`,
@@ -2952,6 +2955,101 @@ route("POST", "admin/discord/tester", async ({ env }) => {
   const ok = await annoncerDiscord(env, null, { titre: "👋 Play2F1 est connecté à Discord", texte: "Les annonces automatiques (légendaires, tournois, événements) arriveront dans ce salon.", url: "./" });
   return ok ? json({ ok: true }) : erreur("Discord n'a pas accepté le message : vérifiez le webhook.", 502);
 }, { admin: true });
+
+/* =====================================================================
+   Défi du jour : deviner un pays d'après sa silhouette, en 6 essais (le même pour tout le monde).
+   Chaque essai donne la distance, la direction et la proximité. Ouvert à tous, récompensé pour les comptes.
+   ===================================================================== */
+const CENTRES = CENTRES_DATA.CENTRES_PAYS, SILS = SILHOUETTES_DATA.SILHOUETTES;
+const NOMS_PAYS = Object.fromEntries(MONDE.PAYS_BRUTS.map((p) => [p[0], p[1]]));
+const PAYS_DEVINABLES = Object.keys(CENTRES).filter((c) => NOMS_PAYS[c]);
+// Pays tirés : assez grands pour être reconnaissables (plus de 20 000 km²)
+const POOL_DEFI = PAYS_DEVINABLES.filter((c) => CENTRES[c][2] > 20000 && SILS[c]).sort();
+const ESSAIS_DEFI = 6, RECOMPENSES_DEFI = [0, 400, 300, 250, 200, 150, 100];
+const jourBruxelles = (t = maintenant()) => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Europe/Brussels" });
+const numeroDefi = (jour) => Math.round((Date.parse(jour + "T12:00:00Z") - Date.parse("2026-10-12T12:00:00Z")) / JOUR) + 1;
+let ordreDefi = null;
+async function paysDuJour(env, jour) {
+  if (!ordreDefi) {
+    let sel = await lireConfig(env, "defi_sel");
+    if (!sel) { sel = [...aleatoire(8)].map((x) => x.toString(16).padStart(2, "0")).join(""); await ecrireConfig(env, "defi_sel", sel); }
+    // Ordre secret mélangé une fois pour toutes : aucun pays ne revient avant que tous soient passés
+    const rng = COMBAT.rng(COMBAT.hash("defi:" + sel)), o = POOL_DEFI.slice();
+    for (let i = o.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; }
+    ordreDefi = o;
+  }
+  const n = numeroDefi(jour);
+  return ordreDefi[((n - 1) % ordreDefi.length + ordreDefi.length) % ordreDefi.length];
+}
+const FLECHES = ["⬆️", "↗️", "➡️", "↘️", "⬇️", "↙️", "⬅️", "↖️"];
+function comparerPays(code, cible) {
+  if (code === cible) return { code, nom: NOMS_PAYS[code], distance: 0, fleche: "🎯", proximite: 100, juste: true };
+  const [la1, lo1] = CENTRES[code], [la2, lo2] = CENTRES[cible], r = Math.PI / 180;
+  const dLa = (la2 - la1) * r, dLo = (lo2 - lo1) * r;
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(la1 * r) * Math.cos(la2 * r) * Math.sin(dLo / 2) ** 2;
+  const distance = Math.round(2 * 6371 * Math.asin(Math.sqrt(h)));
+  const cap = (Math.atan2(Math.sin(dLo) * Math.cos(la2 * r), Math.cos(la1 * r) * Math.sin(la2 * r) - Math.sin(la1 * r) * Math.cos(la2 * r) * Math.cos(dLo)) / r + 360) % 360;
+  return { code, nom: NOMS_PAYS[code], distance, fleche: FLECHES[Math.round(cap / 45) % 8], proximite: Math.max(0, Math.round((1 - distance / 20015) * 100)), juste: false };
+}
+async function serieDefi(env, userId, jour) {
+  const { results } = await env.DB.prepare("SELECT jour FROM defi_jour WHERE user_id = ? AND gagne = 1 ORDER BY jour DESC LIMIT 400").bind(userId).all();
+  let serie = 0, attendu = jour;
+  if (results[0] && results[0].jour !== jour) attendu = jourBruxelles(Date.parse(jour + "T12:00:00Z") - JOUR); // la série tient jusqu'au soir
+  for (const { jour: j } of results) { if (j !== attendu) break; serie++; attendu = jourBruxelles(Date.parse(j + "T12:00:00Z") - JOUR); }
+  return serie;
+}
+route("GET", "defi", async ({ env, user }) => {
+  const jour = jourBruxelles(), cible = await paysDuJour(env, jour);
+  const ligne = user ? await env.DB.prepare("SELECT essais, fini, gagne FROM defi_jour WHERE jour = ? AND user_id = ?").bind(jour, user.id).first() : null;
+  const { results: top } = await env.DB.prepare(`SELECT u.pseudo, json_array_length(d.essais) AS n, d.maj FROM defi_jour d JOIN users u ON u.id = d.user_id
+    WHERE d.jour = ? AND d.gagne = 1 AND u.banni = 0 ORDER BY n, d.maj LIMIT 10`).bind(jour).all();
+  const stats = await env.DB.prepare("SELECT COUNT(*) AS joueurs, SUM(gagne) AS gagnants FROM defi_jour WHERE jour = ? AND fini = 1").bind(jour).first();
+  return json({ jour, numero: numeroDefi(jour), silhouette: SILS[cible], essaisMax: ESSAIS_DEFI, pays: PAYS_DEVINABLES.map((c) => [c, NOMS_PAYS[c]]),
+    essais: ligne ? JSON.parse(ligne.essais) : null, fini: !!ligne?.fini, gagne: !!ligne?.gagne, solution: ligne?.fini ? { code: cible, nom: NOMS_PAYS[cible] } : null,
+    serie: user ? await serieDefi(env, user.id, jour) : 0, top, joueurs: stats.joueurs || 0, gagnants: stats.gagnants || 0, recompenses: RECOMPENSES_DEFI });
+});
+route("POST", "defi/essai", async ({ request, env, user, ctx }) => {
+  const b = await corps(request), jour = jourBruxelles(), cible = await paysDuJour(env, jour);
+  const code = String(b.code || "").toUpperCase();
+  if (!CENTRES[code] || !NOMS_PAYS[code]) return erreur("Pays inconnu : choisissez-le dans la liste.");
+  if (!user) {
+    // Sans compte : rien n'est enregistré (le navigateur garde les essais), la solution est donnée au 6e essai
+    const n = Math.min(ESSAIS_DEFI, Math.max(1, Math.floor(Number(b.numero) || 1)));
+    const res = comparerPays(code, cible), fini = res.juste || n >= ESSAIS_DEFI;
+    return json({ resultat: res, fini, gagne: res.juste, solution: fini ? { code: cible, nom: NOMS_PAYS[cible] } : null });
+  }
+  const ligne = await env.DB.prepare("SELECT essais, fini FROM defi_jour WHERE jour = ? AND user_id = ?").bind(jour, user.id).first();
+  const essais = ligne ? JSON.parse(ligne.essais) : [];
+  if (ligne?.fini) return erreur("Vous avez déjà terminé le défi du jour. Revenez demain !");
+  if (essais.some((e) => e.code === code)) return erreur("Vous avez déjà proposé ce pays.");
+  const res = comparerPays(code, cible);
+  essais.push(res);
+  const fini = res.juste || essais.length >= ESSAIS_DEFI;
+  await env.DB.prepare(`INSERT INTO defi_jour (jour, user_id, essais, fini, gagne, maj) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(jour, user_id) DO UPDATE SET essais = excluded.essais, fini = excluded.fini, gagne = excluded.gagne, maj = excluded.maj WHERE defi_jour.fini = 0`)
+    .bind(jour, user.id, JSON.stringify(essais), fini ? 1 : 0, res.juste ? 1 : 0, maintenant()).run();
+  let recompense = 0;
+  if (res.juste) {
+    recompense = RECOMPENSES_DEFI[essais.length];
+    await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, ?, 0, ?, ?)").bind(user.id, recompense, `🌍 Défi du jour n° ${numeroDefi(jour)} trouvé en ${essais.length} essai${essais.length > 1 ? "s" : ""} !`, maintenant()).run();
+    if (typeof pointsNations === "function") enArrierePlan(ctx, pointsNations(env, user.id, 7 - essais.length, "defi"));
+  }
+  return json({ resultat: res, fini, gagne: res.juste, recompense, essais, solution: fini ? { code: cible, nom: NOMS_PAYS[cible] } : null, serie: fini ? await serieDefi(env, user.id, jour) : 0 });
+}, {});
+
+/* =====================================================================
+   Tutoriel des nouveaux joueurs : récompense unique quand les étapes sont faites
+   ===================================================================== */
+route("POST", "tuto/recompense", async ({ env, user }) => {
+  const s = await env.DB.prepare("SELECT data FROM sauvegardes WHERE user_id = ?").bind(user.id).first();
+  let sv = {}; try { sv = JSON.parse(s?.data || "{}").sauvegarde || {}; } catch {}
+  const combats = (sv.combat?.victoires || 0) + (sv.combat?.defaites || 0);
+  if (!((sv.ouverts || 0) >= 1 && (sv.deck || []).length >= 1 && combats >= 1)) return erreur("Terminez d'abord toutes les étapes (la progression est enregistrée toutes les quelques secondes : réessayez dans un instant).");
+  const r = await env.DB.prepare("INSERT OR IGNORE INTO notifs_envoyees (user_id, type, cle, cree_le) VALUES (?, 'tuto', 'recompense', ?)").bind(user.id, maintenant()).run();
+  if (!r.meta.changes) return erreur("Récompense déjà récupérée.", 409);
+  await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, boosters_detail, message, cree_le) VALUES (?, 500, 2, ?, ?, ?)").bind(user.id, JSON.stringify({ argent: 1 }), "🎓 Tutoriel terminé : bienvenue dans Play2F1 !", maintenant()).run();
+  return json({ ok: true });
+}, { connecte: true });
 
 /* =====================================================================
    Suivi des joueurs : rétention (J1, J7, J30), joueurs actifs et entonnoir des nouveaux

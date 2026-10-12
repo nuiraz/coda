@@ -2077,3 +2077,35 @@ body[data-fond-streamer="vert"] { background: #00b140 !important; } body[data-fo
 .ret-pc { font-weight: 700; color: color-mix(in srgb, #e2433b calc(100% - var(--p) * 1%), #2fbf71); }
 @media (max-width: 560px) { .et-ligne { grid-template-columns: 1fr 50px; } .et-ligne .et-barre { grid-column: 1 / -1; grid-row: 2; } .et-ligne small { display: none; } }
 .rf-grille > [hidden], .toolbar[hidden] { display: none !important; }
+/* ===== Défi du jour ===== */
+.df-grille { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+@media (max-width: 820px) { .df-grille { grid-template-columns: 1fr; } }
+.df-jeu { display: grid; gap: 12px; }
+.df-num { text-align: center; font-weight: 700; color: var(--muted); }
+.df-sil { display: grid; place-items: center; padding: 10px; border-radius: 18px; background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--accent) 14%, var(--panel2)), var(--panel2)); }
+.df-sil svg { width: min(300px, 70vw); height: min(300px, 70vw); }
+.df-sil path { fill: var(--text); stroke: none; transition: fill .4s; }
+.df-sil.gagne path { fill: #2fbf71; } .df-sil.perdu path { fill: #e2433b; }
+.df-essais { display: grid; gap: 6px; }
+.df-essai { display: grid; grid-template-columns: minmax(0, 1fr) 90px 34px 110px; gap: 8px; align-items: center; min-height: 40px; padding: 4px 10px; border-radius: 10px; background: var(--panel2); font-size: 14px; }
+.df-essai.vide { opacity: .45; } .df-essai.juste { background: color-mix(in srgb, #2fbf71 30%, var(--panel2)); font-weight: 700; }
+.df-nom { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.df-nom img { width: 24px; height: 16px; object-fit: cover; border-radius: 3px; flex: none; }
+.df-fleche { font-size: 20px; text-align: center; }
+.df-prox { position: relative; height: 22px; border-radius: 99px; background: rgba(127,127,127,.2); overflow: hidden; }
+.df-prox i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #e2433b, #f5b21b 55%, #2fbf71); border-radius: 99px; }
+.df-prox b { position: relative; display: block; text-align: center; font-size: 12px; line-height: 22px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+@media (max-width: 520px) { .df-essai { grid-template-columns: minmax(0, 1fr) 70px 28px 64px; font-size: 13px; gap: 6px; padding: 4px 8px; } }
+.df-form { display: flex; gap: 8px; } .df-form input { flex: 1; min-width: 0; }
+.df-fin { text-align: center; } .df-fin h3 { margin: 4px 0; }
+.df-top { margin: 0; padding-left: 22px; display: grid; gap: 4px; } .df-top li span { float: right; color: var(--muted); }
+.df-invit { padding: 10px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 15%, var(--panel2)); font-size: 14px; }
+/* ===== Tutoriel ===== */
+.tuto { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.tuto-tete { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; } .tuto-tete h3 { margin: 0; } .tuto-tete p { margin: 4px 0 0; } .tuto-tete small { color: var(--muted); font-weight: 600; }
+.tuto-barre { height: 8px; border-radius: 99px; background: var(--panel2); margin: 12px 0; overflow: hidden; } .tuto-barre i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .4s; }
+.tuto-etapes { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+.tuto-etapes li { display: grid; grid-template-columns: 30px 1fr auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 10px; background: var(--panel2); }
+.tuto-etapes li.fait { opacity: .6; } .tuto-etapes li.fait b { text-decoration: line-through; }
+.tuto-etapes li.prochaine { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); }
+.tuto-etapes small { display: block; color: var(--muted); font-size: 12.5px; } .te-ic { font-size: 20px; text-align: center; }

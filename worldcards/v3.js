@@ -142,7 +142,7 @@ vueCompte = function (v, opts) {
 // Premier passage : la page de connexion s'affiche en plein écran (on peut jouer sans compte)
 addEventListener("DOMContentLoaded", () => {
   let vu = false; try { vu = !!localStorage.getItem("worldcards:vu-connexion"); localStorage.setItem("worldcards:vu-connexion", "1"); } catch {}
-  if (vu || S.ouverts) return;
+  if (vu || S.ouverts || location.hash === "#defi" || S.vue === "defi") return; // lien partagé du défi du jour : on joue tout de suite
   setTimeout(() => {
     if (typeof connecte === "function" && connecte()) return;
     fermerModal(); document.body.classList.add("ecran-connexion"); aller("compte");
