@@ -2,7 +2,7 @@
 // L'API est la même que pour Cloudflare Pages (functions/api/[[route]].js).
 import { onRequest, planifie } from "./functions/api/[[route]].js";
 
-const CACHE_PUBLIC = /^\/api\/(reglages|visuels|photos\/perso|photos\/corrections|evenement|saison\/finale|ouvertures\/semaine|visuel\/[A-Za-z0-9-]+|rang-logo\/[a-z0-9-]+|photo-perso\/[a-z]+~[A-Za-z0-9_-]+)$/;
+const CACHE_PUBLIC = /^\/api\/(reglages|cartes\/nouvelles|visuels|photos\/perso|photos\/corrections|evenement|saison\/finale|ouvertures\/semaine|visuel\/[A-Za-z0-9-]+|rang-logo\/[a-z0-9-]+|photo-perso\/[a-z]+~[A-Za-z0-9_-]+)$/;
 
 export default {
   async fetch(request, env, ctx) {

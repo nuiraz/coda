@@ -218,3 +218,29 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 #modal.sombre .box .muted, #modal.sombre .box small { color: rgba(255, 255, 255, .72); }
 #modal.sombre .box .btn:not(.primary) { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .22); color: #fff; }
 #modal.sombre .box .close { color: rgba(255, 255, 255, .8); }
+/* ---------- Dos de cartes exclusifs du passe ---------- */
+.face.back.dos-passe-libre, .cosm-dos.dos-passe-libre, .pq-dos.dos-passe-libre { background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--d1) 80%, #fff) 0 10px, color-mix(in srgb, var(--d2) 70%, #fff) 10px 20px); }
+.face.back.dos-passe-elite, .cosm-dos.dos-passe-elite, .pq-dos.dos-passe-elite { background: linear-gradient(120deg, var(--d1), var(--d2), #fff6, var(--d1)); background-size: 300% 300%; animation: dos-elite 4s linear infinite; box-shadow: 0 0 18px color-mix(in srgb, var(--d2) 60%, transparent); }
+@keyframes dos-elite { to { background-position: 300% 0; } }
+.pq-dos { display: inline-grid; place-items: center; width: 26px; height: 36px; border-radius: 5px; margin-right: 6px; font-size: 14px; vertical-align: middle; background: linear-gradient(135deg, var(--d1), var(--d2)); border: 1px solid #fff8; }
+/* ---------- Quêtes du jour du passe ---------- */
+.passe-quetes { margin: 12px 0; }
+.pq-tete { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; } .pq-tete h3 { margin: 0; }
+.pq-liste { display: grid; gap: 8px; margin-top: 10px; }
+.pq { display: grid; grid-template-columns: 32px 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 14px; background: var(--panel2); }
+.pq.prete { outline: 2px solid var(--accent); } .pq.prise { opacity: .6; } .pq-ic { font-size: 22px; text-align: center; }
+/* ---------- Admin : cartes créées ---------- */
+.ca-liste { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.ca-carte { display: grid; grid-template-columns: 96px 1fr; gap: 12px; align-items: start; padding: 10px; border-radius: 16px; background: var(--panel); border: 1px solid var(--border); }
+.ca-apercu .card { width: 96px; }
+/* ---------- Recherche globale ---------- */
+#modal.recherche-globale { align-items: flex-start; padding-top: calc(env(safe-area-inset-top, 0px) + 8vh); }
+#modal.recherche-globale .box { width: min(640px, 100%); }
+.rg input { width: 100%; font-size: 18px; padding: 12px 16px; border-radius: 14px; border: 1.5px solid var(--border); }
+.rg-res { max-height: 60vh; overflow-y: auto; margin-top: 10px; } .rg-res h4 { margin: 12px 0 6px; color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+.rg-pages { display: flex; flex-wrap: wrap; gap: 6px; }
+.rg-cartes { display: grid; gap: 4px; }
+.rg-carte { all: unset; display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 10px; cursor: pointer; }
+.rg-carte:hover, .rg-carte:focus-visible { background: var(--panel2); }
+.rg-carte img { width: 26px; height: 18px; object-fit: cover; border-radius: 3px; } .rg-carte span { font-size: 20px; text-align: center; }
+#modal.recherche-globale .box { padding-top: 48px; }

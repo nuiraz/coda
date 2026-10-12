@@ -256,3 +256,190 @@ async function adminApps(el) {
     catch (err) { $("#apErr").textContent = err.message; }
   };
 }
+
+/* =====================================================================
+   Cartes créées par l'administrateur : ajoutées au catalogue dès leur sortie
+   (gardées dans le navigateur pour être disponibles même hors ligne)
+   ===================================================================== */
+const CLE_CARTES_ADMIN = "worldcards:cartes-admin";
+function ajouterCartesAdmin(liste, admin) {
+  liste.forEach((c, i) => {
+    const deja = BY_ID[c.id];
+    const carte = { id: c.id, univers: "monde", type: c.type, rarete: c.rarete, num: 900 + i, nom: c.nom, pays: c.pays, emoji: c.emoji || "✨", anecdote: c.anecdote || "",
+      continent: CONT_PAYS[c.pays] || "EU", nouveaute: true, sortie: c.sortie,
+      // Hors boosters : carte retirée par l'admin (gardée dans les collections) ou pas encore sortie (aperçu admin)
+      saisonnier: !c.actif || c.sortie > Date.now() ? "hors-booster" : c.evenement || undefined };
+    if (deja) Object.assign(deja, carte); else add(carte);
+    if (c.wiki) PHOTOS_WIKI[c.id] = c.wiki;
+    RECHERCHE_PHOTO[c.id] = c.nom;
+  });
+}
+try { ajouterCartesAdmin(JSON.parse(localStorage.getItem(CLE_CARTES_ADMIN) || "[]")); } catch {}
+async function chargerCartesAdmin() {
+  try {
+    const { cartes } = await api("cartes/nouvelles");
+    const avant = CARDS.length;
+    ajouterCartesAdmin(cartes);
+    try { localStorage.setItem(CLE_CARTES_ADMIN, JSON.stringify(cartes)); } catch {}
+    if (CARDS.length !== avant && ["album", "codex"].includes(S.vue) && $("#modal").classList.contains("hidden")) aller(S.vue);
+  } catch {}
+}
+addEventListener("DOMContentLoaded", () => setTimeout(chargerCartesAdmin, 800));
+
+const TYPES_ADMIN = [["monument", "🏛️ Monument"], ["nature", "🏔️ Nature"], ["animal", "🐾 Animal"], ["plat", "🍜 Gastronomie"], ["culture", "🎭 Culture"], ["ville", "🏙️ Ville"]];
+async function adminCartes(el) {
+  el.innerHTML = `<p class="muted">Chargement…</p>`;
+  let d; try { d = await api("admin/cartes"); } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  ajouterCartesAdmin(d.cartes, true); // aperçu pour l'admin, même avant la sortie
+  const local = (ms) => new Date(ms - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const pays = PAYS_BRUTS.map((p) => [p[0], p[1]]).sort((a, b) => a[1].localeCompare(b[1], "fr"));
+  const formulaire = (c = {}) => `<form class="form panel" id="fCarteAdmin" style="max-width:720px">
+      <h3 style="margin:0">${c.id ? `Modifier « ${esc(c.nom)} »` : "Nouvelle carte"}</h3>
+      <div class="rf-grille">
+        ${c.id ? `<input type="hidden" name="cle" value="${esc(c.id.slice(4))}">` : `<label>Identifiant (lettres, chiffres, tirets)<input name="cle" required pattern="[a-z0-9-]{2,40}" placeholder="tour-de-pise-nuit"></label>`}
+        <label>Nom<input name="nom" required maxlength="60" value="${esc(c.nom || "")}"></label>
+        <label>Type<select name="type">${TYPES_ADMIN.map(([k, n]) => `<option value="${k}" ${c.type === k ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+        <label>Rareté<select name="rarete">${["commun", "peu-commun", "rare", "epique", "ultra-rare", "legendaire"].map((r) => `<option value="${r}" ${c.rarete === r ? "selected" : ""}>${RARETES[r].nom}</option>`).join("")}</select></label>
+        <label>Pays<select name="pays">${pays.map(([k, n]) => `<option value="${k}" ${c.pays === k ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>
+        <label>Emoji<input name="emoji" maxlength="8" value="${esc(c.emoji || "")}" placeholder="🏰"></label>
+        <label class="large">Anecdote (vérifiable)<input name="anecdote" maxlength="300" value="${esc(c.anecdote || "")}"></label>
+        <label>Article Wikipédia pour la photo (facultatif)<input name="wiki" maxlength="120" value="${esc(c.wiki || "")}" placeholder="Tour de Pise"></label>
+        <label>Sortie le<input type="datetime-local" name="sortie" required value="${local(c.sortie || Date.now())}"></label>
+        <label>Dans quels boosters<select name="evenement"><option value="">Boosters normaux</option>${d.evenements.map(([k, n]) => `<option value="${k}" ${c.evenement === k ? "selected" : ""}>Événement : ${esc(n)}</option>`).join("")}</select></label>
+        <label class="check"><input type="checkbox" name="actif" ${c.actif === false ? "" : "checked"}> Dans les boosters (décocher pour la retirer sans l'enlever des collections)</label></div>
+      <div class="row"><button class="btn primary">${c.id ? "Enregistrer" : "Créer la carte"}</button>${c.id ? `<button type="button" class="btn" id="caAnnuler">Annuler</button>` : ""}<span class="err" id="caErr"></span></div></form>`;
+  const etat = (c) => c.sortie > Date.now() ? `⏰ Sort le ${new Date(c.sortie).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}` : c.actif ? "✅ Dans les boosters" : "⏸ Retirée des boosters";
+  el.innerHTML = `<p class="muted">Créez vos propres cartes et choisissez quand elles sortent : à la date prévue, elles entrent dans les boosters (normaux ou d'un événement) et sont annoncées sur Discord. Après la création, ajoutez une photo avec le bouton 📷.</p>
+    <div id="caForm">${formulaire()}</div>
+    <h3>Cartes créées (${d.cartes.length})</h3>
+    ${d.cartes.length ? `<div class="ca-liste">${d.cartes.map((c) => `<div class="ca-carte"><div class="ca-apercu">${BY_ID[c.id] ? cardHTML(BY_ID[c.id], { locked: false }) : ""}</div>
+        <div><b>${esc(c.nom)}</b><br><small class="muted">${RARETES[c.rarete]?.nom || c.rarete} · ${esc(NOM_PAYS[c.pays] || c.pays)}${c.evenement ? ` · ${esc(c.evenement)}` : ""}</small><br><small>${etat(c)}</small>
+        <div class="row" style="margin-top:6px;gap:6px"><button class="btn small" data-modif="${esc(c.id)}">✏️ Modifier</button><button class="btn small" data-photo="${esc(c.id)}">📷 Photo</button>${c.sortie > Date.now() ? `<button class="btn small" data-suppr="${esc(c.id)}">🗑️</button>` : ""}</div></div></div>`).join("")}</div>`
+      : `<p class="muted">Aucune carte créée pour l'instant.</p>`}`;
+  const brancher = () => {
+    const f = $("#fCarteAdmin", el);
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const o = Object.fromEntries(new FormData(f));
+      try {
+        await api(`admin/cartes/${encodeURIComponent(o.cle)}`, { methode: "PUT", corps: { ...o, sortie: new Date(o.sortie).getTime(), actif: f.actif.checked } });
+        toast(new Date(o.sortie).getTime() > Date.now() ? `⏰ Carte programmée pour le ${new Date(o.sortie).toLocaleString("fr-FR")}.` : "🃏 Carte enregistrée : elle est dans les boosters.");
+        adminCartes(el);
+      } catch (err) { $("#caErr", el).textContent = err.message; }
+    };
+    $("#caAnnuler", el)?.addEventListener("click", () => { $("#caForm", el).innerHTML = formulaire(); brancher(); });
+  };
+  brancher();
+  $$("[data-modif]", el).forEach((b) => b.onclick = () => { $("#caForm", el).innerHTML = formulaire(d.cartes.find((c) => c.id === b.dataset.modif)); brancher(); $("#caForm", el).scrollIntoView({ behavior: "smooth" }); });
+  $$("[data-photo]", el).forEach((b) => b.onclick = () => choisirPhotoCarte(BY_ID[b.dataset.photo]));
+  $$("[data-suppr]", el).forEach((b) => b.onclick = async () => {
+    if (!confirm("Supprimer cette carte programmée ?")) return;
+    try { await api(`admin/cartes/${encodeURIComponent(b.dataset.suppr.slice(4))}`, { methode: "DELETE" }); toast("Carte supprimée."); adminCartes(el); } catch (e) { toast("⚠ " + e.message); }
+  });
+}
+
+/* =====================================================================
+   Passe de saison : quêtes du jour (de l'XP de passe chaque jour), compte à rebours, aperçu des dos exclusifs
+   ===================================================================== */
+const jourBruxelles = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Brussels" });
+function quetesPasse() {
+  const j = jourBruxelles();
+  if (!S.passeQuetes || S.passeQuetes.jour !== j) S.passeQuetes = { jour: j, base: { ouverts: S.ouverts || 0, victoires: S.combat?.victoires || 0 }, pris: [] };
+  const q = S.passeQuetes;
+  return [
+    { cle: "boosters", ic: "🎁", nom: "Ouvrir 3 boosters", fait: Math.min(3, (S.ouverts || 0) - q.base.ouverts), n: 3, xp: 120, aller: "boosters" },
+    { cle: "combats", ic: "⚔️", nom: "Gagner 2 combats", fait: Math.min(2, (S.combat?.victoires || 0) - q.base.victoires), n: 2, xp: 120, aller: "combat" },
+    { cle: "defi", ic: "🌍", nom: "Jouer le défi du jour", fait: S.defiJour === j ? 1 : 0, n: 1, xp: 100, aller: "defi" },
+  ].map((x) => ({ ...x, pris: q.pris.includes(x.cle) }));
+}
+quetesPasse(); // la journée commence à l'ouverture du jeu (les boosters ouverts ensuite comptent)
+const _vuePasseV6 = vuePasse;
+vuePasse = async function (v) {
+  const r = await _vuePasseV6.apply(this, arguments);
+  if (!$(".passe-quetes", v)) {
+    const p = passe(), fin = Date.UTC(+p.mois.slice(0, 4), +p.mois.slice(5, 7), 1), qs = quetesPasse();
+    const el = document.createElement("section");
+    el.className = "panel passe-quetes";
+    el.innerHTML = `<div class="pq-tete"><h3>📅 Quêtes du jour</h3>${typeof reboursHTML === "function" ? reboursHTML(fin, "Fin du passe dans") : ""}</div>
+      <div class="pq-liste">${qs.map((q) => `<div class="pq ${q.pris ? "prise" : q.fait >= q.n ? "prete" : ""}"><span class="pq-ic">${q.ic}</span><div><b>${q.nom}</b><div class="pvbar"><i style="width:${(q.fait / q.n) * 100}%"></i></div><small class="muted">${q.fait}/${q.n} · +${q.xp} XP de passe</small></div>
+        ${q.pris ? `<span class="sc-ok">✓</span>` : q.fait >= q.n ? `<button class="btn primary small" data-pq="${q.cle}">Récupérer</button>` : `<button class="btn small" data-pq-aller="${q.aller}">Y aller</button>`}</div>`).join("")}</div>
+      <p class="muted" style="font-size:13px;margin:8px 0 0">Nouvelles quêtes chaque jour à minuit. Dos de cartes exclusifs du mois : palier 25 (gratuit), 20 et 28 (Premium, animé).</p>`;
+    const ref = $(".passe-tete", v);
+    if (ref) ref.after(el); else v.prepend(el);
+    $$("[data-pq]", el).forEach((b) => b.onclick = () => {
+      const q = quetesPasse().find((x) => x.cle === b.dataset.pq);
+      if (!q || q.pris || q.fait < q.n) return;
+      S.passeQuetes.pris.push(q.cle); ajouterXPPasse(q.xp); sauver(); toast(`🎟️ +${q.xp} XP de passe !`); aller("passe");
+    });
+    $$("[data-pq-aller]", el).forEach((b) => b.onclick = () => aller(b.dataset.pqAller));
+  }
+  // Aperçu des dos de cartes exclusifs dans les paliers
+  $$(".passe-case", v).forEach((c) => {
+    const n = Number(c.dataset.n), piste = c.dataset.piste, rec = recompensesPasse(n)[piste];
+    if (rec?.t === "cosm" && rec.type === "dos" && !$(".pq-dos", c)) {
+      const i = infoCosm("dos", rec.id);
+      c.insertAdjacentHTML("afterbegin", `<span class="pq-dos dos-passe${i?.variante ? ` dos-passe-${i.variante}` : ""}" style="--d1:${i?.th?.c1};--d2:${i?.th?.c2}">${i?.ic || "🂠"}</span>`);
+    }
+  });
+  return r;
+};
+VUES_EXTRA.passe = vuePasse;
+
+/* ---------- Titres de continent : « Conquérant » (tous les pays) et « Maître » (toutes les cartes) ---------- */
+for (const [k, ct] of Object.entries(CONTINENTS)) {
+  const pays = () => of("monde", "pays").filter((c) => c.continent === k), toutes = () => CARDS.filter((c) => c.continent === k && c.type !== "secrete" && !c.saisonnier);
+  COSM.titre[`conquerant-${k.toLowerCase()}`] = { nom: `Conquérant · ${ct.nom}`, aide: `Tous les pays ${ct.emoji} ${ct.nom}`, ok: () => pays().every((c) => has(c.id)) };
+  COSM.titre[`maitre-${k.toLowerCase()}`] = { nom: `Maître · ${ct.nom}`, aide: `Toutes les cartes ${ct.emoji} ${ct.nom}`, ok: () => toutes().every((c) => has(c.id)) };
+}
+// Un nouveau titre de continent débloqué : on le signale une seule fois
+function verifierTitresContinent() {
+  S.titresVus = S.titresVus || {};
+  for (const [id, t] of Object.entries(COSM.titre)) {
+    if (!/^(conquerant|maitre|explorateur)-/.test(id) || S.titresVus[id]) continue;
+    if (t.ok()) { S.titresVus[id] = true; sauver(); toast(`🏅 Nouveau titre débloqué : « ${esc(t.nom)} » ! Affichez-le dans Personnaliser.`, 6000); }
+  }
+}
+const _verifierProgressionV6 = verifierProgression;
+verifierProgression = function () { const r = _verifierProgressionV6.apply(this, arguments); try { verifierTitresContinent(); } catch {} return r; };
+
+/* =====================================================================
+   Recherche globale : cartes, pages et joueurs depuis la barre du haut (raccourci « / » ou Ctrl+K)
+   ===================================================================== */
+function ouvrirRecherche() {
+  ouvrirModal(`<div class="rg"><input id="rgQ" type="search" placeholder="Une carte, une page, un joueur…" autocomplete="off" autofocus><div id="rgRes" class="rg-res"><p class="muted">Tapez au moins 2 lettres.</p></div></div>`);
+  $("#modal").classList.add("recherche-globale");
+  const q = $("#rgQ"); q.focus();
+  let minuteur = 0, numero = 0;
+  const dessiner = async () => {
+    const t = sansAccents(q.value.trim()), n = ++numero, res = $("#rgRes");
+    if (t.length < 2) { res.innerHTML = `<p class="muted">Tapez au moins 2 lettres.</p>`; return; }
+    const pages = DESTINATIONS.filter(([k, , nom]) => sansAccents(nom).includes(t) || k.includes(t)).slice(0, 6);
+    const cartes = CARDS.filter((c) => c.type !== "secrete" && (sansAccents(c.nom).includes(t) || (c.type === "pays" && sansAccents(c.capitale || "").includes(t))))
+      .sort((a, b) => (sansAccents(a.nom).startsWith(t) ? 0 : 1) - (sansAccents(b.nom).startsWith(t) ? 0 : 1)).slice(0, 12);
+    res.innerHTML = `${pages.length ? `<h4>Pages</h4><div class="rg-pages">${pages.map(([k, ic, nom]) => `<button class="chip" data-rg-page="${k}">${ic} ${esc(nom)}</button>`).join("")}</div>` : ""}
+      ${cartes.length ? `<h4>Cartes</h4><div class="rg-cartes">${cartes.map((c) => `<button class="rg-carte" data-rg-carte="${esc(c.id)}">${c.type === "pays" && c.code ? `<img src="flags/${c.code.toLowerCase()}.svg" alt="">` : `<span>${esc(c.emoji || "🃏")}</span>`}<b>${esc(c.nom)}</b><small class="muted">${has(c.id) ? "✓ possédée" : RARETES[c.rarete]?.nom || ""}</small></button>`).join("")}</div>` : ""}
+      <div id="rgJoueurs"></div>${!pages.length && !cartes.length ? `<p class="muted">Aucune carte ni page pour « ${esc(q.value)} ».</p>` : ""}`;
+    $$("[data-rg-page]", res).forEach((b) => b.onclick = () => { fermerModal(); aller(b.dataset.rgPage); });
+    $$("[data-rg-carte]", res).forEach((b) => b.onclick = () => ficheCarte(BY_ID[b.dataset.rgCarte]));
+    if (typeof connecte === "function" && connecte() && /^[A-Za-z0-9_-]{2,20}$/.test(q.value.trim())) {
+      try {
+        const { joueurs } = await api(`joueurs/recherche?q=${encodeURIComponent(q.value.trim())}`);
+        if (n !== numero || !$("#rgJoueurs")) return;
+        $("#rgJoueurs").innerHTML = joueurs.length ? `<h4>Joueurs</h4><div class="rg-pages">${joueurs.slice(0, 8).map((j) => `<button class="chip" data-rg-joueur="${esc(j.pseudo)}">${j.enLigne ? "🟢 " : ""}${esc(j.pseudo)}</button>`).join("")}</div>` : "";
+        $$("[data-rg-joueur]", res).forEach((b) => b.onclick = () => ouvrirProfil(b.dataset.rgJoueur));
+      } catch {}
+    }
+  };
+  q.oninput = () => { clearTimeout(minuteur); minuteur = setTimeout(dessiner, 120); };
+}
+addEventListener("DOMContentLoaded", () => {
+  const ref = $("#feedbackBtn") || $(".top .coins");
+  if (ref && !$("#rechercheBtn")) {
+    ref.insertAdjacentHTML("beforebegin", `<button class="iconbtn" id="rechercheBtn" title="Rechercher (/)" aria-label="Rechercher"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>`);
+    $("#rechercheBtn").onclick = ouvrirRecherche;
+  }
+});
+addEventListener("keydown", (e) => {
+  const saisie = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || "");
+  if (((e.key === "/" && !saisie) || (e.key.toLowerCase() === "k" && (e.ctrlKey || e.metaKey))) && $("#modal").classList.contains("hidden")) { e.preventDefault(); ouvrirRecherche(); }
+});

@@ -105,6 +105,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS defi_jour ( jour TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, essais TEXT NOT NULL DEFAULT '[]', fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL, PRIMARY KEY (jour, user_id) )`,
   `CREATE TABLE IF NOT EXISTS nations_points ( semaine TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, nation TEXT NOT NULL, points INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (semaine, user_id) )`,
   `CREATE TABLE IF NOT EXISTS souhaits ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, carte TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, carte) )`,
+  `CREATE TABLE IF NOT EXISTS cartes_admin ( id TEXT PRIMARY KEY, nom TEXT NOT NULL, type TEXT NOT NULL, pays TEXT NOT NULL, emoji TEXT, rarete TEXT NOT NULL, anecdote TEXT, wiki TEXT, evenement TEXT, sortie INTEGER NOT NULL, actif INTEGER NOT NULL DEFAULT 1, annoncee INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS activite ( user_id INTEGER NOT NULL, jour TEXT NOT NULL, PRIMARY KEY (user_id, jour) )`,
   `CREATE TABLE IF NOT EXISTS notifs_campagnes ( id INTEGER PRIMARY KEY AUTOINCREMENT, titre TEXT NOT NULL, texte TEXT NOT NULL, url TEXT NOT NULL, cible TEXT NOT NULL, total INTEGER NOT NULL DEFAULT 0, envoyes INTEGER NOT NULL DEFAULT 0, par TEXT, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS notifs_file ( campagne_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (campagne_id, user_id) )`,
@@ -818,6 +819,7 @@ export async function planifie(env) {
   try { await cloturerGuerres(env); } catch (e) { console.error(e); }
   try { await cronNotifs(env); } catch (e) { console.error(e); }
   try { await cronEvenement(env); } catch (e) { console.error(e); }
+  try { await annoncerCartesAdmin(env); } catch (e) { console.error(e); }
   try { await cloturerNations(env); } catch (e) { console.error(e); }
   const jourSync = new Date().toISOString().slice(0, 10), dejaJour = (await lireConfig(env, "sync_jour")) === jourSync;
   if (!dejaJour) await ecrireConfig(env, "sync_jour", jourSync);
@@ -3204,6 +3206,67 @@ route("PUT", "admin/apps", async ({ request, env }) => {
 }, { admin: true });
 
 /* =====================================================================
+   Cartes créées par l'administrateur : programmées pour une date, elles entrent dans les boosters
+   (normaux ou d'un événement) à leur sortie, et sont annoncées sur Discord.
+   ===================================================================== */
+const TYPES_CARTE_ADMIN = ["monument", "nature", "animal", "plat", "culture", "ville"];
+const RARETES_ADMIN = ["commun", "peu-commun", "rare", "epique", "ultra-rare", "legendaire"];
+let cartesAdminCache = { t: 0 };
+async function chargerCartesAdmin(env) {
+  if (maintenant() - cartesAdminCache.t < 60000) return;
+  cartesAdminCache.t = maintenant();
+  try {
+    const { results } = await env.DB.prepare("SELECT id, nom, type, rarete FROM cartes_admin WHERE sortie <= ?").bind(maintenant()).all();
+    for (const c of results) CATALOGUE[c.id] = { type: c.type, rarete: c.rarete, nom: c.nom };
+  } catch {}
+}
+const carteAdminPublique = (c) => ({ id: c.id, nom: c.nom, type: c.type, pays: c.pays, emoji: c.emoji || "", rarete: c.rarete, anecdote: c.anecdote || "", wiki: c.wiki || "", evenement: c.evenement || "", actif: !!c.actif, sortie: c.sortie });
+route("GET", "cartes/nouvelles", async ({ env }) => {
+  const { results } = await env.DB.prepare("SELECT * FROM cartes_admin WHERE sortie <= ? ORDER BY sortie, id").bind(maintenant()).all();
+  const prochaine = await env.DB.prepare("SELECT MIN(sortie) AS t FROM cartes_admin WHERE sortie > ?").bind(maintenant()).first();
+  return json({ cartes: results.map(carteAdminPublique), prochaine: prochaine?.t || null }, 200, { "cache-control": "public, max-age=60" });
+});
+route("GET", "admin/cartes", async ({ env }) => {
+  const { results } = await env.DB.prepare("SELECT * FROM cartes_admin ORDER BY sortie DESC, id").all();
+  return json({ cartes: results.map(carteAdminPublique), evenements: EVENEMENTS.map((k) => [k, NOM_EVENEMENT(k)]) });
+}, { admin: true });
+route("PUT", "admin/cartes/([a-z0-9-]{2,40})", async ({ request, env, user, p }) => {
+  const b = await corps(request), id = "adm:" + p[1];
+  const nom = String(b.nom || "").trim().slice(0, 60);
+  if (nom.length < 2) return erreur("Indiquez le nom de la carte.");
+  if (!TYPES_CARTE_ADMIN.includes(b.type)) return erreur("Type de carte invalide.");
+  if (!RARETES_ADMIN.includes(b.rarete)) return erreur("Rareté invalide.");
+  const pays = String(b.pays || "").toUpperCase();
+  if (!NOMS_PAYS[pays]) return erreur("Choisissez le pays de la carte.");
+  const sortie = Number(b.sortie) || maintenant();
+  const evenement = b.evenement && EVENEMENTS.includes(b.evenement) ? b.evenement : null;
+  const existe = await env.DB.prepare("SELECT sortie FROM cartes_admin WHERE id = ?").bind(id).first();
+  // Une carte déjà sortie garde son type et sa rareté (les joueurs l'ont peut-être déjà)
+  if (existe && existe.sortie <= maintenant()) {
+    const c = await env.DB.prepare("SELECT type, rarete FROM cartes_admin WHERE id = ?").bind(id).first();
+    if (c.type !== b.type || c.rarete !== b.rarete) return erreur("Cette carte est déjà sortie : son type et sa rareté ne peuvent plus changer.");
+  }
+  await env.DB.prepare(`INSERT INTO cartes_admin (id, nom, type, pays, emoji, rarete, anecdote, wiki, evenement, sortie, actif, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET nom = excluded.nom, type = excluded.type, pays = excluded.pays, emoji = excluded.emoji, rarete = excluded.rarete, anecdote = excluded.anecdote,
+      wiki = excluded.wiki, evenement = excluded.evenement, sortie = excluded.sortie, actif = excluded.actif`)
+    .bind(id, nom, b.type, pays, String(b.emoji || "").slice(0, 8), b.rarete, String(b.anecdote || "").trim().slice(0, 300), String(b.wiki || "").trim().slice(0, 120), evenement, sortie, b.actif === false ? 0 : 1, maintenant()).run();
+  cartesAdminCache.t = 0;
+  await journaliser(env, user.id, existe ? "carte modifiée" : "carte créée", `${nom} (${id}) · sortie ${new Date(sortie).toISOString()}`, "admin");
+  return json({ ok: true, id });
+}, { admin: true });
+route("DELETE", "admin/cartes/([a-z0-9-]{2,40})", async ({ env, p }) => {
+  const r = await env.DB.prepare("DELETE FROM cartes_admin WHERE id = ? AND sortie > ?").bind("adm:" + p[1], maintenant()).run();
+  if (!r.meta.changes) return erreur("Une carte déjà sortie ne peut pas être supprimée (des joueurs l'ont peut-être) : retirez-la plutôt des boosters.");
+  return json({ ok: true });
+}, { admin: true });
+async function annoncerCartesAdmin(env) {
+  const { results } = await env.DB.prepare("SELECT id, nom, rarete FROM cartes_admin WHERE sortie <= ? AND annoncee = 0 AND actif = 1 LIMIT 20").bind(maintenant()).all();
+  if (!results.length) return;
+  await env.DB.prepare(`UPDATE cartes_admin SET annoncee = 1 WHERE id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(results.map((c) => c.id))).run();
+  await annoncerDiscord(env, "evenements", { titre: `🆕 ${results.length > 1 ? `${results.length} nouvelles cartes` : "Nouvelle carte"} dans les boosters !`, texte: results.map((c) => `• **${c.nom}**`).join("\n"), url: "./#boosters", couleur: 0x2fbf71 });
+}
+
+/* =====================================================================
    Tutoriel des nouveaux joueurs : récompense unique quand les étapes sont faites
    ===================================================================== */
 route("POST", "tuto/recompense", async ({ env, user }) => {
@@ -3910,6 +3973,7 @@ export async function onRequest(context) {
   let reponse;
   try {
     await preparerSchema(env);
+    await chargerCartesAdmin(env);
     reponse = await controleTrafic(request, env, ctx);
     if (!reponse) {
       const user = await utilisateurCourant(request, env);

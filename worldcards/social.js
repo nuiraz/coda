@@ -396,11 +396,13 @@ const palierPasse = () => Math.min(PALIERS_PASSE, Math.floor(passe().xp / XP_PAL
 // Récompenses : identiques chaque mois, mais les objets exclusifs changent avec le thème
 function recompensesPasse(n, mois = moisPasse()) {
   const gratuit = n === 30 ? { t: "cosm", type: "titre", id: `passe-${mois}`, txt: `Titre « ${nomTitre(`passe-${mois}`)} »` }
+    : n === 25 ? { t: "cosm", type: "dos", id: `passe-${mois}-libre`, txt: "Dos de cartes du mois (édition gratuite)" }
     : n % 5 === 0 ? { t: "booster", k: n % 10 === 0 ? "argent" : "monde" }
     : n % 3 === 0 ? { t: "poussiere", n: 40 } : { t: "pieces", n: 50 + n * 5 };
   const premium = n === 10 ? { t: "cosm", type: "cadre", id: `passe-${mois}`, txt: "Cadre de profil exclusif du mois" }
     : n === 20 ? { t: "cosm", type: "dos", id: `passe-${mois}`, txt: "Dos de cartes exclusif du mois" }
     : n === 30 ? { t: "cosm", type: "titre", id: `passe-${mois}-elite`, txt: `Titre « ${nomTitre(`passe-${mois}-elite`)} » + carte épique`, carte: "epique" }
+    : n === 28 ? { t: "cosm", type: "dos", id: `passe-${mois}-elite`, txt: "Dos de cartes animé « Élite » du mois" }
     : n === 15 || n === 25 ? { t: "carte", r: "epique" }
     : n % 5 === 0 ? { t: "booster", k: n === 5 ? "or" : "prestige" }
     : n % 2 === 0 ? { t: "poussiere", n: 100 } : { t: "pieces", n: 150 + n * 10 };
@@ -536,11 +538,12 @@ const COSM = {
 // Objets du passe (un par mois) : « passe-2026-10 » et « passe-2026-10-elite »
 function infoCosm(type, id) {
   if (COSM[type]?.[id]) return COSM[type][id];
-  const m = /^passe-(\d{4}-\d{2})(-elite)?$/.exec(id || "");
+  const m = /^passe-(\d{4}-\d{2})(-elite|-libre)?$/.exec(id || "");
   if (!m) return null;
   const th = themeDe(m[1]), mois = nomMois(m[1]);
   if (type === "titre") return { nom: m[2] ? `Légende · ${th.nom}` : `Pionnier · ${th.nom}`, aide: `Passe de ${mois}${m[2] ? " (Premium)" : ""}`, ok: () => false, passe: true };
-  return { nom: `${th.nom}`, aide: `Passe de ${mois} (Premium)`, ok: () => false, ic: th.ic, th, passe: true };
+  const variante = m[2] === "-elite" ? "elite" : m[2] === "-libre" ? "libre" : "";
+  return { nom: `${th.nom}${variante === "elite" ? " · Élite" : variante === "libre" ? " · Édition libre" : ""}`, aide: `Passe de ${mois}${variante === "libre" ? "" : " (Premium)"}`, ok: () => false, ic: th.ic, th, passe: true, variante };
 }
 const nomTitre = (id) => infoCosm("titre", id)?.nom || "";
 function debloquerCosm(type, id) { S.cosmetiques = S.cosmetiques || {}; S.cosmetiques.debloques = { ...(S.cosmetiques.debloques || {}), [`${type}:${id}`]: true }; }
@@ -549,7 +552,7 @@ const cosmChoisi = (type) => { const id = S.cosmetiques?.[type]; return id && co
 function styleCadre(id) { const i = infoCosm("cadre", id); return i?.th ? `--k1:${i.th.c1};--k2:${i.th.c2}` : ""; }
 function dosChoisi() {
   const id = cosmChoisi("dos") || "classique", i = infoCosm("dos", id);
-  return { cls: `dos-${i?.passe ? "passe" : id}`, style: i?.th ? `--d1:${i.th.c1};--d2:${i.th.c2}` : "", ic: i?.ic || "🌐" };
+  return { cls: `dos-${i?.passe ? "passe" : id}${i?.variante ? ` dos-passe-${i.variante}` : ""}`, style: i?.th ? `--d1:${i.th.c1};--d2:${i.th.c2}` : "", ic: i?.ic || "🌐" };
 }
 // Avatar avec cadre : avatarHTML(pseudo, classe, cadre)
 const _avatarHTML = avatarHTML;
