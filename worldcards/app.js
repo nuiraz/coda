@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v25"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v26"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -1692,7 +1692,7 @@ async function demarrer() {
   const pv = $("#versionJeu"); if (pv) pv.textContent = `${VERSION_JEU} · ${fmt(CARDS.length)} cartes`;
   // Raccourcis de l'app installée et des notifications (ex. ./#boosters, ./#combat)
   const ancre = location.hash.slice(1);
-  if (["accueil", "boosters", "album", "quiz", "badges", "combat", "hub", "compte", "premium"].includes(ancre)) { S.vue = ancre; history.replaceState(null, "", location.pathname); }
+  if (["accueil", "boosters", "album", "quiz", "badges", "combat", "hub", "compte", "premium", ...Object.keys(typeof VUES_EXTRA === "object" ? VUES_EXTRA : {})].includes(ancre)) { S.vue = ancre; history.replaceState(null, "", location.pathname); }
   aller(S.vue);
   verifierProgression();
   chargerPhotos();

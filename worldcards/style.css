@@ -1377,3 +1377,14 @@ h1 { font-weight: 800; }
 .ench-prix { display: flex; flex-direction: column; padding: 8px 10px; border-radius: 10px; background: var(--panel2); }
 .ench-prix b { font-size: 20px; } .ench-prix small { color: var(--muted); }
 .ench-temps { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ===== Expédition ===== */
+.exp-chemin { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+.exp-etape { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; border-radius: 14px; border: 2px solid var(--border); background: var(--panel); color: inherit; font: inherit; text-align: center; opacity: .55; }
+.exp-etape img { width: 54px; height: 36px; object-fit: cover; border-radius: 6px; box-shadow: 0 1px 4px rgba(0, 0, 0, .2); }
+.exp-etape b { font-size: 13px; line-height: 1.2; }
+.exp-etape small { font-size: 11.5px; color: var(--muted); }
+.exp-etape.faite { opacity: 1; border-color: color-mix(in srgb, var(--c) 50%, var(--border)); background: color-mix(in srgb, var(--c) 10%, var(--panel)); }
+.exp-etape.actuelle { opacity: 1; cursor: pointer; border-color: var(--c); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 30%, transparent); animation: pulse-chrono .9s ease-in-out infinite alternate; }
+.exp-etape.boss { grid-column: 1 / -1; }
+.exp-ic { font-size: 34px; }

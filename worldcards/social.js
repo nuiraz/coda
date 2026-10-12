@@ -220,9 +220,16 @@ vueAccueil = function (v, opts) {
   const e = etatConnexion(), t = $(".tuiles", v);
   if (!t) return;
   t.insertAdjacentHTML("afterbegin", `<button class="tuile ${e.dispo ? "chaude" : ""}" id="tuileCal"><span class="t-ic">📅</span><span class="t-txt"><b>Connexion du jour</b><small>${e.dispo ? `Jour ${e.prochain + 1} à récupérer !` : `Série : ${e.serie} jour${e.serie > 1 ? "s" : ""} 🔥`}</small></span></button>`);
+  const pp = passe(), aRecup = [...Array(palierPasse()).keys()].filter((i) => !pp.gratuit.includes(i + 1)).length;
+  t.insertAdjacentHTML("beforeend", `<button class="tuile ${aRecup ? "chaude" : ""}" id="tuilePasse"><span class="t-ic">🎟️</span><span class="t-txt"><b>Passe de saison</b><small>${aRecup ? `${aRecup} récompense${aRecup > 1 ? "s" : ""} à récupérer` : `Palier ${palierPasse()}/30 · ${esc(themeDe(pp.mois).nom)}`}</small></span></button>
+    <button class="tuile" id="tuileExp"><span class="t-ic">🧭</span><span class="t-txt"><b>Expédition</b><small>Le monde pays par pays</small></span></button>
+    <button class="tuile" id="tuileGuilde"><span class="t-ic">🛡️</span><span class="t-txt"><b>Guildes</b><small>Jouez en équipe</small></span></button>
+    <button class="tuile" id="tuileEnch"><span class="t-ic">🔨</span><span class="t-txt"><b>Enchères</b><small>Vendez et achetez des cartes</small></span></button>`);
   t.insertAdjacentHTML("beforeend", `<button class="tuile" id="tuileStats"><span class="t-ic">📊</span><span class="t-txt"><b>Statistiques</b><small>Ma progression en détail</small></span></button>`);
   $("#tuileCal").onclick = ouvrirCalendrier;
   $("#tuileStats").onclick = () => aller("stats");
+  $("#tuilePasse").onclick = () => aller("passe"); $("#tuileExp").onclick = () => aller("expedition");
+  $("#tuileGuilde").onclick = () => aller("guilde"); $("#tuileEnch").onclick = () => aller("encheres");
 };
 addEventListener("DOMContentLoaded", () => {
   noterHistorique(); sauver();
@@ -639,3 +646,108 @@ function encherir(id, minimum, nom) {
 ajouterPage("encheres", "🔨", "Enchères", vueEncheres);
 // Les ventes, surenchères et cartes rendues arrivent par « livraisons »
 setInterval(() => { if (connecte() && !document.hidden) verifierLivraisons(); }, 60000);
+
+/* =====================================================================
+   Expédition : traverser chaque continent pays par pays (quiz ou combat), avec un boss au bout
+   ===================================================================== */
+const expEtat = { cont: "EU" };
+// Les pays d'un continent, d'ouest en est (longitude moyenne de leurs cartes), puis le boss
+function parcours(k) {
+  const lon = (p) => { const l = cartesDuPays(p.code).filter((c) => Number.isFinite(c.lon)); return l.length ? l.reduce((s, c) => s + c.lon, 0) / l.length : 0; };
+  const pays = of("monde", "pays").filter((p) => p.continent === k).map((p) => ({ p, x: lon(p) })).sort((a, b) => a.x - b.x || a.p.nom.localeCompare(b.p.nom)).map((x) => x.p);
+  return pays.map((p, i) => ({ p, i, mode: i % 2 ? "combat" : "quiz" })).concat([{ boss: true, i: pays.length, mode: "boss" }]);
+}
+const progresExp = (k) => S.expedition?.[k] || { i: 0, fini: false };
+function deckPaysExp(p, i, n) {
+  const force = 0.72 + 0.48 * (i / Math.max(1, n - 1));
+  const pool = cartesDuPays(p.code).filter((c) => c.type !== "secrete").sort((a, b) => coutDe(b) - coutDe(a) || COMBAT.hash(a.id) - COMBAT.hash(b.id));
+  const l = pool.length >= 3 ? pool.slice(0, 3) : [...pool, ...of("monde", "pays").filter((c) => c.continent === p.continent && c.id !== p.id).slice(0, 3 - pool.length)];
+  return { ia: i < n / 3 ? 1 : i < (2 * n) / 3 ? 2 : 3, lui: l.map((c) => { const st = COMBAT.stats(c.id, c.type, c.rarete, [0, 0, 0], 1, false); return { id: c.id, type: c.type, nom: c.nom, shiny: false, atk: Math.round(st.atk * force), def: Math.round(st.def * force), pv: Math.round(st.pv * force), niveau: 1, talent: st.talent }; }) };
+}
+function deckBossExp(k) {
+  const l = CARDS.filter((c) => c.continent === k && c.type !== "secrete" && !c.saisonnier).sort((a, b) => coutDe(b) - coutDe(a) || COMBAT.hash(a.id) - COMBAT.hash(b.id)).slice(0, 3);
+  return l.map((c) => { const st = COMBAT.stats(c.id, c.type, c.rarete, [0, 0, 0], 1, false); return { id: c.id, type: c.type, nom: c.nom, shiny: true, atk: Math.round(st.atk * 1.3), def: Math.round(st.def * 1.3), pv: Math.round(st.pv * 1.35), niveau: 1, talent: st.talent }; });
+}
+function avancerExp(k, etape) {
+  const n = parcours(k).length - 1, pr = progresExp(k);
+  let txt;
+  if (etape.boss) {
+    S.coins += 500; S.boosters.or = (S.boosters.or || 0) + 1;
+    S.expedition = { ...(S.expedition || {}), [k]: { i: n + 1, fini: true } };
+    txt = `👑 ${CONTINENTS[k].nom} conquis ! +500 🪙 · booster Or · titre « Expéditionnaire » débloqué`;
+    gagnerXP(80);
+  } else {
+    const gain = etape.mode === "quiz" ? 15 + Math.floor(etape.i / 2) : 25 + etape.i;
+    S.coins += gain; txt = `+${gain} 🪙`;
+    if ((etape.i + 1) % 10 === 0) { S.boosters.monde = (S.boosters.monde || 0) + 1; txt += " · 🎁 booster Classique"; }
+    S.expedition = { ...(S.expedition || {}), [k]: { i: Math.max(pr.i, etape.i + 1), fini: false } };
+    gagnerXP(etape.mode === "quiz" ? 10 : 15);
+  }
+  sauver(); majCoins();
+  return txt;
+}
+function quizPays(k, etape) {
+  const p = etape.p, pays = of("monde", "pays"), voisins = pays.filter((x) => x.continent === p.continent);
+  const autres = cartesDuPays(p.code).filter((c) => c.type !== "pays");
+  const qs = [
+    { q: `Quelle est la capitale de ce pays : ${p.nom} ?`, bonne: court(p.capitale), choix: options(court(p.capitale), voisins.map((x) => court(x.capitale))) },
+    { q: "À quel pays appartient ce drapeau ?", media: `<img class="qflag" src="flags/${p.code.toLowerCase()}.svg" alt="Drapeau mystère">`, bonne: p.nom, choix: options(p.nom, voisins.map((x) => x.nom)) },
+  ];
+  if (autres.length) { const c = pick(autres); qs.push({ q: `Dans quel pays se trouve ou vient : ${c.nom} ?`, media: `<div class="qemoji">${c.emoji || EMOJI_TYPE[c.type]}</div>`, bonne: p.nom, choix: options(p.nom, voisins.map((x) => x.nom)) }); }
+  else qs.push({ q: `Sur quel continent se trouve ${p.nom} ?`, bonne: CONTINENTS[p.continent].nom, choix: options(CONTINENTS[p.continent].nom, Object.values(CONTINENTS).map((x) => x.nom)) });
+  let n = 0, bonnes = 0;
+  const poser = () => {
+    if (n >= qs.length) {
+      const ok = bonnes >= 2;
+      $("#modal .box").innerHTML = `<div style="text-align:center"><h2 style="margin-top:0">${ok ? "✅ Étape réussie !" : "❌ Raté…"}</h2><p>${bonnes}/3 bonnes réponses${ok ? " · " + avancerExp(k, etape) : " · il en faut 2 pour passer. Réessayez !"}</p><button class="btn primary" data-close>Continuer</button></div>`;
+      $("#modal")._onClose = () => aller("expedition");
+      return;
+    }
+    const Q = qs[n];
+    $("#modal .box").innerHTML = `<div class="quiz"><div class="row" style="justify-content:space-between"><b>🧭 ${esc(p.nom)}</b><span class="muted">Question ${n + 1}/3</span></div>
+      <div class="q">${esc(Q.q)}</div>${Q.media || ""}<div class="answers" style="margin-top:14px">${Q.choix.map((x) => `<button>${esc(x)}</button>`).join("")}</div><div class="feedback" id="fbExp"></div></div>`;
+    $$("#modal .answers button").forEach((b) => b.onclick = () => {
+      const bon = b.textContent === Q.bonne; if (bon) bonnes++;
+      $$("#modal .answers button").forEach((x) => { x.disabled = true; if (x.textContent === Q.bonne) x.classList.add("good"); else if (x === b) x.classList.add("bad"); });
+      $("#fbExp").textContent = bon ? "✅ Bonne réponse !" : `❌ C'était ${Q.bonne}`;
+      son?.(bon ? "victoire" : "defaite");
+      n++; setTimeout(poser, 1100);
+    });
+  };
+  ouvrirModal(`<p class="muted">Chargement…</p>`); poser();
+}
+function lancerEtapeExp(k, etape) {
+  if (etape.mode === "quiz") return quizPays(k, etape);
+  if (!deckPret()) return;
+  const n = parcours(k).length - 1;
+  const adv = etape.boss ? { ia: 3, lui: deckBossExp(k) } : deckPaysExp(etape.p, etape.i, n);
+  lancerCombat({
+    titre: etape.boss ? `👑 Boss · ${CONTINENTS[k].nom}` : `🧭 Expédition · ${etape.p.nom}`, adversaire: etape.boss ? `le Gardien d'${CONTINENTS[k].nom}` : `les gardiens de ${etape.p.nom}`,
+    ia: adv.ia, moi: S.deck.map((id) => uniteDe(BY_ID[id])), lui: adv.lui, graine: (Math.random() * 2 ** 32) >>> 0,
+    fin: async (etat) => {
+      const gagne = etat.gagnant === 0;
+      if (gagne) S.combat.victoires++; else S.combat.defaites++;
+      sauver();
+      if (!gagne) return "Raté ! Améliorez votre deck et réessayez.";
+      const txt = avancerExp(k, etape);
+      $("#modal")._onClose = () => aller("expedition");
+      return txt;
+    },
+  });
+}
+function vueExpedition(v) {
+  const k = expEtat.cont, etapes = parcours(k), pr = progresExp(k), ct = CONTINENTS[k];
+  v.innerHTML = `<section class="panel"><h2 style="margin:0 0 4px">🧭 Expédition</h2>
+      <p class="muted" style="margin:0">Traversez chaque continent d'ouest en est, pays par pays : un quiz sur le pays ou un combat contre ses gardiens. Le boss du continent offre un booster Or et 500 🪙.</p></section>
+    <div class="toolbar">${Object.entries(CONTINENTS).map(([c, x]) => { const pc = progresExp(c), tot = parcours(c).length; return `<button class="chip ${c === k ? "on" : ""}" data-cont="${c}">${x.emoji} ${x.nom} <small>${pc.fini ? "👑" : `${pc.i}/${tot}`}</small></button>`; }).join("")}</div>
+    <div class="exp-chemin" style="--c:${ct.couleur}">${etapes.map((e) => {
+      const fait = e.i < pr.i, actuel = e.i === pr.i && !pr.fini;
+      return `<button class="exp-etape ${fait ? "faite" : ""} ${actuel ? "actuelle" : ""} ${e.boss ? "boss" : ""}" data-i="${e.i}" ${actuel ? "" : "disabled"}>
+        ${e.boss ? `<span class="exp-ic">👑</span>` : `<img src="flags/${e.p.code.toLowerCase()}.svg" alt="" loading="lazy">`}
+        <b>${e.boss ? `Boss ${ct.nom}` : esc(e.p.nom)}</b><small>${fait ? "✅" : actuel ? (e.mode === "quiz" ? "❓ Quiz · jouer" : e.mode === "boss" ? "⚔️ Boss · jouer" : "⚔️ Combat · jouer") : e.mode === "quiz" ? "❓ Quiz" : "⚔️ Combat"}</small></button>`;
+    }).join("")}</div>`;
+  $$("[data-cont]", v).forEach((b) => b.onclick = () => { expEtat.cont = b.dataset.cont; vueExpedition(v); });
+  $$(".exp-etape.actuelle", v).forEach((b) => b.onclick = () => lancerEtapeExp(k, etapes[Number(b.dataset.i)]));
+  v.querySelector(".exp-etape.actuelle")?.scrollIntoView({ block: "center" });
+}
+ajouterPage("expedition", "🧭", "Expédition", vueExpedition);
