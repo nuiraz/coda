@@ -267,7 +267,7 @@ async function vueGuilde(v) {
         <div class="bar grosse"><i style="width:${Math.min(100, (g.victoires / g.objectif) * 100)}%"></i></div>
         <div class="row" style="justify-content:space-between"><span>${fmt(g.victoires)} / ${fmt(g.objectif)} victoires (arène, solo, duels…)</span>
           ${g.recompenseRecue ? `<span>✅ Récompense récupérée</span>` : `<button class="btn ${fait ? "primary" : ""}" id="gRecompense" ${fait ? "" : "disabled"}>🎁 Booster Or + 300 🪙</button>`}</div></section>
-      <div class="toolbar">${[["membres", "👥 Membres"], ["discussion", "💬 Salon de guilde"], ["classement", "🏆 Classement des guildes"]].map(([k, l]) => `<button class="chip ${guildeEtat.onglet === k ? "on" : ""}" data-go="${k}">${l}</button>`).join("")}</div>
+      <div class="toolbar">${[["membres", "👥 Membres"], ["raid", "🐉 Raid"], ["discussion", "💬 Salon de guilde"], ["classement", "🏆 Classement des guildes"]].map(([k, l]) => `<button class="chip ${guildeEtat.onglet === k ? "on" : ""}" data-go="${k}">${l}</button>`).join("")}</div>
       <div id="gCorps"></div>`;
     $$("[data-go]", v).forEach((b) => b.onclick = () => { guildeEtat.onglet = b.dataset.go; vueGuilde(v); });
     $("#gQuitter").onclick = () => confirmer(`Quitter ${g.nom} ?${chef && g.membres.length > 1 ? " Un autre membre deviendra chef." : g.membres.length === 1 ? " La guilde sera supprimée." : ""}`, "Quitter", async () => {
@@ -290,6 +290,7 @@ async function vueGuilde(v) {
     const corps = $("#gCorps");
     if (guildeEtat.onglet === "discussion") return hubDiscussion(corps, "g" + g.id);
     if (guildeEtat.onglet === "classement") return classementGuildes(corps, g.id);
+    if (guildeEtat.onglet === "raid") return afficherRaid(corps);
     corps.innerHTML = `<div class="amis">${g.membres.map((m) => `<div class="ami">${avatarHTML(m.pseudo, "", m.cadre || null)}
       <div class="ami-infos"><b>${esc(m.pseudo)} ${m.enLigne ? `<span class="enligne">●</span>` : ""}</b>${m.titre && nomTitre(m.titre) ? `<small class="titre-joueur">${esc(nomTitre(m.titre))}</small>` : ""}<small class="muted">${ROLES[m.role]} · ⚔️ ${m.victoires} victoires · ${fmt(m.score)} pts · 🏆 ${fmt(m.trophees)}</small></div>
       <div class="row" style="gap:6px">${m.pseudo !== COMPTE.pseudo ? `<button class="btn small" data-joueur="${esc(m.pseudo)}">👤</button>` : ""}
@@ -812,6 +813,8 @@ async function adminIntegrations(el) {
       ${st[nom].source === "Cloudflare" ? "" : `<div class="row" style="gap:6px"><input type="password" autocomplete="off" data-cle="${nom}" placeholder="${ph}" style="flex:1"><button class="btn primary" data-enr="${nom}">Enregistrer</button>${st[nom].configuree ? `<button class="btn" data-suppr="${nom}">Retirer</button>` : ""}</div>`}</div>`;
     el.innerHTML = `${ligne("STRIPE_SECRET_KEY", "💳 Stripe (paiement par carte)", "Stripe → Développeurs → Clés API → « Clé secrète » (sk_live_…) ou une clé restreinte (rk_live_…). Les 4 produits Stripe sont déjà reliés au site.", "sk_live_… ou rk_live_…")}
       ${ligne("SUPABASE_SECRET_KEY", "🗄️ Supabase (copie de sauvegarde)", `Supabase → projet « worldcards » → Project Settings → API Keys → « Secret keys » (sb_secret_…). Copie automatique toutes les 15 min vers ${esc(r.supabase.url)}.`, "sb_secret_…")}
+      <div class="panel integ"><b>⚡ Webhook Stripe (prévenu à la seconde)</b>
+        <p class="muted" style="margin:6px 0">Stripe → Développeurs → Webhooks → « Ajouter une destination » → URL : <code>${esc(location.origin)}/api/stripe/webhook</code>. Événements : <code>checkout.session.completed</code>, <code>customer.subscription.created</code>, <code>customer.subscription.updated</code>, <code>customer.subscription.deleted</code>, <code>invoice.paid</code>, <code>invoice.payment_failed</code>, <code>charge.refunded</code>, <code>charge.dispute.created</code>. Pas besoin de copier le « secret de signature » : chaque événement est relu directement chez Stripe.</p></div>
       <div class="panel"><b>📊 État</b><p style="margin:6px 0">${r.abonnementsActifs} abonnement(s) Stripe actif(s) · Dernière copie Supabase : ${d ? `${depuis(d.t)} (${Object.entries(d.n || {}).map(([k, v]) => `${v} ${k}`).join(", ") || "rien de neuf"})` : "jamais"}</p>
         <button class="btn primary" id="integTester">🔄 Tester Stripe et lancer une copie complète</button><div id="integRes" style="margin-top:8px"></div></div>
       <p class="muted" style="font-size:12.5px">Les clés sont gardées côté serveur et ne sont jamais renvoyées au navigateur (seul un aperçu masqué s'affiche). Pour plus de sécurité, vous pouvez aussi les mettre en « secrets » dans Cloudflare (Workers → coda → Settings → Variables) : elles sont alors prioritaires.</p>`;
@@ -834,8 +837,8 @@ async function adminIntegrations(el) {
 function vueSoutenir(v) {
   v.innerHTML = `<section class="panel soutenir">
       <div class="soutenir-coeur">❤️</div>
-      <h1>Soutenir WorldCards</h1>
-      <p>WorldCards est gratuit et sans publicité. Si le jeu vous plaît, vous pouvez soutenir la chaîne et le projet avec un <b>don libre</b> sur PayPal, du montant de votre choix.</p>
+      <h1>Soutenir Play2F1</h1>
+      <p>Play2F1 est gratuit et sans publicité. Si le jeu vous plaît, vous pouvez soutenir la chaîne et le projet avec un <b>don libre</b> sur PayPal, du montant de votre choix.</p>
       <p class="muted">Votre don aide à payer l'hébergement, à ajouter de nouvelles cartes et de nouveaux modes de jeu. C'est un don sans contrepartie : il ne débloque rien dans le jeu (pour les avantages, voir le Premium).</p>
       <a class="btn primary soutenir-btn" href="${PAYPAL}" target="_blank" rel="noopener">❤️ Faire un don sur PayPal</a>
       <p class="muted" style="font-size:13px;margin-bottom:0">Merci du fond du cœur pour votre soutien ! 🙏</p></section>`;
@@ -845,3 +848,208 @@ addEventListener("DOMContentLoaded", () => {
   const liens = document.querySelector(".pied .liens");
   if (liens) { liens.insertAdjacentHTML("beforeend", ` · <a href="#" id="piedSoutenir">❤️ Soutenir le jeu</a>`); $("#piedSoutenir").onclick = (e) => { e.preventDefault(); aller("soutenir"); }; }
 });
+
+/* =====================================================================
+   Boutique du jour : 6 cartes précises, renouvelées chaque jour, à pièces ou à poussière
+   ===================================================================== */
+const PRIX_BOUTIQUE = { "commun": [90, 30], "peu-commun": [180, 60], "rare": [450, 150], "epique": [1100, 380], "ultra-rare": [1800, 650], "legendaire": [2800, 1100] };
+function boutiqueDuJour() {
+  const r = COMBAT.rng(COMBAT.hash("boutique-" + today()));
+  const pool = CARDS.filter((c) => c.univers === "monde" && c.type !== "secrete" && !c.saisonnier && PRIX_BOUTIQUE[c.rarete]);
+  // 1 carte « vedette » épique ou mieux, puis des raretés variées
+  const gammes = [["epique", "ultra-rare", "legendaire"], ["rare", "epique"], ["rare"], ["peu-commun", "rare"], ["peu-commun"], ["commun", "peu-commun"]];
+  const choix = [];
+  for (const g of gammes) {
+    const l = pool.filter((c) => g.includes(c.rarete) && !choix.includes(c));
+    choix.push(l[Math.floor(r() * l.length)]);
+  }
+  return choix.filter(Boolean);
+}
+function blocBoutiqueDuJour() {
+  const achats = S.boutiqueJour?.jour === today() ? S.boutiqueJour.achats : [];
+  const fin = new Date(); fin.setHours(24, 0, 0, 0);
+  return `<div class="panel boutique-jour"><div class="row" style="justify-content:space-between;gap:8px"><h3 style="margin:0">🛒 Boutique du jour</h3><small class="muted">Nouvelles cartes dans ${duree(fin - Date.now())}</small></div>
+    <p class="muted" style="margin:4px 0 10px">6 cartes choisies pour aujourd'hui : achetez celle qui vous manque, en pièces ou en ✨ poussière (vous avez ${fmt(S.poussiere || 0)} ✨).</p>
+    <div class="bj-grille">${boutiqueDuJour().map((c, k) => {
+      const [pc, pp] = PRIX_BOUTIQUE[c.rarete], pris = achats.includes(c.id);
+      return `<div class="bj-carte ${k === 0 ? "vedette" : ""}">${k === 0 ? `<span class="bj-ruban">⭐ Vedette</span>` : ""}${cardHTML(c, { locked: false })}${has(c.id) ? `<small class="bj-deja">✓ déjà dans votre collection</small>` : `<small class="bj-deja neuve">✨ nouvelle pour vous</small>`}
+        ${pris ? `<div class="bj-pris">✅ Acheté</div>` : `<div class="bj-prix"><button class="btn small primary" data-bj="${c.id}" data-m="pieces" ${S.coins < pc ? "disabled" : ""}>${fmt(pc)} 🪙</button><button class="btn small" data-bj="${c.id}" data-m="poussiere" ${(S.poussiere || 0) < pp ? "disabled" : ""}>${fmt(pp)} ✨</button></div>`}</div>`;
+    }).join("")}</div></div>`;
+}
+function brancherBoutiqueDuJour(racine) {
+  $$("[data-bj]", racine).forEach((b) => b.onclick = (e) => {
+    e.stopPropagation();
+    const c = BY_ID[b.dataset.bj], [pc, pp] = PRIX_BOUTIQUE[c.rarete], parPieces = b.dataset.m === "pieces";
+    if (!boutiqueDuJour().includes(c)) return toast("Cette offre a expiré : la boutique a changé.");
+    if (parPieces ? S.coins < pc : (S.poussiere || 0) < pp) return toast("⚠ Pas assez de " + (parPieces ? "pièces." : "poussière."));
+    confirmer(`Acheter « ${c.nom} » pour ${parPieces ? fmt(pc) + " 🪙" : fmt(pp) + " ✨"} ?`, "Acheter", () => {
+      if (parPieces) S.coins -= pc; else S.poussiere -= pp;
+      gagner(c.id);
+      S.boutiqueJour = { jour: today(), achats: [...(S.boutiqueJour?.jour === today() ? S.boutiqueJour.achats : []), c.id] };
+      sauver(); majCoins(); fermerModal(); verifierProgression();
+      toast(`🛒 <b>${esc(c.nom)}</b> ajoutée à votre collection !`); aller("boosters");
+    });
+  });
+}
+const _vueBoosters = vueBoosters;
+vueBoosters = function (v, opts) {
+  _vueBoosters(v, opts);
+  const ancre = $(".pity-box", v);
+  if (ancre) ancre.insertAdjacentHTML("afterend", blocBoutiqueDuJour()); else v.insertAdjacentHTML("beforeend", blocBoutiqueDuJour());
+  brancherBoutiqueDuJour(v);
+};
+
+/* =====================================================================
+   Parrainage : le code est le pseudo du parrain ; booster + 200 🪙 pour les deux au niveau 5 du filleul
+   ===================================================================== */
+(() => { // lien de parrainage : https://…/?parrain=Pseudo
+  const p = new URL(location.href).searchParams.get("parrain");
+  if (p && /^[A-Za-z0-9_-]{3,20}$/.test(p)) { try { localStorage.setItem("worldcards:parrain", p); } catch {} history.replaceState(null, "", location.pathname + location.hash); }
+})();
+async function vueParrainage(v) {
+  if (!connecte()) { v.innerHTML = `<div class="panel"><h2 style="margin-top:0">🤝 Parrainage</h2><p>Créez un compte pour obtenir votre lien de parrainage : vous et votre ami recevez chacun <b>un booster + 200 🪙</b> quand il atteint le niveau 5.</p><button class="btn primary" data-aller="compte">Créer un compte</button></div>`; brancherLiens(v); return; }
+  v.innerHTML = `<p class="muted">Chargement…</p>`;
+  try {
+    const r = await api("parrainage"), lien = `${location.origin}/?parrain=${encodeURIComponent(r.code)}`;
+    const valides = r.filleuls.filter((f) => f.valide).length;
+    v.innerHTML = `<section class="panel parrain-tete"><div style="font-size:52px">🤝</div>
+        <h2 style="margin:4px 0">Invitez vos amis</h2>
+        <p>Quand votre ami atteint le <b>niveau 5</b>, vous recevez <b>chacun un booster + 200 🪙</b> (jusqu'à ${r.max} amis).</p>
+        <div class="lien-parrain"><input readonly value="${esc(lien)}" id="lienParrain"><button class="btn primary" id="copierParrain">📋 Copier</button>${navigator.share ? `<button class="btn" id="partagerParrain">📤 Partager</button>` : ""}</div>
+        <p class="muted" style="margin-bottom:0">Votre code : <b>${esc(r.code)}</b> (votre pseudo) · ${r.filleuls.length} filleul(s), ${valides} récompensé(s)</p></section>
+      ${r.peutAjouter ? `<form class="panel row" id="fParrain" style="gap:8px"><span style="flex:1;min-width:180px">Un ami vous a invité ? Entrez son code (7 jours après l'inscription) :</span><input id="codeParrain" maxlength="20" placeholder="Pseudo du parrain" required><button class="btn primary">Valider</button></form>`
+        : r.parrain ? `<div class="panel">👤 Votre parrain : <b>${esc(r.parrain)}</b> · ${r.recompense ? "✅ récompense reçue" : "atteignez le niveau 5 pour votre booster !"}</div>` : ""}
+      <h3>Mes filleuls</h3>${r.filleuls.length ? `<div class="amis">${r.filleuls.map((f) => `<div class="ami">${avatarHTML(f.pseudo, "", null)}<div class="ami-infos"><b>${esc(f.pseudo)}</b><small class="muted">inscrit ${depuis(f.depuis)} · ${f.valide ? "✅ niveau 5 atteint" : "⏳ pas encore niveau 5"}</small></div></div>`).join("")}</div>` : `<p class="muted">Personne pour l'instant : partagez votre lien !</p>`}`;
+    $("#copierParrain").onclick = async () => { try { await navigator.clipboard.writeText(lien); toast("📋 Lien copié !"); } catch { $("#lienParrain").select(); } };
+    $("#partagerParrain")?.addEventListener("click", () => navigator.share({ title: "Play2F1", text: "Rejoins-moi sur Play2F1, le jeu de cartes du monde entier ! On gagne chacun un booster 🎁", url: lien }).catch(() => {}));
+    $("#fParrain")?.addEventListener("submit", async (e) => { e.preventDefault(); try { await api("parrainage", { methode: "POST", corps: { code: $("#codeParrain").value } }); toast("🤝 Parrain enregistré ! Atteignez le niveau 5 pour votre booster."); vueParrainage(v); } catch (err) { toast("⚠ " + err.message); } });
+  } catch (e) { v.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+ajouterPage("parrainage", "🤝", "Parrainage", vueParrainage);
+
+/* =====================================================================
+   Admin : tableau de bord des ventes
+   ===================================================================== */
+const euros = (n) => (Number(n) || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+const LIBELLES_EVT = { "checkout.session.completed": "💳 Achat", "customer.subscription.created": "🆕 Abonnement", "customer.subscription.updated": "🔄 Abonnement modifié", "customer.subscription.deleted": "📉 Résiliation", "invoice.paid": "✅ Renouvellement", "invoice.payment_failed": "⚠️ Paiement refusé", "charge.refunded": "↩️ Remboursement", "charge.dispute.created": "🚨 Litige" };
+async function adminVentes(el) {
+  el.innerHTML = `<p class="muted">Chargement…</p>`;
+  try {
+    const r = await api("admin/ventes");
+    const max = Math.max(1, ...r.historique.map((h) => h.total));
+    const nomMoisCourt = (m) => new Date(m + "-15T12:00").toLocaleDateString("fr-FR", { month: "short" });
+    const tuile = (titre, valeur, sous = "") => `<div class="kpi"><small>${titre}</small><b>${valeur}</b>${sous ? `<span>${sous}</span>` : ""}</div>`;
+    el.innerHTML = `<div class="kpis">
+        ${tuile("Ventes ce mois-ci", euros(r.mois.total), `${r.mois.ventes} paiement(s)`)}
+        ${tuile("Revenu mensuel récurrent", euros(r.mrr), "abonnements actifs")}
+        ${tuile("Abonnés actifs", (r.abonnesActifs.mois || 0) + (r.abonnesActifs.an || 0) + (r.abonnesActifs.passe || 0), `${r.abonnesActifs.mois || 0} mensuel · ${r.abonnesActifs.an || 0} annuel · ${r.abonnesActifs.passe || 0} passe`)}
+        ${tuile("Joueurs Premium", r.premiumsActifs, `dont ${r.premiumsVie} à vie`)}
+        ${tuile("Résiliations (mois)", r.problemes["customer.subscription.deleted"] || 0, `${r.problemes["invoice.payment_failed"] || 0} paiement(s) refusé(s)`)}
+        ${tuile("Remboursements (mois)", r.problemes["charge.refunded"] || 0, `${r.problemes["charge.dispute.created"] || 0} litige(s)`)}
+      </div>
+      <div class="panel"><h3 style="margin-top:0">📈 Ventes des 6 derniers mois</h3>
+        ${r.historique.length ? `<div class="barres">${r.historique.map((h) => `<div class="barre"><span class="val">${euros(h.total)}</span><i style="height:${Math.max(4, (h.total / max) * 100)}%"></i><small>${nomMoisCourt(h.mois)}</small></div>`).join("")}</div>` : `<p class="muted">Pas encore de vente.</p>`}</div>
+      <div class="grid2">
+        <div class="panel"><h3 style="margin-top:0">🧾 Ce mois-ci par formule</h3>${r.parFormule.length ? `<table class="classement"><tbody>${r.parFormule.map((x) => `<tr><td>${esc(libelleFormule(x.formule))}</td><td>${x.source === "stripe" ? "💳 Stripe" : "🅿️ PayPal"}</td><td>${x.n}</td><td><b>${euros(x.total)}</b></td></tr>`).join("")}</tbody></table>` : `<p class="muted">Aucune vente ce mois-ci.</p>`}</div>
+        <div class="panel"><h3 style="margin-top:0">⚡ Derniers événements Stripe</h3>${r.evenements.length ? `<div class="evts">${r.evenements.map((e) => `<div><span>${LIBELLES_EVT[e.type] || esc(e.type)}</span> <b>${esc(e.pseudo || "")}</b> <small class="muted">${esc(e.resume || "")} · ${depuis(e.cree_le)}</small></div>`).join("")}</div>` : `<p class="muted">Aucun événement reçu : vérifiez que le webhook Stripe est ajouté (voir l'onglet 🔌 Intégrations).</p>`}</div>
+      </div>
+      <p class="muted" style="font-size:12.5px">Les ventes PayPal comptent dès que vous les activez dans l'onglet 💎 Premium. Copie Supabase : ${r.supabase ? depuis(r.supabase.t) : "pas encore faite"}.</p>`;
+  } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+
+
+/* ---------- Raid de guilde ---------- */
+async function afficherRaid(el) {
+  el.innerHTML = `<p class="muted">Chargement du raid…</p>`;
+  try {
+    const r = await api("raid");
+    const pct = Math.min(100, (r.degats / r.pv) * 100), reste = Math.max(0, r.pv - r.degats);
+    el.innerHTML = `<section class="raid-boss ${r.vaincu ? "vaincu" : ""}">
+        <div class="raid-emoji">${r.boss.emoji}</div>
+        <div style="flex:1;min-width:0"><small>RAID DE LA SEMAINE · fin ${new Date(r.finLe).toLocaleDateString("fr-FR", { weekday: "long" })}</small>
+          <h2>${esc(r.boss.nom)}</h2>
+          <div class="raid-pv"><i style="width:${100 - pct}%"></i><span>${r.vaincu ? "💀 VAINCU !" : `❤️ ${fmt(reste)} / ${fmt(r.pv)}`}</span></div>
+          <small>${fmt(r.degats)} dégâts infligés par la guilde · ${Math.round(pct)} %</small></div></section>
+      <div class="row" style="gap:8px;margin:12px 0;flex-wrap:wrap">
+        ${r.vaincu ? (r.recompenseRecue ? `<span class="panel" style="margin:0">✅ Récompense de raid récupérée</span>` : `<button class="btn primary" id="raidRecompense" ${r.aParticipe ? "" : "disabled title=\"Il faut avoir attaqué au moins une fois\""}>🎁 Récupérer : booster Or + 400 🪙</button>`)
+          : `<button class="btn primary" id="raidAttaque" ${r.restantes ? "" : "disabled"}>⚔️ Attaquer le boss (${r.restantes}/3 aujourd'hui)</button>`}
+        <span class="muted">Chaque attaque est un combat contre les 3 gardiens du boss (très résistants) : tous les dégâts infligés comptent, même en cas de défaite !</span></div>
+      <div class="panel"><h3 style="margin-top:0">🏆 Dégâts de la guilde</h3>${r.classement.length ? `<table class="classement"><tbody>${r.classement.map((x, i) => `<tr class="${x.pseudo === COMPTE.pseudo ? "moi" : ""}"><td>${["🥇", "🥈", "🥉"][i] || i + 1}</td><td>${esc(x.pseudo)}</td><td><b>${fmt(x.degats)}</b></td><td class="muted">${x.attaques} attaque(s)</td></tr>`).join("")}</tbody></table>` : `<p class="muted">Personne n'a encore attaqué : à vous de commencer !</p>`}</div>`;
+    $("#raidAttaque")?.addEventListener("click", () => attaquerRaid(el));
+    $("#raidRecompense")?.addEventListener("click", async () => {
+      try { const x = await api("raid/recompense", { methode: "POST", corps: {} }); S.boosters[x.booster] = (S.boosters[x.booster] || 0) + 1; S.coins += x.pieces; sauver(); majCoins(); toast("🎁 Booster Or + 400 🪙 : bravo à toute la guilde !"); afficherRaid(el); }
+      catch (e) { toast("⚠ " + e.message); }
+    });
+  } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+async function attaquerRaid(el) {
+  if (!deckPret()) return;
+  try {
+    await envoyerDeckArene();
+    const d = await api("raid/attaque", { methode: "POST", corps: {} });
+    lancerCombat({
+      titre: `🐉 Raid · ${d.boss}`, adversaire: d.boss, ia: d.ia, moi: d.moi, lui: d.lui, graine: d.graine,
+      fin: async (etat) => {
+        const r = await api("raid/fin", { methode: "POST", corps: { attaque: d.attaque, actions: etat.journal } });
+        $("#modal")._onClose = () => { guildeEtat.onglet = "raid"; aller("guilde"); };
+        return `💥 ${fmt(r.degats)} dégâts infligés · le boss a encore ${fmt(Math.max(0, r.pv - r.total))} PV${r.vaincu ? " · 💀 BOSS VAINCU !" : ""}`;
+      },
+    });
+  } catch (e) { toast("⚠ " + e.message); }
+}
+
+/* =====================================================================
+   Tournoi en direct du samedi soir
+   ===================================================================== */
+const samediEtat = { minuteur: null };
+const NOMS_TOURS = (n) => ({ 1: "Finale", 2: "Demi-finales", 4: "Quarts de finale", 8: "Huitièmes de finale" }[n] || `Manche (${n} matchs)`);
+async function vueSamedi(v) {
+  clearInterval(samediEtat.minuteur);
+  v.innerHTML = `<p class="muted">Chargement…</p>`;
+  try {
+    const r = await api("samedi");
+    const depart = new Date(r.depart), t = r.tableau;
+    const compte = (cible) => { const s = Math.max(0, Math.floor((cible - Date.now()) / 1000)); const j = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60); return s <= 0 ? "maintenant" : `${j ? j + " j " : ""}${h} h ${String(m).padStart(2, "0")} min ${j ? "" : String(s % 60).padStart(2, "0") + " s"}`; };
+    v.innerHTML = `<section class="samedi-tete">
+        <div class="samedi-ic">🏆</div>
+        <div style="flex:1;min-width:0"><small>TOURNOI EN DIRECT · CHAQUE SAMEDI À 20 H</small>
+          <h2>${r.statut === "fini" ? `Champion : ${esc(t?.champion || "")} 👑` : r.statut === "encours" ? "Le tournoi est en cours !" : r.statut === "annule" ? "Tournoi annulé (pas assez d'inscrits)" : `Départ ${depart.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} à 20 h`}</h2>
+          <span id="samediCompte">${r.statut === "inscriptions" ? `⏱️ dans ${compte(r.depart)}` : r.statut === "encours" ? `⏱️ prochaine manche dans ${compte(r.prochainTour)}` : ""}</span></div></section>
+      <div class="grid2" style="margin:12px 0">
+        <div class="panel"><b>📝 Inscriptions</b><p style="margin:6px 0">${r.inscrits} inscrit(s) · tableau de 4, 8 ou 16 joueurs (les meilleurs en trophées d'arène si plus de 16). Votre <b>deck d'arène</b> combat pour vous, une manche toutes les 15 minutes.</p>
+          ${r.statut !== "inscriptions" ? "" : !connecte() ? `<button class="btn primary" data-aller="compte">Se connecter pour s'inscrire</button>`
+            : r.inscrit ? `<span>✅ Vous êtes inscrit !</span> <button class="btn small" id="samediDesinscrire">Se désinscrire</button> <button class="btn small" id="samediDeck">🔄 Mettre à jour mon deck</button>` : `<button class="btn primary" id="samediInscrire">✍️ M'inscrire avec mon deck</button>`}</div>
+        <div class="panel"><b>🎁 Lots</b><ul class="lots">${Object.entries(r.lots).map(([pl, [pc, bo, msg]]) => `<li>${["", "🥇", "🥈", "🥉", "🎖️", "🎗️"][pl]} ${esc(msg.replace(/ du tournoi du samedi.*$/, "").replace(/^[^\p{L}]+/u, ""))} : <b>${fmt(pc)} 🪙</b>${bo ? ` + ${bo} booster${bo > 1 ? "s" : ""}` : ""}</li>`).join("")}</ul></div></div>
+      ${t ? `<div class="panel"><h3 style="margin-top:0">📋 Tableau</h3><div class="tableau-tournoi">${t.tours.map((tour, k) => `<div class="colonne-tour"><b>${NOMS_TOURS(tour.length)}</b>${tour.map((m, i) => {
+          const nom = (x) => `<span class="${m.joue && m.gagnant === x ? "gagnant" : m.joue ? "perdant" : ""} ${t.joueurs[x].pseudo === COMPTE.pseudo ? "moi" : ""}">${esc(t.joueurs[x].pseudo)}</span>`;
+          return `<div class="match-tournoi">${nom(m.a)}${nom(m.b)}${m.joue ? `<button class="btn small" data-match="${k}-${i}">▶ Regarder</button>` : `<small class="muted">à venir</small>`}</div>`;
+        }).join("")}</div>`).join("")}</div></div>` : ""}
+      ${COMPTE.admin ? `<div class="panel row" style="gap:6px;flex-wrap:wrap"><b>👑 Admin :</b><button class="btn small" data-sa="lancer">Lancer maintenant</button><button class="btn small" data-sa="manche">Jouer la manche suivante</button><button class="btn small" data-sa="reinitialiser">Réinitialiser</button></div>` : ""}`;
+    brancherLiens(v);
+    const inscrire = async () => { if (!deckPret()) return; try { await envoyerDeckArene(); await api("samedi/inscription", { methode: "POST", corps: {} }); toast("✍️ Inscrit au tournoi du samedi ! Rendez-vous à 20 h."); vueSamedi(v); } catch (e) { toast("⚠ " + e.message); } };
+    $("#samediInscrire")?.addEventListener("click", inscrire);
+    $("#samediDeck")?.addEventListener("click", inscrire);
+    $("#samediDesinscrire")?.addEventListener("click", async () => { try { await api("samedi/inscription", { methode: "DELETE" }); vueSamedi(v); } catch (e) { toast("⚠ " + e.message); } });
+    $$("[data-sa]", v).forEach((b) => b.onclick = async () => { try { const x = await api("admin/samedi", { methode: "POST", corps: { action: b.dataset.sa } }); if (x.statut === "annule") toast("Annulé : il faut au moins 4 inscrits."); vueSamedi(v); } catch (e) { toast("⚠ " + e.message); } });
+    $$("[data-match]", v).forEach((b) => b.onclick = () => regarderMatch(...b.dataset.match.split("-")));
+    samediEtat.minuteur = setInterval(() => {
+      if (S.vue !== "samedi" || !document.body.contains(v)) return clearInterval(samediEtat.minuteur);
+      const el = $("#samediCompte"); if (!el) return;
+      if (r.statut === "inscriptions") el.textContent = `⏱️ dans ${compte(r.depart)}`;
+      else if (r.statut === "encours") { el.textContent = `⏱️ prochaine manche dans ${compte(r.prochainTour)}`; if (Date.now() > r.prochainTour + 20000) { clearInterval(samediEtat.minuteur); vueSamedi(v); } }
+    }, 1000);
+  } catch (e) { v.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+// Rediffusion d'un match : les actions enregistrées sont rejouées à l'identique, en accéléré
+async function regarderMatch(tour, match) {
+  try {
+    const m = await api(`samedi/match/${tour}/${match}`);
+    lancerCombat({
+      titre: `🏆 ${m.a} contre ${m.b}`, adversaire: m.b, moi: m.deckA, lui: m.deckB, graine: m.graine, spectateur: true,
+      duel: { cote: 0, resteMs: 600000, abandon: async () => {}, tours: async (t) => (m.paires[t - 1] ? [m.paires[t - 1]] : [["attaque", "attaque"]]) },
+      fin: async () => `🏆 ${m.gagnant === 0 ? m.a : m.b} remporte le match !`,
+    });
+    setTimeout(() => $("#cbAuto")?.click(), 600);
+  } catch (e) { toast("⚠ " + e.message); }
+}
+ajouterPage("samedi", "🏆", "Tournoi du samedi", vueSamedi);

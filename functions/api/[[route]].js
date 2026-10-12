@@ -1,4 +1,4 @@
-// API de WorldCards : comptes, sauvegarde dans le cloud, hub communautaire, Premium, arène en ligne,
+// API de Play2F1 : comptes, sauvegarde dans le cloud, hub communautaire, Premium, arène en ligne,
 // notifications push et administration. Base de données D1 liée sous le nom « DB ».
 // Variables d'environnement : ADMIN_CODE (secret, obligatoire pour créer le compte administrateur)
 // et ADMIN_PSEUDO (facultatif, « nuiraz » par défaut).
@@ -86,6 +86,13 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS encheres ( id INTEGER PRIMARY KEY AUTOINCREMENT, vendeur_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, vendeur TEXT NOT NULL, carte TEXT NOT NULL, nom TEXT NOT NULL, doree INTEGER NOT NULL DEFAULT 0, prix_depart INTEGER NOT NULL, offre INTEGER, acheteur_id INTEGER, acheteur TEXT, nb_offres INTEGER NOT NULL DEFAULT 0, fin INTEGER NOT NULL, statut TEXT NOT NULL DEFAULT 'ouverte', cree_le INTEGER NOT NULL )`,
   `CREATE INDEX IF NOT EXISTS encheres_statut ON encheres (statut, fin)`,
   `CREATE TABLE IF NOT EXISTS abonnements_stripe ( abonnement TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, formule TEXT NOT NULL, client TEXT, statut TEXT NOT NULL, fin INTEGER, maj INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS notifs_envoyees ( user_id INTEGER NOT NULL, type TEXT NOT NULL, cle TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, type, cle) )`,
+  `CREATE TABLE IF NOT EXISTS stripe_evenements ( id TEXT PRIMARY KEY, type TEXT NOT NULL, user_id INTEGER, resume TEXT, cree_le INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS raid_attaques ( id INTEGER PRIMARY KEY AUTOINCREMENT, guilde_id INTEGER NOT NULL, user_id INTEGER NOT NULL, semaine TEXT NOT NULL, jour TEXT NOT NULL, graine INTEGER NOT NULL, deck TEXT NOT NULL, degats INTEGER NOT NULL DEFAULT 0, fini INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
+  `CREATE INDEX IF NOT EXISTS raid_guilde ON raid_attaques (guilde_id, semaine)`,
+  `CREATE TABLE IF NOT EXISTS raid_recompenses ( user_id INTEGER NOT NULL, semaine TEXT NOT NULL, PRIMARY KEY (user_id, semaine) )`,
+  `CREATE TABLE IF NOT EXISTS tdirect ( semaine TEXT PRIMARY KEY, statut TEXT NOT NULL, taille INTEGER NOT NULL DEFAULT 0, tableau TEXT, tour INTEGER NOT NULL DEFAULT 0, prochain INTEGER, cree_le INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS tdirect_inscrits ( semaine TEXT NOT NULL, user_id INTEGER NOT NULL, pseudo TEXT NOT NULL, deck TEXT NOT NULL, trophees INTEGER NOT NULL DEFAULT 1000, cree_le INTEGER NOT NULL, PRIMARY KEY (semaine, user_id) )`,
   `CREATE TABLE IF NOT EXISTS bloques ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, bloque_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (user_id, bloque_id) )`,
   `CREATE TABLE IF NOT EXISTS combats ( id INTEGER PRIMARY KEY AUTOINCREMENT, attaquant INTEGER NOT NULL, defenseur INTEGER NOT NULL, graine INTEGER NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, cree_le INTEGER NOT NULL, fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER )`,
 ];
@@ -97,6 +104,9 @@ const MIGRATIONS = [
   `ALTER TABLE users ADD COLUMN muet_jusqu INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN titre TEXT`,
   `ALTER TABLE users ADD COLUMN stripe_client TEXT`,
+  `ALTER TABLE users ADD COLUMN parrain_id INTEGER`,
+  `ALTER TABLE encheres ADD COLUMN notif_fin INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE users ADD COLUMN parrainage_ok INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN cadre TEXT`,
 ];
 let schemaPret = false;
@@ -201,8 +211,9 @@ route("POST", "inscription", async ({ request, env }) => {
   const sel = b64(aleatoire(16));
   const hash = await hacherMotDePasse(motdepasse, sel);
   try {
-    const r = await env.DB.prepare("INSERT INTO users (pseudo, hash, sel, admin, cree_le, derniere_co, cgu_le) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .bind(pseudo, hash, sel, admin ? 1 : 0, maintenant(), maintenant(), maintenant()).run();
+    const parrain = b.parrain ? await env.DB.prepare("SELECT id FROM users WHERE pseudo = ? AND banni = 0").bind(String(b.parrain).trim()).first() : null;
+    const r = await env.DB.prepare("INSERT INTO users (pseudo, hash, sel, admin, cree_le, derniere_co, cgu_le, parrain_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(pseudo, hash, sel, admin ? 1 : 0, maintenant(), maintenant(), maintenant(), parrain?.id ?? null).run();
     const session = await ouvrirSession(env, r.meta.last_row_id);
     return json({ pseudo, admin, creeLe: maintenant(), jeton: session.token }, 201, { "set-cookie": session.cookie });
   } catch (e) {
@@ -301,7 +312,37 @@ route("GET", "sauvegarde", async ({ env, user }) => {
   return json(s ? { data: JSON.parse(s.data), maj: s.maj, reset: user.reset_le || 0 } : { data: null, reset: user.reset_le || 0 });
 }, { connecte: true });
 
-route("PUT", "sauvegarde", async ({ request, env, user }) => {
+// Parrainage : quand le filleul atteint le niveau 5 (720 XP), parrain et filleul reçoivent un booster + 200 pièces
+const XP_NIVEAU_5 = 720, FILLEULS_MAX = 30;
+async function verifierParrainage(env, user, data, ctx) {
+  if (!user.parrain_id || user.parrainage_ok || (Number(data?.sauvegarde?.xp) || 0) < XP_NIVEAU_5) return;
+  const r = await env.DB.prepare("UPDATE users SET parrainage_ok = 1 WHERE id = ? AND parrainage_ok = 0").bind(user.id).run();
+  if (!r.meta.changes) return;
+  const nb = await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE parrain_id = ? AND parrainage_ok = 1").bind(user.parrain_id).first();
+  const ins = "INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, ?, ?, ?, ?)";
+  await env.DB.batch([
+    env.DB.prepare(ins).bind(user.id, 200, 1, "Parrainage : vous avez atteint le niveau 5 !", maintenant()),
+    ...(nb.n <= FILLEULS_MAX ? [env.DB.prepare(ins).bind(user.parrain_id, 200, 1, `Parrainage : votre filleul ${user.pseudo} a atteint le niveau 5 !`, maintenant())] : []),
+  ]);
+  if (nb.n <= FILLEULS_MAX) enArrierePlan(ctx, envoyerPush(env, user.parrain_id, { titre: "🤝 Parrainage réussi !", texte: `${user.pseudo} a atteint le niveau 5 : un booster et 200 🪙 vous attendent.`, url: "./" }));
+}
+route("GET", "parrainage", async ({ env, user }) => {
+  const { results } = await env.DB.prepare("SELECT pseudo, parrainage_ok, cree_le FROM users WHERE parrain_id = ? ORDER BY cree_le DESC LIMIT 100").bind(user.id).all();
+  const parrain = user.parrain_id ? await env.DB.prepare("SELECT pseudo FROM users WHERE id = ?").bind(user.parrain_id).first() : null;
+  return json({ code: user.pseudo, parrain: parrain?.pseudo || null, peutAjouter: !user.parrain_id && maintenant() - user.cree_le < 7 * JOUR,
+    recompense: !!user.parrainage_ok, filleuls: results.map((f) => ({ pseudo: f.pseudo, valide: !!f.parrainage_ok, depuis: f.cree_le })), max: FILLEULS_MAX });
+}, { connecte: true });
+route("POST", "parrainage", async ({ request, env, user }) => {
+  const b = await corps(request);
+  if (user.parrain_id) return erreur("Vous avez déjà un parrain.");
+  if (maintenant() - user.cree_le > 7 * JOUR) return erreur("Le code de parrainage s'ajoute dans les 7 jours suivant l'inscription.");
+  const p = await env.DB.prepare("SELECT id, parrain_id FROM users WHERE pseudo = ? AND banni = 0").bind(String(b.code || "").trim()).first();
+  if (!p || p.id === user.id) return erreur("Code de parrainage introuvable (c'est le pseudo de votre parrain).");
+  if (p.parrain_id === user.id) return erreur("Vous ne pouvez pas parrainer votre propre parrain.");
+  await env.DB.prepare("UPDATE users SET parrain_id = ? WHERE id = ? AND parrain_id IS NULL").bind(p.id, user.id).run();
+  return json({ ok: true });
+}, { connecte: true });
+route("PUT", "sauvegarde", async ({ request, env, user, ctx }) => {
   const texte = await request.text();
   if (texte.length > TAILLE_MAX_SAUVEGARDE) return erreur("Sauvegarde trop lourde : retirez quelques illustrations personnelles.", 413);
   let b; try { b = JSON.parse(texte); } catch { return erreur("Sauvegarde illisible."); }
@@ -317,6 +358,7 @@ route("PUT", "sauvegarde", async ({ request, env, user }) => {
   // Classement de la semaine : nombre de cartes au début de la semaine, et maintenant
   await env.DB.prepare(`INSERT INTO hebdo (user_id, semaine, cartes_debut, cartes) VALUES (?1, ?2, ?3, ?3)
     ON CONFLICT(user_id, semaine) DO UPDATE SET cartes = excluded.cartes`).bind(user.id, semaineCourante(), n(b.resume?.cartes)).run();
+  await verifierParrainage(env, user, b.data, ctx);
   return json({ ok: true, maj: maintenant() });
 }, { connecte: true });
 
@@ -507,7 +549,7 @@ route("POST", "admin/cadeaux", async ({ request, env, ctx }) => {
   }
   await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, ?, ?, ?, ?)")
     .bind(userId, pieces, boosters, String(b.message || "").slice(0, 200), maintenant()).run();
-  const notif = { titre: "🎁 Un cadeau vous attend !", texte: String(b.message || "").slice(0, 120) || "Ouvrez WorldCards pour le recevoir.", url: "./" };
+  const notif = { titre: "🎁 Un cadeau vous attend !", texte: String(b.message || "").slice(0, 120) || "Ouvrez Play2F1 pour le recevoir.", url: "./" };
   enArrierePlan(ctx, (async () => {
     const ids = userId ? [userId] : (await env.DB.prepare("SELECT DISTINCT user_id FROM abonnements LIMIT 1000").all()).results.map((x) => x.user_id);
     for (const id of ids) await envoyerPush(env, id, notif);
@@ -582,9 +624,41 @@ route("GET", "notifs/derniere", async ({ env, user }) => {
   return json({ notif: n || null });
 });
 // Tâche planifiée (cron du Worker) : rappels de booster gratuit et ménage
+// Notifications intelligentes (toutes les 15 minutes) : une seule fois par sujet et par jour
+async function notifierUneFois(env, userId, type, cle, notif) {
+  const r = await env.DB.prepare("INSERT OR IGNORE INTO notifs_envoyees (user_id, type, cle, cree_le) VALUES (?, ?, ?, ?)").bind(userId, type, cle, maintenant()).run();
+  if (r.meta.changes) await envoyerPush(env, userId, notif);
+}
+async function notificationsIntelligentes(env) {
+  const t = maintenant();
+  // 1) Série de connexion qui va se casser : pas venu depuis 19 à 23 h, série d'au moins 2 jours
+  const { results: series } = await env.DB.prepare(`SELECT u.id, json_extract(s.data, '$.sauvegarde.connexion.serie') AS serie
+    FROM users u JOIN sauvegardes s ON s.user_id = u.id
+    WHERE u.banni = 0 AND u.derniere_co BETWEEN ? AND ? AND EXISTS (SELECT 1 FROM abonnements a WHERE a.user_id = u.id)
+      AND COALESCE(json_extract(s.data, '$.sauvegarde.connexion.serie'), 0) >= 2 LIMIT 200`).bind(t - 23 * 3600000, t - 19 * 3600000).all();
+  for (const x of series) await notifierUneFois(env, x.id, "serie", new Date(t).toISOString().slice(0, 10),
+    { titre: `🔥 Votre série de ${x.serie} jours va se casser !`, texte: "Revenez récupérer votre récompense du jour avant qu'elle ne reparte à zéro.", url: "./" });
+  // 2) Enchère qui se termine dans 5 à 25 minutes : le vendeur et le joueur en tête sont prévenus
+  const { results: ench } = await env.DB.prepare("SELECT * FROM encheres WHERE statut = 'ouverte' AND notif_fin = 0 AND fin BETWEEN ? AND ? LIMIT 50").bind(t + 5 * 60000, t + 25 * 60000).all();
+  for (const e of ench) {
+    await env.DB.prepare("UPDATE encheres SET notif_fin = 1 WHERE id = ?").bind(e.id).run();
+    const min = Math.round((e.fin - t) / 60000);
+    await envoyerPush(env, e.vendeur_id, { titre: "🔨 Votre enchère se termine bientôt", texte: `${e.nom} : fin dans ${min} min${e.offre ? ` · ${e.offre} 🪙 par ${e.acheteur}` : " · aucune offre pour l'instant"}.`, url: "./#encheres" });
+    if (e.acheteur_id) await envoyerPush(env, e.acheteur_id, { titre: "🔨 Enchère presque finie !", texte: `Vous êtes en tête pour ${e.nom} (${e.offre} 🪙) : fin dans ${min} min. Restez vigilant !`, url: "./#encheres" });
+  }
+  // 3) Passe de saison : derniers jours du mois avec des récompenses à récupérer
+  const fin = new Date(); const jourMois = fin.getUTCDate(), dernier = new Date(Date.UTC(fin.getUTCFullYear(), fin.getUTCMonth() + 1, 0)).getUTCDate();
+  if (dernier - jourMois === 2 && fin.getUTCHours() === 17) {
+    const { results: passes } = await env.DB.prepare("SELECT user_id FROM passes WHERE mois = ? LIMIT 300").bind(moisCourant()).all();
+    for (const x of passes) await notifierUneFois(env, x.user_id, "passe-fin", moisCourant(), { titre: "🎟️ Votre passe se termine dans 2 jours", texte: "Pensez à récupérer toutes vos récompenses avant le changement de saison !", url: "./#passe" });
+  }
+  await env.DB.prepare("DELETE FROM notifs_envoyees WHERE cree_le < ?").bind(t - 40 * JOUR).run();
+}
 export async function planifie(env) {
   await preparerSchema(env);
   await cloturerEncheres(env);
+  try { await notificationsIntelligentes(env); } catch (e) { console.error(e); }
+  try { await cronTournoiDirect(env); } catch (e) { console.error(e); }
   const jourSync = new Date().toISOString().slice(0, 10), dejaJour = (await lireConfig(env, "sync_jour")) === jourSync;
   if (!dejaJour) await ecrireConfig(env, "sync_jour", jourSync);
   try { await syncSupabase(env, !dejaJour); } catch (e) { console.error(e); }
@@ -592,7 +666,7 @@ export async function planifie(env) {
   const { results } = await env.DB.prepare("SELECT r.user_id FROM rappels r WHERE r.quand <= ? AND EXISTS (SELECT 1 FROM abonnements a WHERE a.user_id = r.user_id) LIMIT 300").bind(maintenant()).all();
   for (const { user_id } of results) {
     await env.DB.prepare("DELETE FROM rappels WHERE user_id = ?").bind(user_id).run();
-    await envoyerPush(env, user_id, { titre: "🎁 Booster gratuit prêt !", texte: "Votre booster gratuit vous attend dans WorldCards.", url: "./#boosters" });
+    await envoyerPush(env, user_id, { titre: "🎁 Booster gratuit prêt !", texte: "Votre booster gratuit vous attend dans Play2F1.", url: "./#boosters" });
   }
   await env.DB.batch([
     env.DB.prepare("DELETE FROM rappels WHERE quand <= ?").bind(maintenant()),
@@ -837,7 +911,7 @@ async function signalerMenace(env, ip, type, details, niveau = "alerte") {
   // Une notification aux administrateurs au plus toutes les 15 minutes
   if (!derniere || maintenant() - (derniere.notifie || 0) > 15 * 60000) {
     await ecrireConfig(env, "alerte", { ip, message: details, type, date: maintenant(), notifie: maintenant() });
-    await prevenirAdmins(env, { titre: "🚨 Alerte sécurité WorldCards", texte: details, url: "./#admin" });
+    await prevenirAdmins(env, { titre: "🚨 Alerte sécurité Play2F1", texte: details, url: "./#admin" });
   }
 }
 async function controleTrafic(request, env, ctx) {
@@ -1142,7 +1216,7 @@ route("POST", "premium/paypal/commande", async ({ request, env, user }) => {
   const b = await corps(request);
   const formule = PRIX_FORMULES[b.formule] ? b.formule : "mois";
   const r = await fetch(urlPaypal(env) + "/v2/checkout/orders", { method: "POST", headers: { Authorization: "Bearer " + await jetonPaypal(env), "Content-Type": "application/json" },
-    body: JSON.stringify({ intent: "CAPTURE", purchase_units: [{ amount: { currency_code: "EUR", value: PRIX_FORMULES[formule] }, description: formule === "passe" ? `WorldCards Passe de saison (${moisCourant()})` : `WorldCards Premium (${formule})`, custom_id: `${user.id}:${formule}` }] }) });
+    body: JSON.stringify({ intent: "CAPTURE", purchase_units: [{ amount: { currency_code: "EUR", value: PRIX_FORMULES[formule] }, description: formule === "passe" ? `Play2F1 Passe de saison (${moisCourant()})` : `Play2F1 Premium (${formule})`, custom_id: `${user.id}:${formule}` }] }) });
   const j = await r.json();
   if (!r.ok || !j.id) return erreur("Impossible de créer la commande PayPal.", 502);
   await env.DB.prepare("INSERT INTO paiements (commande, user_id, formule, montant, statut, cree_le) VALUES (?, ?, ?, ?, 'cree', ?)").bind(j.id, user.id, formule, PRIX_FORMULES[formule], maintenant()).run();
@@ -1789,15 +1863,101 @@ route("POST", "stripe/valider", async ({ request, env, user, ctx }) => {
   const formule = s.metadata?.formule;
   if (s.metadata?.user_id !== String(user.id) || !PRIX_STRIPE[formule]) return erreur("Ce paiement ne correspond pas à votre compte.", 403);
   if (s.status !== "complete" || !["paid", "no_payment_required"].includes(s.payment_status)) return erreur("Le paiement n'est pas encore confirmé.", 402);
-  const neuf = await env.DB.prepare("INSERT OR IGNORE INTO paiements (commande, user_id, formule, montant, statut, cree_le) VALUES (?, ?, ?, ?, 'paye', ?)")
-    .bind(id, user.id, formule, ((s.amount_total || 0) / 100).toFixed(2), maintenant()).run();
-  if (s.customer) await env.DB.prepare("UPDATE users SET stripe_client = ? WHERE id = ?").bind(s.customer, user.id).run();
-  if (formule === "vie") await env.DB.prepare("UPDATE users SET premium_jusqu = ? WHERE id = ?").bind(PREMIUM_VIE, user.id).run();
-  else if (s.subscription) await appliquerAbonnement(env, ctx, user.id, formule, s.subscription);
-  if (neuf.meta.changes) enArrierePlan(ctx, prevenirAdmins(env, { titre: "💰 Paiement Stripe reçu", texte: `${user.pseudo} : ${{ mois: "Premium mensuel", an: "Premium annuel", vie: "Premium à vie", passe: "Passe de saison" }[formule]} (${((s.amount_total || 0) / 100).toFixed(2)} €)`, url: "./#admin" }));
+  await activerSessionStripe(env, ctx, s);
   const u = await env.DB.prepare("SELECT premium_jusqu FROM users WHERE id = ?").bind(user.id).first();
   return json({ ok: true, formule, premiumJusqu: u.premium_jusqu });
 }, { connecte: true });
+const NOMS_FORMULES = { mois: "Premium mensuel", an: "Premium annuel", vie: "Premium à vie", passe: "Passe de saison" };
+// Active l'achat d'une session Checkout payée (appelé au retour sur le site ET par le webhook : sans double effet)
+async function activerSessionStripe(env, ctx, s) {
+  const userId = Number(s.metadata?.user_id), formule = s.metadata?.formule;
+  if (!userId || !PRIX_STRIPE[formule]) return;
+  const neuf = await env.DB.prepare("INSERT OR IGNORE INTO paiements (commande, user_id, formule, montant, statut, cree_le) VALUES (?, ?, ?, ?, 'paye', ?)")
+    .bind(s.id, userId, formule, ((s.amount_total || 0) / 100).toFixed(2), maintenant()).run();
+  if (s.customer) await env.DB.prepare("UPDATE users SET stripe_client = ? WHERE id = ?").bind(typeof s.customer === "string" ? s.customer : s.customer.id, userId).run();
+  if (formule === "vie") await env.DB.prepare("UPDATE users SET premium_jusqu = ? WHERE id = ?").bind(PREMIUM_VIE, userId).run();
+  else if (s.subscription) await appliquerAbonnement(env, ctx, userId, formule, typeof s.subscription === "string" ? await stripeApi(env, "GET", "subscriptions/" + s.subscription) : s.subscription);
+  if (neuf.meta.changes) {
+    const u = await env.DB.prepare("SELECT pseudo FROM users WHERE id = ?").bind(userId).first();
+    enArrierePlan(ctx, prevenirAdmins(env, { titre: "💰 Paiement Stripe reçu", texte: `${u?.pseudo} : ${NOMS_FORMULES[formule]} (${((s.amount_total || 0) / 100).toFixed(2)} €)`, url: "./#admin" }));
+    enArrierePlan(ctx, envoyerPush(env, userId, { titre: formule === "passe" ? "🎟️ Passe de saison activé !" : "💎 Premium activé !", texte: "Merci pour votre achat. Bon jeu !", url: formule === "passe" ? "./#passe" : "./#premium" }));
+  }
+}
+/* Webhook Stripe : Stripe prévient le serveur à la seconde (résiliation, renouvellement, paiement refusé, remboursement).
+   Sécurité : on ne fait jamais confiance au contenu reçu, on relit l'événement chez Stripe avec la clé secrète. */
+route("POST", "stripe/webhook", async ({ request, env, ctx }) => {
+  let recu; try { recu = await request.json(); } catch { return erreur("Corps invalide."); }
+  if (!/^evt_[A-Za-z0-9]+$/.test(String(recu?.id || ""))) return erreur("Événement invalide.");
+  if (await env.DB.prepare("SELECT 1 FROM stripe_evenements WHERE id = ?").bind(recu.id).first()) return json({ ok: true, deja: true });
+  let ev; try { ev = await stripeApi(env, "GET", "events/" + recu.id); } catch { return erreur("Événement introuvable chez Stripe.", 400); }
+  const o = ev.data?.object || {};
+  const meta = o.metadata || {};
+  let userId = Number(meta.user_id) || null, resume = ev.type;
+  const pseudoDe = async (id) => (await env.DB.prepare("SELECT pseudo FROM users WHERE id = ?").bind(id).first())?.pseudo || "?";
+  if (ev.type === "checkout.session.completed" && ["paid", "no_payment_required"].includes(o.payment_status)) {
+    await activerSessionStripe(env, ctx, o); resume = `Achat ${NOMS_FORMULES[meta.formule] || ""}`;
+  } else if (ev.type.startsWith("customer.subscription.")) {
+    const a = await env.DB.prepare("SELECT user_id, formule FROM abonnements_stripe WHERE abonnement = ?").bind(o.id).first();
+    userId = userId || a?.user_id; const formule = meta.formule || a?.formule;
+    if (userId && formule) await appliquerAbonnement(env, ctx, userId, formule, o);
+    if (userId && ev.type === "customer.subscription.deleted") {
+      resume = `Abonnement terminé (${NOMS_FORMULES[formule] || formule})`;
+      enArrierePlan(ctx, envoyerPush(env, userId, { titre: "Abonnement terminé", texte: `Votre ${NOMS_FORMULES[formule] || "abonnement"} a pris fin. Vous pouvez vous réabonner à tout moment.`, url: "./#premium" }));
+      enArrierePlan(ctx, prevenirAdmins(env, { titre: "📉 Résiliation", texte: `${await pseudoDe(userId)} : ${NOMS_FORMULES[formule] || formule} terminé.`, url: "./#admin" }));
+    } else if (userId && o.cancel_at_period_end && ev.data?.previous_attributes?.cancel_at_period_end === false) {
+      resume = `Résiliation programmée (${NOMS_FORMULES[formule] || formule})`;
+      enArrierePlan(ctx, prevenirAdmins(env, { titre: "📉 Résiliation programmée", texte: `${await pseudoDe(userId)} a résilié son ${NOMS_FORMULES[formule] || formule} (actif jusqu'à la fin de la période).`, url: "./#admin" }));
+    }
+  } else if (ev.type === "invoice.paid" || ev.type === "invoice.payment_failed") {
+    const subId = typeof o.subscription === "string" ? o.subscription : o.subscription?.id || o.parent?.subscription_details?.subscription;
+    const a = subId ? await env.DB.prepare("SELECT user_id, formule FROM abonnements_stripe WHERE abonnement = ?").bind(subId).first() : null;
+    userId = userId || a?.user_id;
+    if (a && subId) await appliquerAbonnement(env, ctx, a.user_id, a.formule, await stripeApi(env, "GET", "subscriptions/" + subId));
+    if (ev.type === "invoice.paid") {
+      resume = `Renouvellement payé (${((o.amount_paid || 0) / 100).toFixed(2)} €)`;
+      // Les renouvellements comptent dans les ventes (la 1re facture est déjà comptée par l'achat)
+      if (a && o.billing_reason !== "subscription_create" && o.amount_paid > 0) await env.DB.prepare("INSERT OR IGNORE INTO paiements (commande, user_id, formule, montant, statut, cree_le) VALUES (?, ?, ?, ?, 'paye', ?)").bind(o.id, a.user_id, a.formule, (o.amount_paid / 100).toFixed(2), maintenant()).run();
+    }
+    else if (userId) {
+      resume = "Paiement refusé";
+      enArrierePlan(ctx, envoyerPush(env, userId, { titre: "⚠️ Paiement refusé", texte: "Le renouvellement de votre abonnement a échoué : mettez à jour votre carte depuis la page Premium.", url: "./#premium" }));
+      enArrierePlan(ctx, prevenirAdmins(env, { titre: "⚠️ Paiement refusé", texte: `${await pseudoDe(userId)} : renouvellement ${NOMS_FORMULES[a?.formule] || ""} refusé.`, url: "./#admin" }));
+    }
+  } else if (ev.type === "charge.refunded" || ev.type === "charge.dispute.created") {
+    const pi = typeof o.payment_intent === "string" ? await stripeApi(env, "GET", "payment_intents/" + o.payment_intent).catch(() => null) : o.payment_intent;
+    userId = userId || Number(pi?.metadata?.user_id) || null;
+    const formule = pi?.metadata?.formule;
+    resume = ev.type === "charge.refunded" ? `Remboursement ${((o.amount_refunded || 0) / 100).toFixed(2)} €` : "Contestation de paiement (litige)";
+    // Premium à vie remboursé en totalité (ou contesté) : il est retiré
+    if (userId && formule === "vie" && (o.refunded || ev.type === "charge.dispute.created")) {
+      await env.DB.prepare("UPDATE users SET premium_jusqu = ? WHERE id = ?").bind(maintenant(), userId).run();
+      await journaliser(env, userId, "Premium à vie retiré", resume, "Stripe");
+    }
+    enArrierePlan(ctx, prevenirAdmins(env, { titre: ev.type === "charge.refunded" ? "↩️ Remboursement Stripe" : "🚨 Litige Stripe", texte: `${userId ? await pseudoDe(userId) : "Client"} : ${resume}`, url: "./#admin" }));
+  }
+  await env.DB.prepare("INSERT OR IGNORE INTO stripe_evenements (id, type, user_id, resume, cree_le) VALUES (?, ?, ?, ?, ?)").bind(ev.id, ev.type, userId, resume, maintenant()).run();
+  return json({ ok: true });
+});
+// Tableau de bord des ventes (admin)
+route("GET", "admin/ventes", async ({ env }) => {
+  const d = new Date(), debutMois = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+  const debut6 = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 5, 1);
+  const [mois, parFormule, actifs, resil, events, historique] = await env.DB.batch([
+    env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(CAST(montant AS REAL)), 0) AS total FROM paiements WHERE statut = 'paye' AND cree_le >= ?").bind(debutMois),
+    env.DB.prepare("SELECT formule, CASE WHEN commande LIKE 'cs_%' OR commande LIKE 'in_%' THEN 'stripe' ELSE 'paypal' END AS source, COUNT(*) AS n, COALESCE(SUM(CAST(montant AS REAL)), 0) AS total FROM paiements WHERE statut = 'paye' AND cree_le >= ? GROUP BY formule, source").bind(debutMois),
+    env.DB.prepare("SELECT formule, COUNT(*) AS n FROM abonnements_stripe WHERE statut IN ('active', 'trialing', 'past_due') GROUP BY formule"),
+    env.DB.prepare("SELECT type, COUNT(*) AS n FROM stripe_evenements WHERE cree_le >= ? AND type IN ('customer.subscription.deleted', 'invoice.payment_failed', 'charge.refunded', 'charge.dispute.created') GROUP BY type").bind(debutMois),
+    env.DB.prepare("SELECT e.type, e.resume, e.cree_le, u.pseudo FROM stripe_evenements e LEFT JOIN users u ON u.id = e.user_id ORDER BY e.cree_le DESC LIMIT 25"),
+    env.DB.prepare("SELECT strftime('%Y-%m', cree_le / 1000, 'unixepoch') AS mois, COALESCE(SUM(CAST(montant AS REAL)), 0) AS total, COUNT(*) AS n FROM paiements WHERE statut = 'paye' AND cree_le >= ? GROUP BY mois ORDER BY mois").bind(debut6),
+  ]);
+  const nbActifs = Object.fromEntries(actifs.results.map((x) => [x.formule, x.n]));
+  const mrr = (nbActifs.mois || 0) * 3.99 + (nbActifs.an || 0) * 29.99 / 12 + (nbActifs.passe || 0) * 7.99;
+  const premiumsVie = await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE premium_jusqu >= ?").bind(PREMIUM_VIE).first();
+  const premiums = await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE premium_jusqu > ?").bind(maintenant()).first();
+  return json({ mois: { ventes: mois.results[0].n, total: Math.round(mois.results[0].total * 100) / 100 }, parFormule: parFormule.results, abonnesActifs: nbActifs,
+    mrr: Math.round(mrr * 100) / 100, problemes: Object.fromEntries(resil.results.map((x) => [x.type, x.n])), evenements: events.results, historique: historique.results,
+    premiumsVie: premiumsVie.n, premiumsActifs: premiums.n, supabase: await lireConfig(env, "supabase_sync") });
+}, { admin: true });
 // Portail Stripe : changer de carte, voir les factures, résilier
 route("POST", "stripe/portail", async ({ request, env, user }) => {
   if (!user.stripe_client) return erreur("Aucun abonnement Stripe sur ce compte.");
@@ -1872,6 +2032,209 @@ route("POST", "admin/integrations/tester", async ({ env }) => {
   try { const n = await syncSupabase(env, true); res.supabase = n ? `✅ Copie complète : ${Object.entries(n).map(([k, v]) => `${v} ${k}`).join(", ")}` : "❌ Clé Supabase absente"; } catch (e) { res.supabase = "❌ " + e.message; }
   try { res.abonnements = `${await syncStripe(env)} abonnement(s) vérifié(s)`; } catch (e) { res.abonnements = "—"; }
   return json(res);
+}, { admin: true });
+
+/* =====================================================================
+   Raid de guilde : un boss par semaine, toute la guilde l'attaque (3 attaques par jour et par joueur)
+   Les dégâts sont recalculés par le serveur (même graine + mêmes actions = même combat).
+   ===================================================================== */
+const BOSS_RAID = [
+  { nom: "Kraken des Abysses", emoji: "🐙", types: ["nature", "animal", "culture"] },
+  { nom: "Dragon du Désert", emoji: "🐉", types: ["monument", "pays", "animal"] },
+  { nom: "Golem des Andes", emoji: "🗿", types: ["monument", "nature", "ville"] },
+  { nom: "Yéti de l'Himalaya", emoji: "🦍", types: ["nature", "animal", "plat"] },
+  { nom: "Titan des Mégalopoles", emoji: "🏙️", types: ["ville", "monument", "culture"] },
+  { nom: "Phénix des Tropiques", emoji: "🔥", types: ["animal", "culture", "pays"] },
+];
+const ATTAQUES_RAID_JOUR = 3;
+const pvRaid = (membres) => 15000 + 25000 * Math.max(1, membres); // ≈ 11 attaques par membre sur la semaine
+function bossDeLaSemaine(sem) {
+  const n = Math.floor(new Date(sem).getTime() / (7 * JOUR)), b = BOSS_RAID[n % BOSS_RAID.length];
+  // Des cartes légendaires (ou les plus rares disponibles) servent d'apparence au boss
+  const legendaires = Object.entries(CATALOGUE).filter(([, c]) => c.rarete === "legendaire").map(([id]) => id).sort();
+  const deck = b.types.map((type, i) => {
+    const id = legendaires.length ? legendaires[(n * 3 + i * 7) % legendaires.length] : Object.keys(CATALOGUE)[i];
+    return { id, type, nom: `${b.nom}${i ? ` · ${["", "Gardien", "Colosse"][i]}` : ""}`, atk: 700, def: 600, pv: 6000, niveau: 10, talent: ["colosse", "vampire", "riposte"][i] };
+  });
+  return { ...b, deck };
+}
+async function etatRaid(env, user) {
+  const g = await maGuilde(env, user.id);
+  if (!g) return null;
+  const sem = semaineCourante(), jour = new Date().toISOString().slice(0, 10);
+  const membres = (await env.DB.prepare("SELECT COUNT(*) AS n FROM guilde_membres WHERE guilde_id = ?").bind(g.id).first()).n;
+  const total = (await env.DB.prepare("SELECT COALESCE(SUM(degats), 0) AS d FROM raid_attaques WHERE guilde_id = ? AND semaine = ? AND fini = 1").bind(g.id, sem).first()).d;
+  const faites = (await env.DB.prepare("SELECT COUNT(*) AS n FROM raid_attaques WHERE user_id = ? AND jour = ?").bind(user.id, jour).first()).n;
+  return { g, sem, jour, membres, pv: pvRaid(membres), total, faites };
+}
+route("GET", "raid", async ({ env, user }) => {
+  const e = await etatRaid(env, user);
+  if (!e) return json({ guilde: null });
+  const boss = bossDeLaSemaine(e.sem);
+  const { results } = await env.DB.prepare(`SELECT u.pseudo, SUM(r.degats) AS degats, COUNT(*) AS attaques FROM raid_attaques r JOIN users u ON u.id = r.user_id
+    WHERE r.guilde_id = ? AND r.semaine = ? AND r.fini = 1 GROUP BY r.user_id ORDER BY degats DESC`).bind(e.g.id, e.sem).all();
+  const recu = await env.DB.prepare("SELECT 1 FROM raid_recompenses WHERE user_id = ? AND semaine = ?").bind(user.id, e.sem).first();
+  return json({ guilde: e.g.nom, boss: { nom: boss.nom, emoji: boss.emoji, cartes: boss.deck.map((u) => u.id) }, pv: e.pv, degats: e.total, vaincu: e.total >= e.pv,
+    restantes: Math.max(0, ATTAQUES_RAID_JOUR - e.faites), finLe: new Date(e.sem).getTime() + 7 * JOUR, classement: results, recompenseRecue: !!recu,
+    aParticipe: results.some((x) => x.pseudo === user.pseudo) });
+}, { connecte: true });
+route("POST", "raid/attaque", async ({ env, user }) => {
+  const e = await etatRaid(env, user);
+  if (!e) return erreur("Rejoignez une guilde pour participer au raid.");
+  if (e.total >= e.pv) return erreur("Le boss est déjà vaincu cette semaine : récupérez votre récompense !");
+  if (e.faites >= ATTAQUES_RAID_JOUR) return erreur(`Vous avez fait vos ${ATTAQUES_RAID_JOUR} attaques du jour. Revenez demain !`, 429);
+  const moi = await ligneArene(env, user.id);
+  if (!moi.deck) return erreur("Enregistrez d'abord votre deck (onglet Combat).");
+  const graine = crypto.getRandomValues(new Uint32Array(1))[0];
+  const r = await env.DB.prepare("INSERT INTO raid_attaques (guilde_id, user_id, semaine, jour, graine, deck, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(e.g.id, user.id, e.sem, e.jour, graine, moi.deck, maintenant()).run();
+  const boss = bossDeLaSemaine(e.sem);
+  return json({ attaque: r.meta.last_row_id, graine, moi: JSON.parse(moi.deck), lui: boss.deck, boss: boss.nom, ia: 3 });
+}, { connecte: true });
+route("POST", "raid/fin", async ({ request, env, user, ctx }) => {
+  const b = await corps(request);
+  const a = await env.DB.prepare("SELECT * FROM raid_attaques WHERE id = ? AND user_id = ? AND fini = 0").bind(Number(b.attaque) || 0, user.id).first();
+  if (!a) return erreur("Attaque introuvable ou déjà comptée.", 404);
+  const boss = bossDeLaSemaine(a.semaine);
+  const actions = (Array.isArray(b.actions) ? b.actions : []).slice(0, COMBAT.TOURS_MAX).map(String);
+  const etat = COMBAT.rejouer(JSON.parse(a.deck), boss.deck, a.graine, actions, { ia: 3 });
+  const degats = etat.equipes[1].reduce((s, u) => s + (u.pvMax - Math.max(0, u.pv)), 0);
+  await env.DB.prepare("UPDATE raid_attaques SET degats = ?, fini = 1 WHERE id = ?").bind(degats, a.id).run();
+  const membres = (await env.DB.prepare("SELECT COUNT(*) AS n FROM guilde_membres WHERE guilde_id = ?").bind(a.guilde_id).first()).n;
+  const total = (await env.DB.prepare("SELECT COALESCE(SUM(degats), 0) AS d FROM raid_attaques WHERE guilde_id = ? AND semaine = ? AND fini = 1").bind(a.guilde_id, a.semaine).first()).d;
+  const pv = pvRaid(membres);
+  // Le coup fatal : toute la guilde est prévenue
+  if (total >= pv && total - degats < pv) {
+    const { results } = await env.DB.prepare("SELECT user_id FROM guilde_membres WHERE guilde_id = ?").bind(a.guilde_id).all();
+    for (const m of results) enArrierePlan(ctx, envoyerPush(env, m.user_id, { titre: `${boss.emoji} ${boss.nom} est vaincu !`, texte: `${user.pseudo} a porté le coup final. Récupérez votre récompense de raid !`, url: "./#guilde" }));
+  }
+  return json({ degats, total, pv, vaincu: total >= pv });
+}, { connecte: true });
+route("POST", "raid/recompense", async ({ env, user }) => {
+  const e = await etatRaid(env, user);
+  if (!e) return erreur("Vous n'êtes dans aucune guilde.");
+  if (e.total < e.pv) return erreur("Le boss n'est pas encore vaincu.");
+  if (!(await env.DB.prepare("SELECT 1 FROM raid_attaques WHERE user_id = ? AND semaine = ? AND fini = 1 AND degats > 0").bind(user.id, e.sem).first())) return erreur("Il faut avoir attaqué le boss au moins une fois cette semaine.");
+  const r = await env.DB.prepare("INSERT OR IGNORE INTO raid_recompenses (user_id, semaine) VALUES (?, ?)").bind(user.id, e.sem).run();
+  if (!r.meta.changes) return erreur("Récompense déjà récupérée.");
+  return json({ ok: true, booster: "or", pieces: 400 });
+}, { connecte: true });
+
+/* =====================================================================
+   Tournoi en direct du samedi soir : inscriptions dans la semaine, départ à 20 h (heure de Bruxelles),
+   tableau à élimination de 4, 8 ou 16 joueurs, une manche toutes les 15 minutes, matchs automatiques
+   (decks des joueurs, rejouables à l'identique pour les regarder).
+   ===================================================================== */
+const RECOMPENSES_DIRECT = { 1: [3000, 3, "🏆 Champion du tournoi du samedi !"], 2: [1500, 2, "🥈 Finaliste du tournoi du samedi"], 3: [600, 1, "🥉 Demi-finaliste du tournoi du samedi"], 4: [250, 0, "Quart de finale du tournoi du samedi"], 5: [100, 0, "Huitième de finale du tournoi du samedi"] };
+function heureBruxelles(t = maintenant()) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Brussels", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date(t)).map((x) => [x.type, x.value]));
+  return { jour: p.weekday, heure: Number(p.hour) % 24, minute: Number(p.minute) };
+}
+// Prochain samedi 20 h à Bruxelles (en ms), cherché quart d'heure par quart d'heure
+function prochainDepart(t = maintenant()) {
+  let x = Math.ceil(t / 900000) * 900000;
+  for (let i = 0; i < 8 * 96; i++, x += 900000) { const h = heureBruxelles(x); if (h.jour === "Sat" && h.heure === 20 && h.minute === 0) return x; }
+  return t + 7 * JOUR;
+}
+const semaineTournoi = (t = maintenant()) => new Date(prochainDepart(t - 6 * 3600000)).toISOString().slice(0, 10); // le tournoi d'un samedi reste visible jusqu'au dimanche
+async function lancerTournoiDirect(env, sem, force = false) {
+  const existe = await env.DB.prepare("SELECT statut FROM tdirect WHERE semaine = ?").bind(sem).first();
+  if (existe && existe.statut !== "inscriptions") return existe;
+  const { results } = await env.DB.prepare("SELECT * FROM tdirect_inscrits WHERE semaine = ? ORDER BY trophees DESC, cree_le ASC").bind(sem).all();
+  const taille = results.length >= 16 ? 16 : results.length >= 8 ? 8 : results.length >= 4 ? 4 : 0;
+  if (!taille) {
+    await env.DB.prepare("INSERT INTO tdirect (semaine, statut, cree_le) VALUES (?, 'annule', ?) ON CONFLICT(semaine) DO UPDATE SET statut = 'annule'").bind(sem, maintenant()).run();
+    for (const x of results) await envoyerPush(env, x.user_id, { titre: "🏆 Tournoi du samedi annulé", texte: "Pas assez d'inscrits ce soir (4 minimum). Rendez-vous samedi prochain !", url: "./#samedi" });
+    return { statut: "annule" };
+  }
+  // Têtes de série : le 1er affronte le dernier, etc.
+  const joueurs = results.slice(0, taille).map((x) => ({ id: x.user_id, pseudo: x.pseudo, trophees: x.trophees }));
+  const ordre = taille === 4 ? [0, 3, 1, 2] : taille === 8 ? [0, 7, 3, 4, 1, 6, 2, 5] : [0, 15, 7, 8, 3, 12, 4, 11, 1, 14, 6, 9, 2, 13, 5, 10];
+  const tours = [[]];
+  for (let i = 0; i < taille; i += 2) tours[0].push({ a: ordre[i], b: ordre[i + 1], gagnant: null });
+  const tableau = { joueurs, tours };
+  await env.DB.prepare("INSERT INTO tdirect (semaine, statut, taille, tableau, tour, prochain, cree_le) VALUES (?, 'encours', ?, ?, 0, ?, ?) ON CONFLICT(semaine) DO UPDATE SET statut = 'encours', taille = excluded.taille, tableau = excluded.tableau, tour = 0, prochain = excluded.prochain")
+    .bind(sem, taille, JSON.stringify(tableau), maintenant() + (force ? 60000 : 5 * 60000), maintenant()).run();
+  for (const j of joueurs) await envoyerPush(env, j.id, { titre: "🏆 Le tournoi du samedi commence !", texte: `${taille} joueurs, une manche toutes les 15 minutes. Venez suivre vos matchs en direct !`, url: "./#samedi" });
+  return { statut: "encours" };
+}
+// Joue la manche en cours (tous les matchs), prépare la suivante, et distribue les lots à la fin
+async function avancerTournoiDirect(env, sem, force = false) {
+  const t = await env.DB.prepare("SELECT * FROM tdirect WHERE semaine = ? AND statut = 'encours'").bind(sem).first();
+  if (!t || (!force && maintenant() < t.prochain)) return;
+  const tab = JSON.parse(t.tableau), tour = tab.tours[t.tour];
+  const decks = Object.fromEntries((await env.DB.prepare("SELECT user_id, deck FROM tdirect_inscrits WHERE semaine = ?").bind(sem).all()).results.map((x) => [x.user_id, JSON.parse(x.deck)]));
+  for (const m of tour) {
+    if (m.gagnant !== null) continue;
+    m.graine = crypto.getRandomValues(new Uint32Array(1))[0];
+    const r = COMBAT.simulerMatch(decks[tab.joueurs[m.a].id], decks[tab.joueurs[m.b].id], m.graine);
+    m.paires = r.paires; m.gagnant = r.gagnant === 0 ? m.a : m.b;
+  }
+  let statut = "encours", prochain = maintenant() + 15 * 60000;
+  if (tour.length === 1) {
+    statut = "fini";
+    // Lots : place selon la manche où le joueur a été éliminé
+    const nbTours = tab.tours.length, places = {};
+    places[tour[0].gagnant] = 1;
+    tab.tours.forEach((tr, k) => tr.forEach((m) => { const perdant = m.gagnant === m.a ? m.b : m.a; places[perdant] = nbTours - k + 1; }));
+    for (const [idx, place] of Object.entries(places)) {
+      const [pieces, boosters, message] = RECOMPENSES_DIRECT[place];
+      const j = tab.joueurs[idx];
+      await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, ?, ?, ?, ?)").bind(j.id, pieces, boosters, message, maintenant()).run();
+      await envoyerPush(env, j.id, { titre: place === 1 ? "🏆 Vous avez gagné le tournoi !" : "🏆 Tournoi terminé", texte: `${message} : ${pieces} 🪙${boosters ? ` et ${boosters} booster(s)` : ""}.`, url: "./#samedi" });
+    }
+    tab.champion = tab.joueurs[tour[0].gagnant].pseudo;
+  } else {
+    const suivant = [];
+    for (let i = 0; i < tour.length; i += 2) suivant.push({ a: tour[i].gagnant, b: tour[i + 1].gagnant, gagnant: null });
+    tab.tours.push(suivant);
+  }
+  await env.DB.prepare("UPDATE tdirect SET tableau = ?, tour = ?, statut = ?, prochain = ? WHERE semaine = ?").bind(JSON.stringify(tab), statut === "fini" ? t.tour : t.tour + 1, statut, prochain, sem).run();
+}
+async function cronTournoiDirect(env) {
+  const sem = semaineTournoi();
+  const debut = prochainDepart(maintenant() - 6 * 3600000);
+  if (maintenant() >= debut) await lancerTournoiDirect(env, sem);
+  await avancerTournoiDirect(env, sem);
+}
+route("GET", "samedi", async ({ env, user }) => {
+  const sem = semaineTournoi(), t = await env.DB.prepare("SELECT * FROM tdirect WHERE semaine = ?").bind(sem).first();
+  const n = (await env.DB.prepare("SELECT COUNT(*) AS n FROM tdirect_inscrits WHERE semaine = ?").bind(sem).first()).n;
+  const inscrit = user ? !!(await env.DB.prepare("SELECT 1 FROM tdirect_inscrits WHERE semaine = ? AND user_id = ?").bind(sem, user.id).first()) : false;
+  const tab = t?.tableau ? JSON.parse(t.tableau) : null;
+  return json({ semaine: sem, depart: prochainDepart(maintenant() - 6 * 3600000), statut: t?.statut || "inscriptions", inscrits: n, inscrit, prochainTour: t?.prochain || null, tourEnCours: t?.tour ?? 0,
+    tableau: tab ? { joueurs: tab.joueurs.map((j) => ({ pseudo: j.pseudo, trophees: j.trophees })), tours: tab.tours.map((tr) => tr.map((m) => ({ a: m.a, b: m.b, gagnant: m.gagnant, joue: m.gagnant !== null }))), champion: tab.champion || null } : null,
+    lots: RECOMPENSES_DIRECT });
+});
+// Regarder un match : les decks, la graine et les actions pour le rejouer à l'identique
+route("GET", "samedi/match/(\\d+)/(\\d+)", async ({ env, p }) => {
+  const sem = semaineTournoi(), t = await env.DB.prepare("SELECT tableau FROM tdirect WHERE semaine = ?").bind(sem).first();
+  const tab = t?.tableau && JSON.parse(t.tableau), m = tab?.tours?.[Number(p[1])]?.[Number(p[2])];
+  if (!m || m.gagnant === null) return erreur("Ce match n'a pas encore été joué.", 404);
+  const decks = Object.fromEntries((await env.DB.prepare("SELECT user_id, deck FROM tdirect_inscrits WHERE semaine = ?").bind(sem).all()).results.map((x) => [x.user_id, JSON.parse(x.deck)]));
+  return json({ a: tab.joueurs[m.a].pseudo, b: tab.joueurs[m.b].pseudo, deckA: decks[tab.joueurs[m.a].id], deckB: decks[tab.joueurs[m.b].id], graine: m.graine, paires: m.paires, gagnant: m.gagnant === m.a ? 0 : 1 });
+});
+route("POST", "samedi/inscription", async ({ env, user }) => {
+  const sem = semaineTournoi(), t = await env.DB.prepare("SELECT statut FROM tdirect WHERE semaine = ?").bind(sem).first();
+  if (t && t.statut !== "inscriptions") return erreur("Les inscriptions sont fermées : le tournoi a commencé.");
+  const a = await ligneArene(env, user.id);
+  if (!a.deck) return erreur("Enregistrez d'abord votre deck (onglet Combat) : c'est lui qui combattra.");
+  await env.DB.prepare("INSERT INTO tdirect_inscrits (semaine, user_id, pseudo, deck, trophees, cree_le) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(semaine, user_id) DO UPDATE SET deck = excluded.deck, trophees = excluded.trophees")
+    .bind(sem, user.id, user.pseudo, a.deck, a.trophees, maintenant()).run();
+  return json({ ok: true });
+}, { connecte: true });
+route("DELETE", "samedi/inscription", async ({ env, user }) => {
+  const sem = semaineTournoi(), t = await env.DB.prepare("SELECT statut FROM tdirect WHERE semaine = ?").bind(sem).first();
+  if (t && t.statut !== "inscriptions") return erreur("Le tournoi a déjà commencé.");
+  await env.DB.prepare("DELETE FROM tdirect_inscrits WHERE semaine = ? AND user_id = ?").bind(sem, user.id).run();
+  return json({ ok: true });
+}, { connecte: true });
+// Admin : lancer tout de suite / jouer la manche suivante (pour tester ou relancer)
+route("POST", "admin/samedi", async ({ request, env }) => {
+  const b = await corps(request), sem = semaineTournoi();
+  if (b.action === "lancer") return json(await lancerTournoiDirect(env, sem, true));
+  if (b.action === "manche") { await avancerTournoiDirect(env, sem, true); return json({ ok: true }); }
+  if (b.action === "reinitialiser") { await env.DB.prepare("DELETE FROM tdirect WHERE semaine = ?").bind(sem).run(); return json({ ok: true }); }
+  return erreur("Action inconnue.");
 }, { admin: true });
 
 // Recherche de joueurs (pour ajouter des amis ou écrire)

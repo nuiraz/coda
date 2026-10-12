@@ -239,7 +239,7 @@ function entrainement(diff) {
 /* ---------- Écran de combat ---------- */
 // duel (en direct) : { cote, tours: async (tour, action) => [[a0, a1], ...] nouvelles paires, abandon, resteMs }
 // En duel, « moi » et « lui » sont les decks A et B du serveur ; V() retourne le plateau pour que chacun se voie en bas.
-function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: estArene = false, duel = null }) {
+function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: estArene = false, duel = null, spectateur = false }) {
   arreterCombat();
   const etat = COMBAT.creer(moi, lui, graine, { ia });
   const V = (c) => (duel?.cote ? 1 - c : c);
@@ -374,6 +374,11 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: est
     try { detail = await fin(etat); } catch (e) { detail = "⚠ " + e.message; }
     m.classList.remove("verrou");
     m.querySelector(".close")?.classList.remove("hidden");
+    if (spectateur) { // simple rediffusion : ni XP ni défis
+      $("#cbLog").innerHTML = `<div class="resultat">🏁 Fin du match</div>`;
+      $("#cbActions").innerHTML = `<p style="margin:0 0 8px;font-weight:700">${detail || ""}</p><button class="btn primary" data-close>Fermer</button>`;
+      return;
+    }
     // Défis du jour et expérience
     progresDefi("speciaux", etat.journal.filter((a) => a === "special").length);
     progresDefi("ko", etat.equipes[V(1)].filter((u) => u.pv <= 0).length);

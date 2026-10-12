@@ -1417,3 +1417,50 @@ h1 { font-weight: 800; }
 .soutenir-coeur { font-size: 64px; animation: battement 1.2s ease-in-out infinite; }
 @keyframes battement { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.18); } 30% { transform: scale(1); } 45% { transform: scale(1.12); } }
 .soutenir-btn { font-size: 18px; padding: 14px 26px; margin: 8px 0 14px; background: linear-gradient(135deg, #ff4f7b, #e0458b); border-color: transparent; }
+/* ===== Boutique du jour ===== */
+.boutique-jour { margin-top: 16px; }
+.bj-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.bj-carte { position: relative; display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+.bj-carte.vedette .card { box-shadow: 0 0 0 3px var(--or, #f5b21b), 0 0 22px rgba(245, 178, 27, .5); }
+.bj-ruban { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); z-index: 3; background: var(--or, #f5b21b); color: #3b2500; font-weight: 800; font-size: 11px; padding: 2px 10px; border-radius: 999px; white-space: nowrap; }
+.bj-prix { display: flex; gap: 6px; justify-content: center; }
+.bj-prix .btn { flex: 1; padding-left: 4px; padding-right: 4px; }
+.bj-pris { text-align: center; font-weight: 700; color: var(--ok); }
+/* ===== Parrainage ===== */
+.parrain-tete { text-align: center; }
+.lien-parrain { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+.lien-parrain input { flex: 1; min-width: 200px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); font: inherit; }
+/* ===== Ventes (admin) ===== */
+.kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.kpi { display: flex; flex-direction: column; gap: 2px; padding: 14px; border-radius: 16px; background: var(--panel); border: 1px solid var(--border); }
+.kpi small { color: var(--muted); font-weight: 700; } .kpi b { font-size: 24px; font-family: var(--titre); } .kpi span { font-size: 12px; color: var(--muted); }
+.barres { display: flex; align-items: flex-end; gap: 10px; height: 180px; padding-top: 22px; }
+.barre { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
+.barre i { width: 100%; max-width: 54px; border-radius: 8px 8px 0 0; background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 55%, transparent)); }
+.barre .val { font-size: 11px; font-weight: 700; } .barre small { color: var(--muted); }
+.evts { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow: auto; font-size: 14px; }
+/* ===== Raid de guilde ===== */
+.raid-boss { display: flex; gap: 16px; align-items: center; padding: 18px; border-radius: 22px; color: #fff; background: radial-gradient(circle at 20% 20%, #ff5a3d, transparent 55%), linear-gradient(135deg, #3a0d18, #1a0b2e); box-shadow: var(--shadow); }
+.raid-boss.vaincu { filter: grayscale(.6); }
+.raid-boss h2 { margin: 2px 0 8px; font-family: var(--titre); font-size: 26px; }
+.raid-boss small { opacity: .85; font-weight: 700; }
+.raid-emoji { font-size: 60px; width: 90px; height: 90px; display: grid; place-items: center; border-radius: 24px; background: rgba(255, 255, 255, .12); animation: flotte 2.4s ease-in-out infinite; flex: none; }
+.raid-pv { position: relative; height: 22px; border-radius: 999px; background: rgba(0, 0, 0, .45); overflow: hidden; margin-bottom: 6px; }
+.raid-pv i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #ff3d3d, #ff9100); transition: width .6s; }
+.raid-pv span { position: relative; display: block; text-align: center; font-size: 12.5px; font-weight: 800; line-height: 22px; }
+/* ===== Tournoi du samedi ===== */
+.samedi-tete { display: flex; gap: 16px; align-items: center; padding: 18px; border-radius: 22px; color: #fff; background: radial-gradient(circle at 15% 20%, #ffd34d88, transparent 50%), linear-gradient(135deg, #2a1a7a, #6c4cf1); box-shadow: var(--shadow); }
+.samedi-tete h2 { margin: 2px 0 6px; font-family: var(--titre); }
+.samedi-tete small { font-weight: 800; letter-spacing: .06em; opacity: .9; }
+.samedi-ic { font-size: 54px; width: 84px; height: 84px; display: grid; place-items: center; border-radius: 22px; background: rgba(255, 255, 255, .15); flex: none; }
+.lots { margin: 6px 0 0; padding-left: 0; list-style: none; } .lots li { margin: 4px 0; }
+.tableau-tournoi { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 6px; }
+.colonne-tour { display: flex; flex-direction: column; justify-content: space-around; gap: 10px; min-width: 170px; }
+.colonne-tour > b { text-align: center; font-size: 13px; color: var(--muted); }
+.match-tournoi { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 12px; background: var(--panel2); border: 1px solid var(--border); }
+.match-tournoi span { padding: 3px 6px; border-radius: 6px; font-weight: 700; font-size: 13.5px; }
+.match-tournoi .gagnant { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.match-tournoi .perdant { opacity: .5; text-decoration: line-through; }
+.match-tournoi .moi { outline: 2px solid var(--accent); }
+.match-tournoi .btn { margin-top: 4px; }
+.bj-deja { text-align: center; font-size: 12px; color: var(--muted); } .bj-deja.neuve { color: var(--ok); font-weight: 700; }

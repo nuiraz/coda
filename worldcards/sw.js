@@ -1,7 +1,7 @@
 "use strict";
-// Service worker de WorldCards : le jeu fonctionne hors ligne et se charge instantanément.
+// Service worker de Play2F1 : le jeu fonctionne hors ligne et se charge instantanément.
 // Changez VERSION à chaque mise en ligne pour forcer la mise à jour du cache.
-const VERSION = "wc-2026-10-12-28";
+const VERSION = "wc-2026-10-12-29";
 const COEUR = ["./","index.html","style.css","app.js","compte.js","combat.js","combat-ui.js","extras.js","social.js","manifest.webmanifest", "apple-touch-icon.png","data/carte.js","data/monde.js","data/villes2.js","data/monuments2.js","data/villes3.js","data/monuments3.js","data/nature.js","data/animaux.js","data/plats.js","data/monuments4.js","data/nature2.js","data/animaux2.js","data/plats2.js","data/culture.js","data/extensions.js","data/pays-af.js","data/pays-euas.js","data/pays-amoc.js","data/pays-moyens.js","data/pays-plus.js","data/evenements.js","data/photos.js","data/photos-pays.js","vendor/d3.min.js","vendor/topojson-client.min.js","icons/apple-touch-icon.png","icons/apple-180.png","icons/favicon-32.png","icons/icon-192.png","icons/icon-512.png","icons/icon-maskable-512.png","icons/icon.svg"];
 
 self.addEventListener("install", (e) => {
@@ -49,7 +49,7 @@ function typeAttendu(chemin, r) {
 // Notifications push : le serveur envoie un signal vide, le texte est lu sur /api/notifs/derniere
 self.addEventListener("push", (e) => {
   e.waitUntil((async () => {
-    let n = { titre: "WorldCards", texte: "Du nouveau vous attend !", url: "./" };
+    let n = { titre: "Play2F1", texte: "Du nouveau vous attend !", url: "./" };
     try { const r = await fetch("/api/notifs/derniere", { credentials: "include" }); if (r.ok) { const j = await r.json(); if (j.notif) n = j.notif; } } catch {}
     await self.registration.showNotification(n.titre, { body: n.texte, icon: "icons/icon-192.png", badge: "icons/favicon-32.png", data: { url: n.url || "./" }, tag: n.tag || undefined });
   })());

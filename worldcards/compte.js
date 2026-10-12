@@ -5,7 +5,7 @@
 // À personnaliser : coordonnées affichées dans les mentions légales
 const EDITEUR = "nuiraz";
 const CONTACT = "skubisn@icloud.com";
-const NOM_SITE = "WorldCards";
+const NOM_SITE = "Play2F1";
 // Vente du Premium : la loi impose d'indiquer l'identité réelle du vendeur et son adresse (ou son numéro SIRET)
 const ADRESSE = "Nathan Skbs, chaussée de Charleroi, 5030 Gembloux, Belgique";
 const SIRET = "";   // numéro d'entreprise belge (BCE), ex. : "Numéro d'entreprise BE 0123.456.789"
@@ -83,7 +83,7 @@ function formatTempsJeu(sec) {
 
 function ouvrirModalFeedback() {
   ouvrirModal(`<h2 style="margin-top:0">💡 Boîte à Idées & Signalement de Bugs</h2>
-    <p class="muted" style="margin-top:0">Une idée d'amélioration pour WorldCards ou un bug rencontré ? Envoyez un message directement à l'administrateur !</p>
+    <p class="muted" style="margin-top:0">Une idée d'amélioration pour Play2F1 ou un bug rencontré ? Envoyez un message directement à l'administrateur !</p>
     <form class="form" id="fFeedback">
       <label>Type de retour
         <select id="fbType">
@@ -358,6 +358,7 @@ function vueCompte(v) {
           <label>Mot de passe (8 caractères minimum)<input id="iMdp" type="password" name="new-password" autocomplete="new-password" required minlength="8"></label>
           <label>Confirmer le mot de passe<input id="iMdp2" type="password" autocomplete="new-password" required minlength="8"></label>
           <label class="hidden" id="iCodeL">Code administrateur<input id="iCode" type="password" autocomplete="off"></label>
+          <label>Code de parrainage (facultatif : le pseudo d'un ami)<input id="iParrain" maxlength="20" autocomplete="off" value="${esc((() => { try { return localStorage.getItem("worldcards:parrain") || ""; } catch { return ""; } })())}"></label>
           <label class="check"><input type="checkbox" id="iCgu" required> J'accepte les ${lienLegal("cgu", "conditions d'utilisation")} et la ${lienLegal("confidentialite", "politique de confidentialité")}.</label>
           <label class="check"><input type="checkbox" id="iAge" required> J'ai 15 ans ou plus, ou l'accord d'un parent.</label>
           <button class="btn primary">Créer mon compte</button>
@@ -439,7 +440,7 @@ function vueCompte(v) {
     e.preventDefault(); $("#iErr").textContent = "";
     if ($("#iMdp").value !== $("#iMdp2").value) { $("#iErr").textContent = "Les deux mots de passe ne sont pas identiques."; return; }
     try {
-      const r = await api("inscription", { methode: "POST", corps: { pseudo: $("#iPseudo").value.trim(), motdepasse: $("#iMdp").value, cgu: $("#iCgu").checked, age: $("#iAge").checked, codeAdmin: $("#iCode").value || undefined } });
+      const r = await api("inscription", { methode: "POST", corps: { pseudo: $("#iPseudo").value.trim(), motdepasse: $("#iMdp").value, cgu: $("#iCgu").checked, age: $("#iAge").checked, codeAdmin: $("#iCode").value || undefined, parrain: $("#iParrain")?.value.trim() || undefined } });
       garderSession(r);
       Object.assign(COMPTE, { etat: "connecte", pseudo: r.pseudo, admin: r.admin, creeLe: r.creeLe });
       S.compte = r.pseudo; await envoyerSauvegarde();
@@ -523,7 +524,7 @@ function vueHub(v) {
     v.innerHTML = `<div class="panel"><h2 style="margin-top:0">👥 Communauté</h2><p>${COMPTE.etat === "hors-ligne" ? "Pas de connexion internet : le hub revient dès que vous êtes en ligne." : COMPTE.etat === "inconnu" ? "Chargement…" : "Le hub communautaire n'est pas disponible sur cette version du jeu."}</p></div>`;
     return;
   }
-  v.innerHTML = `<div class="sectiontitle"><h3>👥 Communauté WorldCards</h3><span class="muted">Fil d'actualité, marché d'échanges, tournois de la semaine & classements</span></div>
+  v.innerHTML = `<div class="sectiontitle"><h3>👥 Communauté Play2F1</h3><span class="muted">Fil d'actualité, marché d'échanges, tournois de la semaine & classements</span></div>
     <div class="toolbar">${[["discussion", "💬 Discussion"], ["messages", "✉️ Messages"], ["fil", "📰 Fil d'actualité"], ["echanges", "🤝 Marché d'échanges"], ["tournois", "🏆 Tournoi hebdo"], ["classement", "🌟 Classement"], ["amis", "👫 Amis"]].map(([k, l]) => `<button class="chip ${hubEtat.onglet === k ? "on" : ""}" data-o="${k}">${l}</button>`).join("")}</div>
     <div id="hubCorps"></div>`;
   $$("[data-o]", v).forEach((b) => b.onclick = () => { hubEtat.onglet = b.dataset.o; aller("hub"); });
@@ -956,7 +957,7 @@ async function vueAdmin(v) {
   if (!COMPTE.admin) { v.innerHTML = `<div class="panel"><p>Accès réservé à l'administrateur.</p><button class="btn" data-aller="compte">Mon compte</button></div>`; brancherLiens(v); return; }
   v.innerHTML = `<div class="sectiontitle"><h3>👑 Administration</h3><span class="muted">Connecté en tant que ${esc(COMPTE.pseudo)}</span></div>
     <div class="statgrid" id="aStats"><div class="stat"><b>…</b><span>chargement</span></div></div>
-    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["avatars", "🖼️ Photos de profil"], ["moderation", "🛡️ Modération"], ["integrations", "🔌 Intégrations"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
+    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["avatars", "🖼️ Photos de profil"], ["moderation", "🛡️ Modération"], ["ventes", "💰 Ventes"], ["integrations", "🔌 Intégrations"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
     <div id="aCorps"></div>`;
   $$("[data-a]", v).forEach((b) => b.onclick = () => { adminEtat.onglet = b.dataset.a; aller("admin"); });
   api("admin/stats").then((s) => {
@@ -964,7 +965,7 @@ async function vueAdmin(v) {
       .map(([l, n]) => `<div class="stat"><b>${fmt(n)}</b><span>${l}</span></div>`).join("");
   }).catch((e) => { $("#aStats").innerHTML = `<p class="err">${esc(e.message)}</p>`; });
   const corps = $("#aCorps");
-  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, evenements: adminEvenements, photos: adminPhotos, avatars: adminAvatars, moderation: adminModeration, integrations: adminIntegrations, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
+  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, evenements: adminEvenements, photos: adminPhotos, avatars: adminAvatars, moderation: adminModeration, integrations: adminIntegrations, ventes: adminVentes, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
 }
 async function adminJoueurs(el) {
   el.innerHTML = `<input class="search" id="aq" type="search" placeholder="Rechercher un joueur…" value="${esc(adminEtat.q)}" style="max-width:none;width:100%;margin-bottom:10px">
@@ -1247,7 +1248,7 @@ function adminCadeaux(el) {
     <h3 style="margin:0">Envoyer un cadeau</h3>
     <label>Joueur (laisser vide pour tout le monde)<input id="gPseudo" value="${esc(adminEtat.pseudoCadeau || "")}" placeholder="Tous les joueurs"></label>
     <div class="grid2" style="gap:10px"><label>Pièces<input id="gPieces" type="number" min="0" max="100000" value="500"></label><label>Boosters<input id="gBoosters" type="number" min="0" max="50" value="1"></label></div>
-    <label>Message<input id="gMsg" maxlength="200" placeholder="Ex. : Merci de jouer à WorldCards !"></label>
+    <label>Message<input id="gMsg" maxlength="200" placeholder="Ex. : Merci de jouer à Play2F1 !"></label>
     <p class="muted" style="margin:0;font-size:13px">Les boosters offerts sont des boosters Classiques. Les joueurs qui ont activé les notifications sont prévenus.</p>
     <button class="btn primary">🎁 Envoyer</button><p class="err" id="gErr"></p>
     <p class="muted" style="margin:0;font-size:13px">Le joueur reçoit le cadeau à sa prochaine visite, une seule fois.</p></form>`;
@@ -1300,7 +1301,7 @@ function vuePremium(v) {
   const actif = estPremium();
   v.innerHTML = `<div class="panel premium-hero">
       <div style="font-size:52px">💎</div>
-      <h1 style="margin:6px 0">WorldCards Premium</h1>
+      <h1 style="margin:6px 0">Play2F1 Premium</h1>
       <p class="muted" style="margin:0">${actif ? (COMPTE.premiumJusqu >= PREMIUM_VIE ? "Vous êtes Premium à vie. Merci !" : `Votre Premium est actif jusqu'au <b>${new Date(COMPTE.premiumJusqu).toLocaleDateString("fr-FR")}</b>.`) : "Plus de boosters, plus de Shiny, plus de jeu."}</p>
     </div>
     <div class="avantages">${AVANTAGES_PREMIUM.map(([e, t, d]) => `<div class="avantage"><span>${e}</span><div><b>${t}</b><small class="muted">${d}</small></div></div>`).join("")}</div>
@@ -1380,7 +1381,7 @@ const pushPossible = () => "serviceWorker" in navigator && "PushManager" in wind
 const iosNonInstalle = () => /iPhone|iPad|iPod/.test(navigator.userAgent) && !PWA.installee;
 function etatNotifications() {
   if (NOTIF.active) return "✅ Activées : booster gratuit prêt, attaques dans l'arène, Premium, cadeaux.";
-  if (iosNonInstalle()) return "Sur iPhone, ajoutez d'abord WorldCards à l'écran d'accueil (bouton Partager → « Sur l'écran d'accueil »), puis ouvrez l'app depuis l'icône.";
+  if (iosNonInstalle()) return "Sur iPhone, ajoutez d'abord Play2F1 à l'écran d'accueil (bouton Partager → « Sur l'écran d'accueil »), puis ouvrez l'app depuis l'icône.";
   if (!pushPossible()) return "Votre navigateur ne gère pas les notifications.";
   if (Notification.permission === "denied") return "Notifications bloquées : autorisez-les dans les réglages du navigateur.";
   return "Soyez prévenu quand votre booster gratuit est prêt, quand on attaque votre deck, et plus encore.";
@@ -1486,7 +1487,7 @@ function vueLegal(v, opts = {}) {
 const PWA = { prompt: null, installee: matchMedia("(display-mode: standalone)").matches || navigator.standalone === true };
 function installerPWA() {
   addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); PWA.prompt = e; majBoutonInstall(); });
-  addEventListener("appinstalled", () => { PWA.prompt = null; PWA.installee = true; majBoutonInstall(); toast("📲 WorldCards est installé sur votre appareil !"); });
+  addEventListener("appinstalled", () => { PWA.prompt = null; PWA.installee = true; majBoutonInstall(); toast("📲 Play2F1 est installé sur votre appareil !"); });
   if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
@@ -1495,17 +1496,17 @@ function installerPWA() {
 const estIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 function guideInstallation() {
   const ios = estIOS(), safari = ios && !/CriOS|FxiOS|EdgiOS/.test(navigator.userAgent);
-  ouvrirModal(`<h2 style="margin-top:0">📲 Installer WorldCards</h2>
+  ouvrirModal(`<h2 style="margin-top:0">📲 Installer Play2F1</h2>
     ${PWA.installee ? `<p>✅ Vous utilisez déjà l'application installée.</p>` : ios ? `
       <ol class="regles">
         ${safari ? "" : `<li>Ouvrez d'abord <b>wrd.play2f1.com</b> dans <b>Safari</b> (sur iPhone, l'icône s'installe le mieux depuis Safari).</li>`}
-        <li>Si vous aviez déjà ajouté WorldCards à l'écran d'accueil, <b>supprimez l'ancienne icône</b> (appui long → Supprimer l'app → Supprimer de l'écran d'accueil) : iPhone ne met jamais à jour une icône existante.</li>
+        <li>Si vous aviez déjà ajouté Play2F1 à l'écran d'accueil, <b>supprimez l'ancienne icône</b> (appui long → Supprimer l'app → Supprimer de l'écran d'accueil) : iPhone ne met jamais à jour une icône existante.</li>
         <li>Touchez le bouton <b>Partager</b> <span style="font-size:20px">⎋</span> (le carré avec une flèche vers le haut, en bas de Safari).</li>
         <li>Faites défiler et touchez <b>« Sur l'écran d'accueil »</b>, vérifiez que « Ouvrir en tant qu'app web » est activé, puis <b>Ajouter</b>.</li>
-        <li>Ouvrez WorldCards depuis la nouvelle icône 🌐 : connectez-vous une fois, le compte reste ensuite enregistré.</li>
+        <li>Ouvrez Play2F1 depuis la nouvelle icône 🌐 : connectez-vous une fois, le compte reste ensuite enregistré.</li>
       </ol>` : PWA.prompt ? `<p>Touchez le bouton ci-dessous.</p><button class="btn primary" id="gInstaller">📲 Installer</button>`
       : `<p>Ouvrez le menu du navigateur (⋮) puis <b>« Installer l'application »</b> ou <b>« Ajouter à l'écran d'accueil »</b>.</p>`}
-    <div style="text-align:center;margin-top:12px"><img src="apple-touch-icon.png" alt="Icône WorldCards" width="90" height="90" style="border-radius:20px;box-shadow:var(--shadow)"></div>`);
+    <div style="text-align:center;margin-top:12px"><img src="apple-touch-icon.png" alt="Icône Play2F1" width="90" height="90" style="border-radius:20px;box-shadow:var(--shadow)"></div>`);
   $("#gInstaller")?.addEventListener("click", () => { fermerModal(); installer(); });
 }
 function majBoutonInstall() {

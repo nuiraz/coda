@@ -325,6 +325,18 @@
     for (const [a, b] of paires.slice(0, TOURS_MAX)) { if (etat.fini) break; jouer(etat, a, b); }
     return etat;
   }
-  return { rejouerDuel, SPECIAUX, TALENTS, TALENTS_TYPE, CYCLE, talentDe, COUT, BUDGET, TAILLE_DECK, PUISSANCE, PROFILS, AVANTAGE, VARIATION, NIVEAU_MAX, BONUS_SHINY, BONUS_DOREE, TOURS_MAX, METEOS,
+  // Match automatique (tournoi) : l'IA choisit pour les deux camps avec son propre hasard,
+  // pour que le combat se rejoue à l'identique avec rejouerDuel(paires)
+  function simulerMatch(equipeA, equipeB, graine) {
+    const etat = creer(equipeA, equipeB, graine, { ia: 3 }), rIA = rng(graine ^ 0x5bd1e995), paires = [];
+    while (!etat.fini && paires.length < TOURS_MAX) {
+      const r = etat.r; etat.r = rIA;
+      const a0 = choixIA(etat, 0), a1 = choixIA(etat, 1);
+      etat.r = r;
+      paires.push([a0, a1]); jouer(etat, a0, a1);
+    }
+    return { gagnant: etat.gagnant, paires };
+  }
+  return { rejouerDuel, simulerMatch, SPECIAUX, TALENTS, TALENTS_TYPE, CYCLE, talentDe, COUT, BUDGET, TAILLE_DECK, PUISSANCE, PROFILS, AVANTAGE, VARIATION, NIVEAU_MAX, BONUS_SHINY, BONUS_DOREE, TOURS_MAX, METEOS,
     hash, rng, base, niveau, tirerQualite, borne, noteQualite, stats, puissance, creer, jouer, rejouer, actif, vivants };
 });

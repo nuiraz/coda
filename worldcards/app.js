@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v28"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v29"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -788,7 +788,8 @@ function aller(vue, opts) {
     vue = "hub";
   }
   S.vue = vue; renderNav(); vue = S.vue; sauver(); // renderNav remplace une vue inconnue par l'accueil
-  const v = $("#view"); v.innerHTML = "";
+  // Zone neuve à chaque navigation : une page encore en chargement (async) ne peut plus écraser la nouvelle
+  const ancienne = $("#view"), v = ancienne.cloneNode(false); ancienne.replaceWith(v);
   ({ accueil: vueAccueil, boosters: vueBoosters, album: vueAlbum, atlas: vueAtlas, badges: vueBadges, quiz: vueQuiz, combat: vueCombat,
     compte: vueCompte, hub: vueHub, admin: vueAdmin, legal: vueLegal, premium: vuePremium, pays: vuePays, collections: vueCollectionsPays, ...(typeof VUES_EXTRA === "object" ? VUES_EXTRA : {}) })[vue](v, opts);
   $("#hubBtn")?.classList.toggle("on", vue === "hub");
@@ -930,7 +931,7 @@ function voir3D(c) {
       <div class="scene3d" id="scene3d">
         <div class="carte3d" id="carte3d" data-r="${c.rarete}">
           <div class="face3d avant">${cardHTML(c)}</div>
-          <div class="face3d arriere" data-r="${c.rarete}"><div class="dos3d"><span>${UNIVERS.monde.dos}</span><b>WorldCards</b><small>${r.gems} ${r.nom}${shiny ? " · ✨ Shiny" : ""}</small></div></div>
+          <div class="face3d arriere" data-r="${c.rarete}"><div class="dos3d"><span>${UNIVERS.monde.dos}</span><b>Play2F1</b><small>${r.gems} ${r.nom}${shiny ? " · ✨ Shiny" : ""}</small></div></div>
           <div class="reflet3d" id="reflet3d"></div>
         </div>
         <div class="ombre3d" id="ombre3d"></div>
@@ -1020,7 +1021,7 @@ function vueAccueil(v) {
   const pseudo = typeof COMPTE !== "undefined" && COMPTE.pseudo;
   const tuile = (id, ic, titre, sous, classe = "") => `<button class="tuile ${classe}" id="${id}"><span class="t-ic">${ic}</span><span class="t-txt"><b>${titre}</b><small>${sous}</small></span></button>`;
   v.innerHTML = `
-    ${S.messageMigration ? `<div class="panel annonce">🌍 <b>WorldCards se concentre sur le monde !</b> Vos anciennes cartes Gaming et Objets ont été échangées contre <b>${fmt(S.messageMigration.pieces)} 🪙</b>. <button class="btn small" id="okMigration">OK</button></div>` : ""}
+    ${S.messageMigration ? `<div class="panel annonce">🌍 <b>Play2F1 se concentre sur le monde !</b> Vos anciennes cartes Gaming et Objets ont été échangées contre <b>${fmt(S.messageMigration.pieces)} 🪙</b>. <button class="btn small" id="okMigration">OK</button></div>` : ""}
     ${EVENEMENT && EVENEMENTS_SAISONNIERS?.[EVENEMENT.cle] ? `<div class="panel bandeau-evenement" style="--ec:${EVENEMENTS_SAISONNIERS[EVENEMENT.cle].couleur}">
       <span class="big">${EVENEMENTS_SAISONNIERS[EVENEMENT.cle].emoji}</span><div><b>Événement ${esc(EVENEMENTS_SAISONNIERS[EVENEMENT.cle].nom)} !</b><br><span>${CARDS.filter((c) => c.saisonnier === EVENEMENT.cle).length} cartes exclusives jusqu'au ${new Date(EVENEMENT.fin).toLocaleDateString("fr-FR")}.</span></div>
       <button class="btn primary" data-aller-boutique>Voir le booster</button></div>` : ""}
@@ -1130,12 +1131,12 @@ function vueBoosters(v) {
     <div class="panel pity-box" style="margin-top:16px">
       <div class="pity-head">
         <span>🍀 Jauge de Chance & Pity System : <b>${Math.min(100, S.pity || 0)} %</b></span>
-        <span class="muted">${(S.pity || 0) >= 100 ? "✨ Prochain booster : Épique+ GARANTIE !" : "Plus vous ouvrez de boosters, plus vos chances de raretés légendaires augmentent"}</span>
+        <span class="muted">${(S.pity || 0) >= 90 ? "✨ Prochain booster : Ultra rare ou Légendaire GARANTIE !" : `Encore ${Math.ceil((100 - (S.pity || 0)) / 10)} booster(s) avant le gros lot garanti`}</span>
       </div>
       <div class="pity-track">
         <div class="pity-fill" style="width:${Math.min(100, S.pity || 0)}%"></div>
       </div>
-      <p class="muted" style="margin:4px 0 0;font-size:12.5px">La jauge augmente à chaque booster ouvert. À 100 %, votre prochain booster déclenche un tirage d'or garanti (Épique ou Légendaire) !</p>
+      <p class="muted" style="margin:4px 0 0;font-size:12.5px">La jauge monte de 10 % à chaque booster ouvert. Au 10e booster sans Ultra rare ni Légendaire, une carte Ultra rare ou Légendaire est garantie ! Elle repart à zéro quand vous en obtenez une.</p>
     </div>
     ${EVENEMENT && PACKS[EVENEMENT.cle] ? `<div class="sectiontitle"><h3>${PACKS[EVENEMENT.cle].emoji} Événement : ${esc(EVENEMENTS_SAISONNIERS[EVENEMENT.cle].nom)}</h3><span class="muted">Jusqu'au ${new Date(EVENEMENT.fin).toLocaleDateString("fr-FR")} · cartes exclusives</span></div>
       <div class="boutique evenement">${carteOffre(EVENEMENT.cle, PACKS[EVENEMENT.cle])}</div>` : ""}
@@ -1195,25 +1196,25 @@ function tirerBooster(type) {
   const rars = Object.keys(RARETES).filter((r) => pool.some((c) => c.rarete === r) && poids(r) > 0);
   const out = [];
 
-  // Pity system : chaque booster augmente la chance (+10 %)
-  S.pity = (S.pity || 0) + 10;
+  // Jauge de chance : +10 % par booster ; seule une Ultra rare ou une Légendaire la remet à zéro
+  S.pity = Math.min(100, (S.pity || 0) + 10);
   const pityDeclenchee = S.pity >= 100;
+  let grosLot = false;
 
   for (let i = 0; i < p.cartes; i++) {
     // Les dernières cartes du booster ont une rareté minimale garantie
     let g = p.garanties[i - (p.cartes - p.garanties.length)];
-    if (pityDeclenchee && i === p.cartes - 1) {
-      g = Math.max(g || 0, 3); // au moins Épique
-      S.pity = 0; // réinitialisation du compteur pity
-    }
-    const opts = g !== undefined ? rars.filter((r) => RARETES[r].ordre >= g) : rars;
-    const r = weighted(opts, poids);
-    if (RARETES[r].ordre >= 3) S.pity = 0; // une épique ou mieux réinitialise le pity
+    if (pityDeclenchee && i === p.cartes - 1 && !grosLot) g = Math.max(g || 0, 4); // jauge pleine : Ultra rare ou Légendaire garantie
+    let opts = g !== undefined ? rars.filter((r) => RARETES[r].ordre >= g) : rars;
+    if (!opts.length) opts = Object.keys(RARETES).filter((r) => RARETES[r].ordre >= (g || 0) && r !== "secrete" && pool.some((c) => c.rarete === r));
+    const r = weighted(opts, (x) => poids(x) || RARETES[x].poids || 1);
+    if (RARETES[r].ordre >= 4) grosLot = true;
     let cands = pool.filter((c) => c.rarete === r && !out.includes(c));
     if (!cands.length) cands = pool.filter((c) => !out.includes(c));
     // Les doublons tombent naturellement pour permettre la fusion / évolution dorée et les échanges
     out.push(weighted(cands, (c) => (has(c.id) ? 2 : 3.5)));
   }
+  if (grosLot) S.pity = 0; // une Ultra rare ou une Légendaire vide la jauge
   // Booster d'événement : les deux premières cartes sont des cartes exclusives de l'événement
   for (let i = 0; i < Math.min(2, poolEvenement.length); i++) {
     const libres = poolEvenement.filter((c) => !out.includes(c));
@@ -1356,7 +1357,7 @@ function ouvrirBooster(type) {
     $("#pkPasser").classList.add("hidden");
     texte("#pkCompte", `${p.emoji} Votre booster ${p.nom}`);
     const neuves = res.filter((x) => x.neuf).length, pieces = res.reduce((t, x) => t + x.bonus, 0);
-    indice(`${neuves} nouvelle${neuves > 1 ? "s" : ""} carte${neuves > 1 ? "s" : ""}${pieces ? ` · +${pieces} 🪙 de doublons` : ""}`);
+    indice(`${neuves} nouvelle${neuves > 1 ? "s" : ""} carte${neuves > 1 ? "s" : ""}${pieces ? ` · +${pieces} 🪙 de doublons` : ""} · 🍀 Chance : ${S.pity || 0} %${(S.pity || 0) >= 90 ? " (gros lot au prochain !)" : ""}`);
     const encore = Object.keys(PACKS).find((k) => S.boosters[k] > 0);
     scene.innerHTML = `<div class="opening">${res.map((x, k) => `<div class="flip done" style="--k:${k}" data-voir="${x.c.id}"><div class="face back"></div>
         <div class="face front">${etiquette(x, true)}${cardHTML(x.c, { locked: false, shiny: x.shiny, holo: x.holo })}</div></div>`).join("")}</div>
@@ -1730,7 +1731,7 @@ async function demarrer() {
   chargerPhotos();
   initCompte();
   if (!S.ouverts && !count(CARDS.map((c) => c.id))) {
-    ouvrirModal(`<div style="text-align:center"><div style="font-size:56px">🌐</div><h2>Bienvenue dans WorldCards !</h2>
+    ouvrirModal(`<div style="text-align:center"><div style="font-size:56px">🌐</div><h2>Bienvenue dans Play2F1 !</h2>
       <p>Collectionnez le monde : <b>195 pays</b>, des centaines de <b>villes</b>, de <b>monuments</b> et de <b>sites naturels</b>, des <b>animaux</b>, des <b>plats</b> et les <b>merveilles</b> du monde. Chaque carte a ses points d'attaque, de défense et de vie : construisez votre deck et combattez !</p>
       <p class="muted">Vous recevez <b>3 boosters</b> et <b>200 🪙</b> pour commencer, puis un <b>booster gratuit toutes les 12 heures</b>.</p>
       <button class="btn primary" id="go">Ouvrir mon premier booster</button></div>`);
