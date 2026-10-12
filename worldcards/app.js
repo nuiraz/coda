@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v24"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v25"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -790,7 +790,7 @@ function aller(vue, opts) {
   S.vue = vue; renderNav(); vue = S.vue; sauver(); // renderNav remplace une vue inconnue par l'accueil
   const v = $("#view"); v.innerHTML = "";
   ({ accueil: vueAccueil, boosters: vueBoosters, album: vueAlbum, atlas: vueAtlas, badges: vueBadges, quiz: vueQuiz, combat: vueCombat,
-    compte: vueCompte, hub: vueHub, admin: vueAdmin, legal: vueLegal, premium: vuePremium, pays: vuePays, collections: vueCollectionsPays })[vue](v, opts);
+    compte: vueCompte, hub: vueHub, admin: vueAdmin, legal: vueLegal, premium: vuePremium, pays: vuePays, collections: vueCollectionsPays, ...(typeof VUES_EXTRA === "object" ? VUES_EXTRA : {}) })[vue](v, opts);
   $("#hubBtn")?.classList.toggle("on", vue === "hub");
   $("#premiumBtn")?.classList.toggle("on", vue === "premium");
   $("#compteBtn")?.classList.toggle("on", vue === "compte" || vue === "admin");

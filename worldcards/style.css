@@ -1266,3 +1266,37 @@ h1 { font-weight: 800; }
 @keyframes tourne { to { transform: rotate(360deg); } }
 .arene .meteo-badge { background: rgba(127, 127, 160, .25); color: inherit; border-color: transparent; }
 .signal { margin-bottom: 10px; }
+
+/* ===== Connexion quotidienne ===== */
+.calendrier { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.jour-cal { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px; border-radius: 14px; background: var(--panel2); border: 2px solid var(--border); text-align: center; }
+.jour-cal span { font-size: 26px; }
+.jour-cal b { font-size: 11.5px; line-height: 1.2; }
+.jour-cal small { color: var(--muted); font-weight: 700; }
+.jour-cal.fait { opacity: .55; }
+.jour-cal.aujourdhui { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); animation: pulse-chrono .8s ease-in-out infinite alternate; }
+.jour-cal.grand { grid-column: span 2; background: linear-gradient(135deg, color-mix(in srgb, var(--or, #f5b21b) 30%, var(--panel2)), var(--panel2)); }
+/* ===== Statistiques ===== */
+.stats-hero { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.stats-anneau { width: 124px; height: 124px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  background: conic-gradient(var(--accent) calc(var(--p) * 1%), var(--panel2) 0); }
+.stats-anneau span { width: 96px; height: 96px; border-radius: 50%; background: var(--panel); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.stats-anneau b { font-size: 21px; } .stats-anneau small { color: var(--muted); font-size: 12px; }
+.stats-chiffres { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; min-width: 240px; }
+.stats-chiffres div { display: flex; flex-direction: column; padding: 10px; border-radius: 12px; background: var(--panel2); }
+.stats-chiffres b { font-size: 20px; } .stats-chiffres span { font-size: 12px; color: var(--muted); }
+.stats-grille { margin: 14px 0; }
+.stats-grille .p { display: grid; grid-template-columns: minmax(0, 9.5em) 1fr 4.2em; align-items: center; gap: 8px; margin: 8px 0; font-size: 14px; }
+.stats-grille .p > span:last-child { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.stats-grille .p > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.presque-pays .bar { margin-top: 6px; width: 100%; }
+.graphe { width: 100%; height: auto; }
+.graphe .axe { stroke: var(--border); stroke-width: 1; }
+.graphe .ligne { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.graphe .aire { fill: color-mix(in srgb, var(--accent) 16%, transparent); }
+.graphe .point { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+.graphe .lib { fill: var(--muted); font-size: 12px; } .graphe .val { fill: var(--text); font-size: 13px; font-weight: 800; }
+.presque { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.presque-pays { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel2); color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.presque-pays small { color: var(--muted); }
+@media (max-width: 640px) { .stats-chiffres { grid-template-columns: repeat(2, 1fr); } .calendrier { grid-template-columns: repeat(3, 1fr); } .jour-cal.grand { grid-column: span 3; } }
