@@ -22,6 +22,8 @@ export default {
       return r;
     }
     if (url.pathname.startsWith("/api/")) return onRequest({ request, env, ctx });
+    // Lien entre l'appli Android (Google Play) et le site : réglé dans l'admin (onglet Applis)
+    if (url.pathname === "/.well-known/assetlinks.json") return onRequest({ request: new Request(new URL("/api/apps/assetlinks", url), request), env, ctx });
     const invit = /^\/r\/([A-Za-z0-9_-]{3,20})\/?$/.exec(url.pathname);
     if (invit) return pageInvitation(invit[1]);
     return env.ASSETS.fetch(request);

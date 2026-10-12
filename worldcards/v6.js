@@ -82,7 +82,7 @@ vueAccueil = function (v) {
 const GROUPES_PLUS = [
   ["Jouer", ["combat", "ligues", "defi", "samedi", "missions", "quiz", "expedition", "nations"]],
   ["Ma collection", ["album", "forge", "codex", "albums", "decks", "pays", "atlas", "collections", "badges", "succes", "stats"]],
-  ["Communauté", ["hub", "guilde", "encheres", "parrainage", "streamer"]],
+  ["Communauté", ["hub", "direct", "souhaits", "guilde", "encheres", "parrainage", "streamer"]],
   ["Boutique et compte", ["boosters", "passe", "premium", "style", "soutenir", "compte", "langue", "admin"]],
 ];
 ouvrirMenuPlus = function () {
@@ -135,3 +135,124 @@ vueBoosters = function (v) {
   }
   return r;
 };
+
+/* =====================================================================
+   Duels en direct : suivre le duel d'un ami ou d'un membre de sa guilde (2 tours de retard)
+   ===================================================================== */
+async function regarderDuel(id) {
+  let m;
+  try { m = await api(`duels/${id}/regarder`); } catch (e) { toast("⚠ " + e.message); return; }
+  const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
+  lancerCombat({ titre: `👁 ${m.a} contre ${m.b}${m.statut === "encours" ? " · en direct" : ""}`, adversaire: m.b, moi: m.deckA, lui: m.deckB, graine: m.graine, spectateur: true,
+    fin: async () => (m.gagnant === null ? "🏁 Duel terminé." : `🏁 ${m.gagnant === 0 ? m.a : m.b} remporte le duel.`),
+    duel: { cote: 0, resteMs: 600000, abandon: async () => {}, tours: async (t) => {
+      // On attend que le tour soit joué (et passé le petit différé anti-triche)
+      for (let k = 0; k < 200; k++) {
+        if (m.paires[t - 1]) return [m.paires[t - 1]];
+        if (m.statut !== "encours") return [["attaque", "attaque"]];
+        await attendre(3000);
+        try { m = await api(`duels/${id}/regarder`); } catch { return [["attaque", "attaque"]]; }
+      }
+      return [["attaque", "attaque"]];
+    } } });
+  setTimeout(() => $("#cbAuto")?.click(), 600);
+}
+async function vueDirect(v) {
+  v.innerHTML = `<header class="page-tete"><h1>📺 Duels en direct</h1><p>Suivez les duels en cours de vos amis et des membres de votre guilde. Les coups s'affichent avec 2 tours de retard, pour que personne ne puisse souffler la suite à un joueur.</p></header><section class="panel" id="drListe"><p class="muted">Chargement…</p></section>`;
+  if (typeof connecte !== "function" || !connecte()) { $("#drListe").innerHTML = `<p>Connectez-vous pour voir les duels de vos amis.</p><button class="btn primary" onclick="aller('compte')">Se connecter</button>`; return; }
+  const charger = async () => {
+    const el = $("#drListe"); if (!el) return false;
+    try {
+      const { duels } = await api("duels/direct");
+      el.innerHTML = duels.length ? `<ul class="dr-liste">${duels.map((d) => `<li><span class="dr-live">● EN DIRECT</span><b>${esc(d.a)}</b> <span class="muted">contre</span> <b>${esc(d.b)}</b>
+          <small class="muted">${d.classe ? "Classé · " : ""}tour ${d.tours + 1}</small><button class="btn primary small" data-regarder="${d.id}">👁 Regarder</button></li>`).join("")}</ul>`
+        : `<p class="muted">Aucun duel en cours chez vos amis pour le moment. La liste se met à jour toute seule.</p>`;
+      $$("[data-regarder]", el).forEach((b) => b.onclick = () => regarderDuel(b.dataset.regarder));
+    } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+    return true;
+  };
+  await charger();
+  const t = setInterval(async () => { if (S.vue !== "direct" || !(await charger())) clearInterval(t); }, 15000);
+}
+ajouterPage("direct", "📺", "Duels en direct", vueDirect);
+
+/* =====================================================================
+   Cartes recherchées : ma liste, les joueurs qui ont ces cartes en double, et ceux qui cherchent mes doublons
+   ===================================================================== */
+const estRecherchee = (id) => (S.souhaits || []).includes(id);
+async function basculerSouhait(id) {
+  if (typeof connecte !== "function" || !connecte()) { toast("Connectez-vous pour publier vos cartes recherchées."); return false; }
+  const ajout = !estRecherchee(id);
+  try {
+    await api(`souhaits/${encodeURIComponent(id)}`, { methode: ajout ? "PUT" : "DELETE" });
+    S.souhaits = ajout ? [...(S.souhaits || []), id] : (S.souhaits || []).filter((x) => x !== id); sauver();
+    toast(ajout ? "⭐ Ajoutée à vos cartes recherchées : les joueurs qui l'ont en double vous seront proposés." : "Retirée de vos cartes recherchées.");
+    return true;
+  } catch (e) { toast("⚠ " + e.message); return false; }
+}
+const _ficheCarteV6 = ficheCarte;
+ficheCarte = function (c) {
+  const r = _ficheCarteV6.apply(this, arguments);
+  const zone = $("#modal .detail .row") || $("#modal .detail");
+  if (zone && c && c.type !== "secrete" && !$("#fcSouhait")) {
+    const libelle = () => (estRecherchee(c.id) ? "✓ Dans mes recherches" : "⭐ Je la recherche");
+    zone.insertAdjacentHTML("beforeend", `<button class="btn" id="fcSouhait">${libelle()}</button>`);
+    $("#fcSouhait").onclick = async () => { if (await basculerSouhait(c.id)) $("#fcSouhait").textContent = libelle(); };
+  }
+  return r;
+};
+async function vueSouhaits(v) {
+  v.innerHTML = `<header class="page-tete"><h1>🔎 Cartes recherchées</h1><p>Publiez les cartes qui vous manquent : le jeu vous montre les joueurs qui les ont en double, et ceux qui cherchent vos propres doublons. Il ne reste plus qu'à échanger !</p></header><div id="soCorps"><p class="muted">Chargement…</p></div>`;
+  if (typeof connecte !== "function" || !connecte()) { $("#soCorps").innerHTML = `<section class="panel"><p>Connectez-vous pour publier vos cartes recherchées.</p><button class="btn primary" onclick="aller('compte')">Se connecter</button></section>`; return; }
+  let d; try { d = await api("souhaits"); } catch (e) { $("#soCorps").innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  S.souhaits = d.souhaits.map((x) => x.carte); sauver();
+  const el = $("#soCorps"); if (!el) return;
+  const nomCarte = (id) => BY_ID[id] ? `${BY_ID[id].type === "pays" && BY_ID[id].code ? drapeau(BY_ID[id].code) : esc(BY_ID[id].emoji || "🃏")} <b>${esc(BY_ID[id].nom)}</b> <span class="rbadge" data-r="${BY_ID[id].rarete}">${RARETES[BY_ID[id].rarete]?.nom || ""}</span>` : esc(id);
+  const joueur = (pseudo) => `<span class="so-joueur"><button class="lien-chances" data-profil="${esc(pseudo)}">${esc(pseudo)}</button><button class="btn small" data-echange="${esc(pseudo)}" title="Échange en direct (entre amis)">🤝</button></span>`;
+  el.innerHTML = `<div class="so-grille">
+    <section class="panel"><h3 style="margin-top:0">Mes cartes recherchées <small class="muted">${d.souhaits.length}/${d.max}</small></h3>
+      <form class="row" id="soForm"><input id="soQ" list="soListe" placeholder="Ajouter une carte (nom)…" style="flex:1;min-width:180px" autocomplete="off"><datalist id="soListe"></datalist><button class="btn primary">Ajouter</button></form>
+      ${d.souhaits.length ? `<ul class="so-liste">${d.souhaits.map((x) => `<li><div class="so-carte">${nomCarte(x.carte)}<button class="lien-chances" data-retirer="${esc(x.carte)}">retirer</button></div>
+          ${x.joueurs.length ? `<div class="so-qui"><small class="muted">En double chez :</small> ${x.joueurs.map((j) => joueur(j.pseudo)).join("")}</div>` : `<small class="muted">Personne ne l'a en double pour l'instant.</small>`}</li>`).join("")}</ul>`
+        : `<p class="muted">Aucune carte pour l'instant. Astuce : le bouton « ⭐ Je la recherche » est aussi sur la fiche de chaque carte.</p>`}</section>
+    <section class="panel"><h3 style="margin-top:0">Ils cherchent vos doublons</h3>
+      ${d.demandes.length ? `<ul class="so-liste">${d.demandes.map((x) => `<li><div class="so-carte">${nomCarte(x.carte)}</div><div class="so-qui"><small class="muted">Recherchée par :</small> ${joueur(x.pseudo)}</div></li>`).join("")}</ul>`
+        : `<p class="muted">Personne ne cherche vos doublons pour le moment.</p>`}
+      <p class="muted" style="font-size:13px">🤝 = échange en direct (entre amis). Sinon, ouvrez le profil du joueur pour l'ajouter en ami ou lui écrire.</p></section></div>`;
+  $("#soQ").oninput = (e) => { const q = sansAccents(e.target.value); $("#soListe").innerHTML = q.length < 2 ? "" : CARDS.filter((c) => c.type !== "secrete" && sansAccents(c.nom).includes(q)).slice(0, 20).map((c) => `<option value="${esc(c.nom)}">`).join(""); };
+  $("#soForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const q = sansAccents($("#soQ").value.trim()), c = CARDS.find((x) => x.type !== "secrete" && sansAccents(x.nom) === q);
+    if (!c) { toast("Choisissez une carte de la liste."); return; }
+    if (!estRecherchee(c.id) && await basculerSouhait(c.id)) aller("souhaits");
+  };
+  $$("[data-retirer]", el).forEach((b) => b.onclick = async () => { if (await basculerSouhait(b.dataset.retirer)) aller("souhaits"); });
+  $$("[data-profil]", el).forEach((b) => b.onclick = () => ouvrirProfil(b.dataset.profil));
+  $$("[data-echange]", el).forEach((b) => b.onclick = () => proposerEchangeDirect(b.dataset.echange));
+}
+ajouterPage("souhaits", "🔎", "Cartes recherchées", vueSouhaits);
+
+/* ---------- Admin : applis Android et iPhone (Google Play / App Store) ---------- */
+async function adminApps(el) {
+  let c = {}; try { c = await api("admin/apps"); } catch {}
+  el.innerHTML = `<section class="panel"><h3 style="margin-top:0">📱 Applis Android et iPhone</h3>
+    <p>Le jeu est déjà une application installable (PWA). Pour le publier sur les stores, le plus simple est <b>PWABuilder</b> (gratuit, de Microsoft) :</p>
+    <ol class="na-regles">
+      <li>Allez sur <b>pwabuilder.com</b>, entrez <b>https://play2f1.com</b> et lancez l'analyse.</li>
+      <li><b>Android</b> : « Package for stores » → Android → téléchargez le paquet. Gardez précieusement le fichier de signature (<i>signing key</i>) qu'il contient. Créez un compte développeur Google Play (25 $ une fois), puis envoyez le fichier <code>.aab</code>.</li>
+      <li>Copiez ci-dessous le <b>nom du paquet</b> et l'<b>empreinte SHA-256</b> donnés par PWABuilder (et celle de « Play App Signing » dans la console Google Play) : sans cela, l'appli affiche une barre d'adresse.</li>
+      <li><b>iPhone</b> : « Package for stores » → iOS. Il faut un compte Apple Developer (99 $ par an) et un Mac avec Xcode pour envoyer l'appli. Apple refuse parfois les applis qui ne sont qu'un site : mettez en avant le jeu hors ligne et les notifications.</li>
+    </ol>
+    <form class="form" id="fApps" style="max-width:640px">
+      <label>Nom du paquet Android<input name="paquet" value="${esc(c.paquet || "")}" placeholder="com.play2f1.app"></label>
+      <label>Empreinte(s) SHA-256 du certificat (séparées par un espace)<input name="empreintes" value="${esc(c.empreintes || "")}" placeholder="AB:CD:…"></label>
+      <label>Lien Google Play (quand l'appli est en ligne)<input name="android" value="${esc(c.android || "")}" placeholder="https://play.google.com/store/apps/details?id=…"></label>
+      <label>Lien App Store<input name="ios" value="${esc(c.ios || "")}" placeholder="https://apps.apple.com/app/…"></label>
+      <div class="row"><button class="btn primary">Enregistrer</button><a class="btn" href="/.well-known/assetlinks.json" target="_blank" rel="noopener">Vérifier assetlinks.json</a><span class="err" id="apErr"></span></div></form></section>`;
+  const f = $("#fApps", el);
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    try { await api("admin/apps", { methode: "PUT", corps: Object.fromEntries(new FormData(f)) }); toast("📱 Réglages des applis enregistrés."); }
+    catch (err) { $("#apErr").textContent = err.message; }
+  };
+}

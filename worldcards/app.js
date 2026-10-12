@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v56"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v57"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -1202,13 +1202,13 @@ function vueBoosters(v) {
     // Par lot de 10, un booster est offert ; les boosters achetés en lot vont dans « Mes boosters »
     const recus = n + (n >= 10 ? 1 : 0);
     S.coins -= p.prix * n; S.boosters[k] = (S.boosters[k] || 0) + recus; sauver(); majCoins();
-    if (n === 1) { ouvrirBooster(k); return; }
-    toast(`🎁 ${recus} boosters ${esc(p.nom)} ajoutés à vos boosters !`); aller("boosters"); scrollTo({ top: 0, behavior: "smooth" });
+    // Le booster acheté rejoint « Mes boosters » : on l'ouvre quand on veut
+    toast(`🎁 ${recus > 1 ? `${recus} boosters` : "Booster"} ${esc(p.nom)} ajouté${recus > 1 ? "s" : ""} à vos boosters ! Ouvrez-le${recus > 1 ? "s" : ""} quand vous voulez.`); aller("boosters"); scrollTo({ top: 0, behavior: "smooth" });
   });
   $("#acheterOffre")?.addEventListener("click", () => {
     if (S.coins < prixOffre(offre) || S.offreJour === today()) return;
     S.coins -= prixOffre(offre); S.offreJour = today(); S.boosters[offre] = (S.boosters[offre] || 0) + 1; sauver(); majCoins();
-    ouvrirBooster(offre);
+    toast(`🎁 Booster ${esc(PACKS[offre].nom)} ajouté à vos boosters !`); aller("boosters"); scrollTo({ top: 0, behavior: "smooth" });
   });
   $("#toutOuvrir")?.addEventListener("click", toutOuvrir);
   $("#toutRecycler")?.addEventListener("click", toutRecycler);
@@ -1415,7 +1415,7 @@ function ouvrirBooster(type) {
   async function retournerTable(k) {
     const b = scene.querySelector(`.hs-carte[data-i="${k}"]`);
     if (!b) return;
-    if (retournees.has(k)) { ficheCarte(ordre[k].c); return; }
+    if (retournees.has(k)) { zoomTable(k); return; }
     retournees.add(k);
     const x = ordre[k], c = x.c, r = x.shiny ? 6 : RARETES[c.rarete].ordre, flip = $(".flip", b);
     if (r >= 3 && !rapide) { flip.classList.add("suspense"); await attendre(r >= 4 ? 700 : 450); flip.classList.remove("suspense"); }
@@ -1432,13 +1432,24 @@ function ouvrirBooster(type) {
       if (typeof son === "function") son(r >= 4 ? "niveau" : "badge");
     }
     if (retournees.size === ordre.length) {
-      indice("Touchez une carte pour la voir en grand");
+      // Le bouton va dans la barre du bas de la fenêtre : toujours visible, même sur un petit écran
       setTimeout(() => {
-        if (!scene.isConnected || etape !== "table") return;
-        scene.insertAdjacentHTML("beforeend", `<div class="hs-fin"><button class="btn primary" id="hsSuite">Voir le résumé</button></div>`);
-        $("#hsSuite")?.addEventListener("click", (e) => { e.stopPropagation(); resume(); });
-      }, 500);
+        const ind = $("#pkIndice");
+        if (!scene.isConnected || etape !== "table" || !ind) return;
+        ind.innerHTML = `<button class="btn primary" id="hsSuite">Voir le résumé →</button><small>Touchez une carte pour la voir en grand</small>`;
+        $("#hsSuite").addEventListener("click", (e) => { e.stopPropagation(); resume(); });
+      }, 450);
     }
+  }
+  // Une carte retournée s'affiche en grand par-dessus la table ; on touche pour revenir
+  function zoomTable(k) {
+    const x = ordre[k];
+    $(".hs-zoom", scene)?.remove();
+    const z = document.createElement("div");
+    z.className = "hs-zoom";
+    z.innerHTML = `<div class="hs-zoom-carte">${etiquette(x, true)}${cardHTML(x.c, { locked: false, shiny: x.shiny, holo: x.holo })}</div><small>Touchez pour revenir</small>`;
+    z.addEventListener("click", (e) => { e.stopPropagation(); z.remove(); });
+    scene.appendChild(z);
   }
   async function suivante() {
     scene.querySelector(".pk-carte")?.classList.add("sort");

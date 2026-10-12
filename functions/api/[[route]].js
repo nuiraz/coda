@@ -104,6 +104,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS offres ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', badge TEXT NOT NULL DEFAULT '', prix_cents INTEGER NOT NULL, prix_reference_cents INTEGER, reference_note TEXT NOT NULL DEFAULT '', pieces INTEGER NOT NULL DEFAULT 0, boosters TEXT NOT NULL DEFAULT '{}', une_fois INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, ordre INTEGER NOT NULL DEFAULT 0, debut INTEGER, fin INTEGER, maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS defi_jour ( jour TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, essais TEXT NOT NULL DEFAULT '[]', fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL, PRIMARY KEY (jour, user_id) )`,
   `CREATE TABLE IF NOT EXISTS nations_points ( semaine TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, nation TEXT NOT NULL, points INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (semaine, user_id) )`,
+  `CREATE TABLE IF NOT EXISTS souhaits ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, carte TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, carte) )`,
   `CREATE TABLE IF NOT EXISTS activite ( user_id INTEGER NOT NULL, jour TEXT NOT NULL, PRIMARY KEY (user_id, jour) )`,
   `CREATE TABLE IF NOT EXISTS notifs_campagnes ( id INTEGER PRIMARY KEY AUTOINCREMENT, titre TEXT NOT NULL, texte TEXT NOT NULL, url TEXT NOT NULL, cible TEXT NOT NULL, total INTEGER NOT NULL DEFAULT 0, envoyes INTEGER NOT NULL DEFAULT 0, par TEXT, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS notifs_file ( campagne_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (campagne_id, user_id) )`,
@@ -3115,6 +3116,92 @@ route("PUT", "nations/moi", async ({ request, env, user }) => {
   await env.DB.prepare("UPDATE nations_points SET nation = ? WHERE semaine = ? AND user_id = ?").bind(code, semaineCourante(), user.id).run();
   return json({ ok: true });
 }, { connecte: true });
+
+/* =====================================================================
+   Duels en spectateur : les amis et les membres de la guilde peuvent suivre un duel en direct,
+   avec 2 tours de retard (on ne peut pas souffler les coups à un joueur).
+   ===================================================================== */
+const RETARD_SPECTATEUR = 2;
+const peutRegarder = async (env, user, d) => user.admin || !!(await env.DB.prepare(`SELECT 1 WHERE
+    EXISTS (SELECT 1 FROM amis f WHERE f.user_id = ?1 AND f.ami_id IN (?2, ?3) AND EXISTS (SELECT 1 FROM amis g WHERE g.user_id = f.ami_id AND g.ami_id = ?1))
+    OR EXISTS (SELECT 1 FROM guilde_membres m1 JOIN guilde_membres m2 ON m2.guilde_id = m1.guilde_id WHERE m1.user_id = ?1 AND m2.user_id IN (?2, ?3))`).bind(user.id, d.a_id, d.b_id).first());
+route("GET", "duels/direct", async ({ env, user }) => {
+  const { results } = await env.DB.prepare(`SELECT d.id, ua.pseudo AS a, ub.pseudo AS b, d.classe, json_array_length(d.paires) AS tours, d.cree_le
+    FROM duels d JOIN users ua ON ua.id = d.a_id JOIN users ub ON ub.id = d.b_id
+    WHERE d.statut = 'encours' AND d.limite > ?2 AND ?1 NOT IN (d.a_id, d.b_id) AND (
+      EXISTS (SELECT 1 FROM amis f WHERE f.user_id = ?1 AND f.ami_id IN (d.a_id, d.b_id) AND EXISTS (SELECT 1 FROM amis g WHERE g.user_id = f.ami_id AND g.ami_id = ?1))
+      OR EXISTS (SELECT 1 FROM guilde_membres m1 JOIN guilde_membres m2 ON m2.guilde_id = m1.guilde_id WHERE m1.user_id = ?1 AND m2.user_id IN (d.a_id, d.b_id)))
+    ORDER BY d.id DESC LIMIT 20`).bind(user.id, maintenant() - 2 * 60000).all();
+  return json({ duels: results });
+}, { connecte: true });
+route("GET", "duels/(\\d+)/regarder", async ({ env, user, p }) => {
+  let d = await env.DB.prepare("SELECT d.*, ua.pseudo AS pa, ub.pseudo AS pb FROM duels d JOIN users ua ON ua.id = d.a_id JOIN users ub ON ub.id = d.b_id WHERE d.id = ?").bind(p[1]).first();
+  if (!d || !d.deck_b || !["encours", "fini"].includes(d.statut)) return erreur("Ce duel n'est pas visible.", 404);
+  if (!(await peutRegarder(env, user, d))) return erreur("Seuls les amis et les membres de la guilde des joueurs peuvent regarder ce duel.", 403);
+  const { pa, pb } = d;
+  d = { ...(await avancerDuel(env, d)), pa, pb };
+  const paires = JSON.parse(d.paires);
+  return json({ id: d.id, statut: d.statut, a: pa, b: pb, deckA: JSON.parse(d.deck_a), deckB: JSON.parse(d.deck_b), graine: d.graine, classe: !!d.classe,
+    paires: d.statut === "encours" ? paires.slice(0, Math.max(0, paires.length - RETARD_SPECTATEUR)) : paires, retard: d.statut === "encours" ? RETARD_SPECTATEUR : 0,
+    gagnant: d.statut === "fini" ? (d.gagnant === d.a_id ? 0 : 1) : null });
+}, { connecte: true });
+
+/* =====================================================================
+   Cartes recherchées : chacun publie sa liste, le jeu propose les joueurs qui ont la carte en double
+   ===================================================================== */
+const SOUHAITS_MAX = 30;
+const cheminCarte = (id) => `$.sauvegarde.owned."${id}"`; // id validé par le catalogue
+route("GET", "souhaits", async ({ env, user }) => {
+  const { results: miens } = await env.DB.prepare("SELECT carte FROM souhaits WHERE user_id = ? ORDER BY cree_le DESC").bind(user.id).all();
+  const liste = [];
+  for (const { carte } of miens.filter((x) => CATALOGUE[x.carte])) {
+    const { results } = await env.DB.prepare(`SELECT u.pseudo, CAST(json_extract(s.data, ?) AS INTEGER) AS n FROM sauvegardes s JOIN users u ON u.id = s.user_id
+      WHERE u.id != ? AND u.banni = 0 AND CAST(json_extract(s.data, ?) AS INTEGER) >= 2 ORDER BY COALESCE(u.derniere_co, 0) DESC LIMIT 6`).bind(cheminCarte(carte), user.id, cheminCarte(carte)).all();
+    liste.push({ carte, joueurs: results });
+  }
+  // Dans l'autre sens : qui cherche une carte que j'ai en double ?
+  const moi = await env.DB.prepare("SELECT data FROM sauvegardes WHERE user_id = ?").bind(user.id).first();
+  let doubles = []; try { const o = JSON.parse(moi?.data || "{}").sauvegarde?.owned || {}; doubles = Object.keys(o).filter((id) => o[id] >= 2 && CATALOGUE[id]); } catch {}
+  let demandes = [];
+  if (doubles.length) {
+    const { results } = await env.DB.prepare(`SELECT s.carte, u.pseudo FROM souhaits s JOIN users u ON u.id = s.user_id
+      WHERE s.user_id != ? AND u.banni = 0 AND s.carte IN (SELECT value FROM json_each(?)) ORDER BY COALESCE(u.derniere_co, 0) DESC LIMIT 60`).bind(user.id, JSON.stringify(doubles)).all();
+    demandes = results;
+  }
+  return json({ souhaits: liste, demandes, max: SOUHAITS_MAX });
+}, { connecte: true });
+route("PUT", "souhaits/([^/]{3,80})", async ({ env, user, p }) => {
+  const carte = decodeURIComponent(p[1]);
+  if (!CATALOGUE[carte]) return erreur("Carte inconnue.");
+  const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM souhaits WHERE user_id = ?").bind(user.id).first();
+  if (n.n >= SOUHAITS_MAX) return erreur(`${SOUHAITS_MAX} cartes recherchées au maximum : retirez-en une d'abord.`);
+  await env.DB.prepare("INSERT OR IGNORE INTO souhaits (user_id, carte, cree_le) VALUES (?, ?, ?)").bind(user.id, carte, maintenant()).run();
+  return json({ ok: true });
+}, { connecte: true });
+route("DELETE", "souhaits/([^/]{3,80})", async ({ env, user, p }) => {
+  await env.DB.prepare("DELETE FROM souhaits WHERE user_id = ? AND carte = ?").bind(user.id, decodeURIComponent(p[1])).run();
+  return json({ ok: true });
+}, { connecte: true });
+
+/* =====================================================================
+   Applis Android et iPhone : lien entre l'appli Android (Trusted Web Activity) et le site
+   ===================================================================== */
+route("GET", "apps/assetlinks", async ({ env }) => {
+  const c = (await lireConfig(env, "apps")) || {};
+  const empreintes = String(c.empreintes || "").split(/[\s,]+/).filter((x) => /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/i.test(x)).map((x) => x.toUpperCase());
+  const liens = c.paquet && empreintes.length ? [{ relation: ["delegate_permission/common.handle_all_urls"], target: { namespace: "android_app", package_name: c.paquet, sha256_cert_fingerprints: empreintes } }] : [];
+  return json(liens, 200, { "cache-control": "public, max-age=300" });
+});
+route("GET", "admin/apps", async ({ env }) => json((await lireConfig(env, "apps")) || {}), { admin: true });
+route("PUT", "admin/apps", async ({ request, env }) => {
+  const b = await corps(request);
+  const paquet = String(b.paquet || "").trim();
+  if (paquet && !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(paquet)) return erreur("Nom de paquet invalide (ex. com.play2f1.app).");
+  const empreintes = String(b.empreintes || "").trim();
+  if (empreintes && !empreintes.split(/[\s,]+/).every((x) => /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/i.test(x))) return erreur("Empreinte SHA-256 invalide (32 octets séparés par « : »).");
+  await ecrireConfig(env, "apps", { paquet, empreintes, android: String(b.android || "").trim().slice(0, 300), ios: String(b.ios || "").trim().slice(0, 300) });
+  return json({ ok: true });
+}, { admin: true });
 
 /* =====================================================================
    Tutoriel des nouveaux joueurs : récompense unique quand les étapes sont faites

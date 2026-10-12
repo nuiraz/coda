@@ -923,7 +923,7 @@ vueBoosters = function (v, opts) {
     if (ancre) ancre.insertAdjacentHTML("beforebegin", html); else v.insertAdjacentHTML("afterbegin", html);
     $("#acheterSaison", v)?.addEventListener("click", () => {
       if (S.coins < ps.prix) return;
-      S.coins -= ps.prix; S.boosters[cleSaison] = (S.boosters[cleSaison] || 0) + 1; sauver(); majCoins(); ouvrirBooster(cleSaison);
+      S.coins -= ps.prix; S.boosters[cleSaison] = (S.boosters[cleSaison] || 0) + 1; sauver(); majCoins(); toast(`🎁 Booster ajouté à vos boosters !`); aller("boosters");
     });
   }
   const ancre = $(".pity-box", v);
