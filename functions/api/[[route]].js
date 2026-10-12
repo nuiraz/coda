@@ -100,6 +100,9 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS photos_perso ( carte TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS rangs ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, couleur TEXT NOT NULL DEFAULT '#888888', description TEXT NOT NULL DEFAULT '', min_pts INTEGER NOT NULL DEFAULT 0, max_pts INTEGER, ordre INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, divisions INTEGER NOT NULL DEFAULT 1, montee TEXT NOT NULL DEFAULT '', descente TEXT NOT NULL DEFAULT '', recompense_pieces INTEGER NOT NULL DEFAULT 0, recompense_boosters INTEGER NOT NULL DEFAULT 0, logo TEXT, logo_maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS offres ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', badge TEXT NOT NULL DEFAULT '', prix_cents INTEGER NOT NULL, prix_reference_cents INTEGER, reference_note TEXT NOT NULL DEFAULT '', pieces INTEGER NOT NULL DEFAULT 0, boosters TEXT NOT NULL DEFAULT '{}', une_fois INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, ordre INTEGER NOT NULL DEFAULT 0, debut INTEGER, fin INTEGER, maj INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS echanges_directs ( id INTEGER PRIMARY KEY AUTOINCREMENT, a_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, b_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, statut TEXT NOT NULL DEFAULT 'ouvert', offre_a TEXT NOT NULL DEFAULT '{"cartes":[],"pieces":0}', offre_b TEXT NOT NULL DEFAULT '{"cartes":[],"pieces":0}', ok_a INTEGER NOT NULL DEFAULT 0, ok_b INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL, maj INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS guerres ( semaine TEXT NOT NULL, g1 INTEGER NOT NULL, g2 INTEGER, fini INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (semaine, g1) )`,
+  `CREATE TABLE IF NOT EXISTS albums_termines ( cle TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, pseudo TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (cle, user_id) )`,
   `CREATE TABLE IF NOT EXISTS missions_recues ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, periode TEXT NOT NULL, cle TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, periode, cle) )`,
   `CREATE TABLE IF NOT EXISTS champions ( saison TEXT PRIMARY KEY, user_id INTEGER, pseudo TEXT NOT NULL, trophees INTEGER NOT NULL, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS file_attente ( user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, trophees INTEGER NOT NULL, classe INTEGER NOT NULL DEFAULT 1, deck TEXT NOT NULL, depuis INTEGER NOT NULL, vu INTEGER NOT NULL, duel_id INTEGER )`,
@@ -773,6 +776,7 @@ export async function planifie(env) {
   await cloturerEncheres(env);
   try { await notificationsIntelligentes(env); } catch (e) { console.error(e); }
   try { await cronTournoiDirect(env); } catch (e) { console.error(e); }
+  try { await cloturerGuerres(env); } catch (e) { console.error(e); }
   const jourSync = new Date().toISOString().slice(0, 10), dejaJour = (await lireConfig(env, "sync_jour")) === jourSync;
   if (!dejaJour) await ecrireConfig(env, "sync_jour", jourSync);
   try { await syncSupabase(env, !dejaJour); } catch (e) { console.error(e); }
@@ -2617,6 +2621,170 @@ route("PUT", "admin/offres/([a-z0-9-]{2,30})", async ({ request, env, user, p })
 
 
 
+
+
+/* =====================================================================
+   Échange en direct entre amis : chacun compose son offre, l'échange se fait quand les deux ont validé la même version
+   ===================================================================== */
+const lireOffre = (t) => { try { const o = JSON.parse(t); return { cartes: Array.isArray(o.cartes) ? o.cartes : [], pieces: Number(o.pieces) || 0 }; } catch { return { cartes: [], pieces: 0 }; } };
+async function vueEchangeDirect(env, e, user) {
+  const moiA = e.a_id === user.id, ps = await env.DB.prepare("SELECT id, pseudo FROM users WHERE id IN (?, ?)").bind(e.a_id, e.b_id).all();
+  const nom = (id) => ps.results.find((x) => x.id === id)?.pseudo || "?";
+  return { id: e.id, statut: e.statut, version: e.version, ami: nom(moiA ? e.b_id : e.a_id), moi: lireOffre(moiA ? e.offre_a : e.offre_b), lui: lireOffre(moiA ? e.offre_b : e.offre_a),
+    jaiValide: !!(moiA ? e.ok_a : e.ok_b), aValide: !!(moiA ? e.ok_b : e.ok_a), cote: moiA ? "a" : "b" };
+}
+const lireEchangeDirect = async (env, id, user) => {
+  const e = await env.DB.prepare("SELECT * FROM echanges_directs WHERE id = ? AND (a_id = ?2 OR b_id = ?2)").bind(id, user.id).first();
+  if (!e) throw new ErreurApi("Échange introuvable.", 404);
+  return e;
+};
+route("POST", "direct/echange", async ({ request, env, user, ctx }) => {
+  const b = await corps(request);
+  const ami = await autreJoueur(env, user, String(b.pseudo || ""));
+  if (!(await sontAmis(env, user.id, ami.id))) return erreur("Les échanges en direct se font entre amis.");
+  await env.DB.prepare("UPDATE echanges_directs SET statut = 'annule' WHERE a_id = ? AND statut = 'ouvert'").bind(user.id).run();
+  const r = await env.DB.prepare("INSERT INTO echanges_directs (a_id, b_id, cree_le, maj) VALUES (?, ?, ?, ?)").bind(user.id, ami.id, maintenant(), maintenant()).run();
+  enArrierePlan(ctx, envoyerPush(env, ami.id, { titre: "🤝 Échange en direct", texte: `${user.pseudo} veut échanger des cartes avec vous.`, url: "./#hub" }));
+  return json({ id: r.meta.last_row_id }, 201);
+}, { connecte: true });
+route("GET", "direct/echanges", async ({ env, user }) => {
+  const { results } = await env.DB.prepare(`SELECT e.id, u.pseudo, e.cree_le FROM echanges_directs e JOIN users u ON u.id = e.a_id WHERE e.b_id = ? AND e.statut = 'ouvert' AND e.maj > ? ORDER BY e.id DESC LIMIT 5`).bind(user.id, maintenant() - 15 * 60000).all();
+  return json({ invitations: results });
+}, { connecte: true });
+route("GET", "direct/echange/(\\d+)", async ({ env, user, p }) => json(await vueEchangeDirect(env, await lireEchangeDirect(env, p[1], user), user)), { connecte: true });
+route("PUT", "direct/echange/(\\d+)/offre", async ({ request, env, user, p }) => {
+  const b = await corps(request), e = await lireEchangeDirect(env, p[1], user);
+  if (e.statut !== "ouvert") return erreur("Cet échange est terminé.");
+  const cartes = (Array.isArray(b.cartes) ? b.cartes : []).map(String).slice(0, 10), pieces = Math.max(0, Math.min(100000, Math.floor(Number(b.pieces) || 0)));
+  const save = await saveDe(env, user.id), owned = save.owned || {}, compte = {};
+  for (const id of cartes) {
+    if (!CATALOGUE[id] || CATALOGUE[id].type === "secrete") return erreur("Carte inconnue ou non échangeable.");
+    compte[id] = (compte[id] || 0) + 1;
+    if ((owned[id] || 0) - await enSequestre(env, user.id, id) < compte[id]) return erreur(`Vous n'avez pas assez d'exemplaires de « ${CATALOGUE[id].nom} ».`);
+  }
+  if (pieces > (Number(save.coins) || 0)) return erreur("Vous n'avez pas assez de pièces.");
+  const col = e.a_id === user.id ? "offre_a" : "offre_b";
+  // Toute modification annule les deux validations
+  await env.DB.prepare(`UPDATE echanges_directs SET ${col} = ?, ok_a = 0, ok_b = 0, version = version + 1, maj = ? WHERE id = ? AND statut = 'ouvert'`).bind(JSON.stringify({ cartes, pieces }), maintenant(), e.id).run();
+  return json(await vueEchangeDirect(env, await lireEchangeDirect(env, p[1], user), user));
+}, { connecte: true });
+route("POST", "direct/echange/(\\d+)/valider", async ({ request, env, user, p, ctx }) => {
+  const b = await corps(request), e = await lireEchangeDirect(env, p[1], user);
+  if (e.statut !== "ouvert") return json(await vueEchangeDirect(env, e, user));
+  if (Number(b.version) !== e.version) return erreur("L'offre vient de changer : vérifiez-la avant de valider.", 409);
+  const oa = lireOffre(e.offre_a), ob = lireOffre(e.offre_b);
+  if (!oa.cartes.length && !oa.pieces && !ob.cartes.length && !ob.pieces) return erreur("L'échange est vide.");
+  const col = e.a_id === user.id ? "ok_a" : "ok_b";
+  await env.DB.prepare(`UPDATE echanges_directs SET ${col} = 1, maj = ? WHERE id = ? AND version = ?`).bind(maintenant(), e.id, e.version).run();
+  // Les deux ont validé la même version : on conclut une seule fois et chacun reçoit l'offre de l'autre
+  const r = await env.DB.prepare("UPDATE echanges_directs SET statut = 'conclu', maj = ? WHERE id = ? AND statut = 'ouvert' AND ok_a = 1 AND ok_b = 1 AND version = ?").bind(maintenant(), e.id, e.version).run();
+  if (r.meta.changes) {
+    const livrer = (dest, o, de) => [...o.cartes.map((id) => env.DB.prepare("INSERT INTO livraisons (user_id, carte, pieces, message, cree_le) VALUES (?, ?, 0, ?, ?)").bind(dest, id, `Échange en direct avec ${de}`, maintenant())),
+      ...(o.pieces ? [env.DB.prepare("INSERT INTO livraisons (user_id, carte, pieces, message, cree_le) VALUES (?, NULL, ?, ?, ?)").bind(dest, o.pieces, `Échange en direct avec ${de}`, maintenant())] : [])];
+    const ps = await env.DB.prepare("SELECT id, pseudo FROM users WHERE id IN (?, ?)").bind(e.a_id, e.b_id).all(), nom = (id) => ps.results.find((x) => x.id === id)?.pseudo || "?";
+    const req = [...livrer(e.b_id, oa, nom(e.a_id)), ...livrer(e.a_id, ob, nom(e.b_id))];
+    if (req.length) await env.DB.batch(req);
+    console.log(JSON.stringify({ echangeDirect: e.id, evenement: "conclu" }));
+  }
+  return json(await vueEchangeDirect(env, await lireEchangeDirect(env, p[1], user), user));
+}, { connecte: true });
+route("POST", "direct/echange/(\\d+)/annuler", async ({ env, user, p }) => {
+  const e = await lireEchangeDirect(env, p[1], user);
+  await env.DB.prepare("UPDATE echanges_directs SET statut = 'annule', maj = ? WHERE id = ? AND statut = 'ouvert'").bind(maintenant(), e.id).run();
+  return json({ ok: true });
+}, { connecte: true });
+
+/* =====================================================================
+   Guerres de guildes : chaque week-end, les guildes sont appariées ; chaque victoire classée d'un membre rapporte 1 point
+   ===================================================================== */
+function weekendCourant() {
+  const d = new Date(), jour = d.getUTCDay(); // 6 = samedi, 0 = dimanche
+  const samedi = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((jour + 1) % 7)));
+  const debut = samedi.getTime(), fin = debut + 2 * JOUR;
+  return { cle: samedi.toISOString().slice(0, 10), debut, fin, enCours: maintenant() >= debut && maintenant() < fin };
+}
+async function scoreGuerre(env, guildeId, debut, fin) {
+  const r = await env.DB.prepare(`SELECT
+      (SELECT COUNT(*) FROM combats c JOIN guilde_membres m ON m.user_id = c.attaquant WHERE m.guilde_id = ?1 AND c.fini = 1 AND c.gagne = 1 AND c.classe = 1 AND c.cree_le >= ?2 AND c.cree_le < ?3)
+    + (SELECT COUNT(*) FROM duels d JOIN guilde_membres m ON m.user_id = d.gagnant WHERE m.guilde_id = ?1 AND d.statut = 'fini' AND d.classe = 1 AND d.fini_le >= ?2 AND d.fini_le < ?3) AS n`).bind(guildeId, debut, fin).first();
+  return r.n;
+}
+// Appariement des guildes (au moins 2 membres) par niveau, au premier passage du week-end
+async function apparierGuerres(env, w) {
+  if (await env.DB.prepare("SELECT 1 FROM guerres WHERE semaine = ? LIMIT 1").bind(w.cle).first()) return;
+  const { results } = await env.DB.prepare(`SELECT g.id, (SELECT COALESCE(AVG(a.trophees), 1000) FROM guilde_membres m JOIN arene a ON a.user_id = m.user_id WHERE m.guilde_id = g.id) AS niveau
+    FROM guildes g WHERE (SELECT COUNT(*) FROM guilde_membres m WHERE m.guilde_id = g.id) >= 2 ORDER BY niveau DESC`).all();
+  const req = [];
+  for (let i = 0; i < results.length; i += 2) {
+    const a = results[i].id, b = results[i + 1]?.id ?? null;
+    req.push(env.DB.prepare("INSERT OR IGNORE INTO guerres (semaine, g1, g2) VALUES (?, ?, ?)").bind(w.cle, a, b));
+    if (b) req.push(env.DB.prepare("INSERT OR IGNORE INTO guerres (semaine, g1, g2) VALUES (?, ?, ?)").bind(w.cle, b, a));
+  }
+  if (req.length) await env.DB.batch(req);
+}
+route("GET", "guerre", async ({ env, user }) => {
+  const w = weekendCourant(), g = await maGuilde(env, user.id);
+  if (!g) return json({ weekend: w, guilde: null });
+  if (w.enCours) await apparierGuerres(env, w);
+  const m = await env.DB.prepare("SELECT g2 FROM guerres WHERE semaine = ? AND g1 = ?").bind(w.cle, g.id).first();
+  const adv = m?.g2 ? await env.DB.prepare("SELECT id, nom, tag, embleme FROM guildes WHERE id = ?").bind(m.g2).first() : null;
+  const top = (await env.DB.prepare(`SELECT u.pseudo, (SELECT COUNT(*) FROM combats c WHERE c.attaquant = u.id AND c.fini = 1 AND c.gagne = 1 AND c.classe = 1 AND c.cree_le >= ?2 AND c.cree_le < ?3)
+      + (SELECT COUNT(*) FROM duels d WHERE d.gagnant = u.id AND d.statut = 'fini' AND d.classe = 1 AND d.fini_le >= ?2 AND d.fini_le < ?3) AS v
+    FROM guilde_membres m JOIN users u ON u.id = m.user_id WHERE m.guilde_id = ?1 ORDER BY v DESC LIMIT 10`).bind(g.id, w.debut, w.fin).all()).results;
+  return json({ weekend: w, guilde: { id: g.id, nom: g.nom, tag: g.tag, embleme: g.embleme, score: await scoreGuerre(env, g.id, w.debut, w.fin) },
+    adversaire: adv ? { ...adv, score: await scoreGuerre(env, adv.id, w.debut, w.fin) } : null, membres: top });
+}, { connecte: true });
+// Le lundi : la guilde gagnante de chaque duel reçoit sa récompense (membres actifs pendant le week-end)
+async function cloturerGuerres(env) {
+  const { results } = await env.DB.prepare("SELECT * FROM guerres WHERE fini = 0 AND g2 IS NOT NULL AND g1 < g2 LIMIT 50").all();
+  for (const gu of results) {
+    const debut = Date.parse(gu.semaine + "T00:00:00Z"), fin = debut + 2 * JOUR;
+    if (maintenant() < fin) continue;
+    const r = await env.DB.prepare("UPDATE guerres SET fini = 1 WHERE semaine = ? AND (g1 = ? OR g1 = ?) AND fini = 0").bind(gu.semaine, gu.g1, gu.g2).run();
+    if (!r.meta.changes) continue;
+    const s1 = await scoreGuerre(env, gu.g1, debut, fin), s2 = await scoreGuerre(env, gu.g2, debut, fin);
+    if (s1 === s2) continue;
+    const gagnante = s1 > s2 ? gu.g1 : gu.g2;
+    const { results: membres } = await env.DB.prepare("SELECT user_id FROM guilde_membres WHERE guilde_id = ?").bind(gagnante).all();
+    if (membres.length) await env.DB.batch(membres.map((m) => env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, boosters_detail, message, cree_le) VALUES (?, 500, 0, ?, ?, ?)").bind(m.user_id, JSON.stringify({ or: 1 }), `⚔️ Victoire de votre guilde à la guerre du week-end (${Math.max(s1, s2)} à ${Math.min(s1, s2)}) !`, maintenant())));
+  }
+}
+
+/* =====================================================================
+   Albums à thème : compléter un album rapporte une récompense ; classement des premiers à le terminer
+   ===================================================================== */
+const ALBUMS = (() => {
+  const a = [{ cle: "merveilles", nom: "Les merveilles du monde", icone: "🌟", ids: MONDE.MERVEILLES_BRUTES.map((x) => "merv:" + x[0]), pieces: 3000 }];
+  for (const [k, c] of Object.entries(MONDE.CONTINENTS)) a.push({ cle: "drapeaux-" + k.toLowerCase(), nom: `Drapeaux : ${c.nom}`, icone: c.emoji, ids: MONDE.PAYS_BRUTS.filter((p) => p[3] === k).map((p) => "pays:" + p[0]), pieces: 1500 });
+  const villes = [...MONDE.VILLES_BRUTES, ...VILLES2.VILLES_EXTRA, ...VILLES3.VILLES_EXTRA2, ...EXTENSIONS.VILLES_NOUVELLES];
+  const capitales = (cont) => MONDE.PAYS_BRUTS.filter((p) => p[3] === cont).map((p) => villes.find((v) => v[2] === p[0] && v[1] === p[2])).filter(Boolean).map((v) => "ville:" + v[0]);
+  for (const [k, n] of [["EU", "Capitales d'Europe"], ["AS", "Capitales d'Asie"], ["AF", "Capitales d'Afrique"]]) { const ids = capitales(k); if (ids.length >= 8) a.push({ cle: "capitales-" + k.toLowerCase(), nom: n, icone: "🏛️", ids, pieces: 2000 }); }
+  const leg = Object.entries(CATALOGUE).filter(([, c]) => c.type === "nature" && c.rarete === "legendaire").map(([id]) => id);
+  if (leg.length) a.push({ cle: "nature-legendaire", nom: "Nature légendaire", icone: "🏔️", ids: leg, pieces: 4000 });
+  return a.filter((x) => x.ids.length && x.ids.every((id) => CATALOGUE[id]));
+})();
+route("GET", "albums", async ({ env, user }) => {
+  const owned = user ? (await saveDe(env, user.id)).owned || {} : {};
+  const { results } = await env.DB.prepare("SELECT cle, pseudo, cree_le, user_id FROM albums_termines ORDER BY cree_le").all();
+  return json({ albums: ALBUMS.map((al) => {
+    const fin = results.filter((r) => r.cle === al.cle);
+    return { cle: al.cle, nom: al.nom, icone: al.icone, ids: al.ids, pieces: al.pieces, possedees: al.ids.filter((id) => owned[id] > 0).length,
+      premiers: fin.slice(0, 10).map((r) => ({ pseudo: r.pseudo, t: r.cree_le })), termines: fin.length, moi: user ? fin.findIndex((r) => r.user_id === user.id) + 1 || null : null };
+  }) });
+});
+route("POST", "albums/([a-z0-9-]{2,30})/terminer", async ({ env, user, p }) => {
+  const al = ALBUMS.find((x) => x.cle === p[1]);
+  if (!al) return erreur("Album inconnu.", 404);
+  const owned = (await saveDe(env, user.id)).owned || {};
+  const manque = al.ids.filter((id) => !(owned[id] > 0));
+  if (manque.length) return erreur(`Il vous manque encore ${manque.length} carte(s) (sauvegarde du compte).`);
+  const r = await env.DB.prepare("INSERT OR IGNORE INTO albums_termines (cle, user_id, pseudo, cree_le) VALUES (?, ?, ?, ?)").bind(al.cle, user.id, user.pseudo, maintenant()).run();
+  if (!r.meta.changes) return erreur("Album déjà validé.", 409);
+  const rang = (await env.DB.prepare("SELECT COUNT(*) AS n FROM albums_termines WHERE cle = ?").bind(al.cle).first()).n;
+  const pieces = al.pieces * (rang === 1 ? 3 : rang <= 10 ? 2 : 1);
+  await crediter(env, user.id, pieces, 0, 0);
+  return json({ pieces, rang, nom: al.nom });
+}, { connecte: true });
 
 /* =====================================================================
    Missions PvP (quotidiennes et hebdomadaires) : progression calculée par le serveur à partir des vrais combats

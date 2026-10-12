@@ -2004,3 +2004,13 @@ body[data-fond-streamer="vert"] { background: #00b140 !important; } body[data-fo
 .cdj { display: grid; grid-template-columns: 150px 1fr; gap: 16px; align-items: center; } .cdj h4 { margin: 0 0 4px; font: 700 20px var(--titre); }
 .pt-champion { display: inline-block; padding: 3px 10px; border-radius: 999px; background: color-mix(in srgb, #f2b33d 22%, transparent); color: #f2b33d; font-weight: 800; font-size: 13px; }
 @media (max-width: 760px) { .finale { grid-template-columns: 1fr; } .cdj { grid-template-columns: 110px 1fr; } }
+.ed-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; } .ed-cols h4 { margin: 0 0 8px; }
+.ed-cartes { display: grid; gap: 6px; } .ed-carte { display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 8px; background: var(--panel2); }
+.ed-carte button { border: 0; background: none; color: var(--muted); cursor: pointer; } .ed-cols input { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); font: inherit; }
+@media (max-width: 640px) { .ed-cols { grid-template-columns: 1fr; } }
+.guerre { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; text-align: center; }
+.guerre > div { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 12px; background: var(--panel2); } .guerre span { font-size: 30px; } .guerre strong { font: 800 34px var(--titre); color: var(--accent); }
+.guerre em { font: 800 20px var(--titre); font-style: normal; color: var(--muted); }
+.albums { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.album { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); }
+.album header { display: flex; gap: 10px; align-items: center; } .album header div { display: flex; flex-direction: column; } .al-ic { font-size: 30px; }

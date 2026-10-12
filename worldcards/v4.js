@@ -468,7 +468,7 @@ async function profilComplet(pseudo) {
     <div class="statgrid"><div class="stat"><b>${fmt(p.cartes)}</b><span>cartes (${Math.round((p.cartes / (p.totalCartes || 1)) * 100)} %)</span></div>
       ${p.victoires !== undefined ? `<div class="stat"><b>${p.victoires}/${p.defaites}</b><span>victoires / défaites</span></div><div class="stat"><b>${ratio === null ? "—" : ratio + " %"}</b><span>ratio de victoires</span></div>` : ""}
       <div class="stat"><b>${p.badges}</b><span>badges</span></div></div>
-    ${p.moi ? "" : `<div class="row" style="gap:8px;flex-wrap:wrap;margin:10px 0"><button class="btn primary" id="pfDuel">⚔️ Défier</button><button class="btn" id="pfAmi">➕ Ami</button><button class="btn" id="pfMp">✉️ Message</button><button class="btn" id="pfCollec">📚 Collection</button><button class="btn small" id="pfPlus">⋯</button></div>`}
+    ${p.moi ? "" : `<div class="row" style="gap:8px;flex-wrap:wrap;margin:10px 0"><button class="btn primary" id="pfDuel">⚔️ Défier</button><button class="btn" id="pfAmi">➕ Ami</button><button class="btn" id="pfMp">✉️ Message</button><button class="btn" id="pfCollec">📚 Collection</button><button class="btn" id="pfEchange">🤝 Échanger</button><button class="btn small" id="pfPlus">⋯</button></div>`}
     ${p.succes?.length ? `<h3>🏅 Succès (${p.succes.length})</h3><div class="succes-mini">${p.succes.map((x) => `<span title="${esc(x.nom + " : " + x.desc)}">${x.icone}</span>`).join("")}</div>` : ""}
     ${vitrine.length ? `<h3>⭐ Cartes favorites</h3><div class="cards">${vitrine.map((c) => cardHTML(c, { locked: false })).join("")}</div>` : ""}
     ${p.deck?.length ? `<h3>🃏 Deck favori</h3><div class="deck-mini">${p.deck.map((id) => { const c = BY_ID[id]; return c ? `<span title="${esc(c.nom)}">${c.type === "pays" && c.code ? `<img src="flags/${esc(c.code.toLowerCase())}.svg" alt="" class="dm-drapeau">` : esc(c.emoji || "🃏")}<small>${esc(c.nom)}</small></span>` : ""; }).join("")}</div>` : ""}
@@ -485,6 +485,7 @@ async function profilComplet(pseudo) {
     $("#pfAmi").onclick = async () => { try { await api("amis", { methode: "POST", corps: { pseudo: p.pseudo } }); toast(`👫 ${esc(p.pseudo)} ajouté à vos amis !`); } catch (e) { toast("⚠ " + e.message); } };
     $("#pfMp").onclick = () => { fermerModal(); ouvrirConversation(p.pseudo); };
     $("#pfCollec").onclick = () => voirCollectionAmi(p.pseudo);
+    $("#pfEchange").onclick = () => proposerEchangeDirect(p.pseudo);
     $("#pfPlus").onclick = () => _ficheJoueurV4(p.pseudo);
   } else {
     $("#pfReglages").onsubmit = async (e) => {
@@ -562,9 +563,10 @@ async function hubDefis(el) {
   try {
     const { amis } = await api("amis");
     const ok = amis.filter((a) => a.reciproque);
-    $("#hdAmis").innerHTML = ok.length ? ok.map((a) => `<div class="codex-ligne"><span>${a.enLigne ? "🟢" : "⚪"} <a href="#" data-joueur="${esc(a.pseudo)}">${esc(a.pseudo)}</a> <small class="muted">${fmt(a.trophees || 0)} pts</small></span><button class="btn small primary" data-def="${esc(a.pseudo)}">⚔️ Défier</button></div>`).join("")
+    $("#hdAmis").innerHTML = ok.length ? ok.map((a) => `<div class="codex-ligne"><span>${a.enLigne ? "🟢" : "⚪"} <a href="#" data-joueur="${esc(a.pseudo)}">${esc(a.pseudo)}</a> <small class="muted">${fmt(a.trophees || 0)} pts</small></span><span class="row" style="gap:4px"><button class="btn small" data-ech="${esc(a.pseudo)}">🤝 Échanger</button><button class="btn small primary" data-def="${esc(a.pseudo)}">⚔️ Défier</button></span></div>`).join("")
       : videHub("👫", "Pas encore d'amis", "Ajoutez des joueurs en ami (et qu'ils vous ajoutent aussi) pour vous défier en direct.", `<button class="btn" data-o3="joueurs">Trouver des joueurs</button>`);
     $$("[data-def]", el).forEach((b) => b.onclick = () => defierEnDirect(b.dataset.def));
+    $$("[data-ech]", el).forEach((b) => b.onclick = () => proposerEchangeDirect(b.dataset.ech));
     $$("[data-joueur]", el).forEach((a) => a.onclick = (e) => { e.preventDefault(); profilComplet(a.dataset.joueur); });
     $$("[data-o3]", el).forEach((b) => b.onclick = () => { hubEtat.onglet = b.dataset.o3; aller("hub"); });
   } catch (e) { $("#hdAmis").textContent = e.message; }
@@ -913,3 +915,106 @@ vueLigues = async function (v) {
   const s = document.createElement("section"); s.className = "panel"; $("#lgMoi", v)?.after(s); blocFinaleSaison(s);
 };
 VUES_EXTRA.ligues = vueLigues;
+
+/* ---------- Échange en direct entre amis ---------- */
+const echDirEtat = { vues: new Set(), ouvert: null };
+async function ouvrirEchangeDirect(id) {
+  echDirEtat.ouvert = id;
+  let etat = null, enCours = false;
+  ouvrirModal(`<h2 style="margin-top:0">🤝 Échange en direct</h2><div id="edCorps"><p class="muted">Chargement…</p></div>`, () => { echDirEtat.ouvert = null; });
+  const offreHTML = (o, mien) => `${o.cartes.length ? `<div class="ed-cartes">${o.cartes.map((cid, i) => { const c = BY_ID[cid]; return c ? `<span class="ed-carte r-${c.rarete}">${c.type === "pays" && c.code ? `<img src="flags/${esc(c.code.toLowerCase())}.svg" alt="" class="dm-drapeau">` : esc(c.emoji || "🃏")} <b>${esc(c.nom)}</b><small>${esc(RARETES[c.rarete]?.nom || "")}</small>${mien ? `<button data-ed-retirer="${i}" title="Retirer">✕</button>` : ""}</span>` : ""; }).join("")}</div>` : `<p class="muted">Aucune carte</p>`}
+    <p>${o.pieces ? `+ <b>${fmt(o.pieces)} 🪙</b>` : ""}</p>`;
+  const dessiner = () => {
+    const c = $("#edCorps"); if (!c || !etat) return;
+    if (etat.statut !== "ouvert") {
+      c.innerHTML = etat.statut === "conclu" ? `<p class="sc-ok">✅ Échange conclu avec ${esc(etat.ami)} !</p><p>Vous recevez : ${etat.lui.cartes.map((x) => esc(BY_ID[x]?.nom || x)).join(", ") || "—"}${etat.lui.pieces ? ` et ${fmt(etat.lui.pieces)} 🪙` : ""}.</p><button class="btn primary" data-close>Super !</button>` : `<p>L'échange a été annulé.</p><button class="btn" data-close>Fermer</button>`;
+      if (etat.statut === "conclu" && !(S.echDirFaits || []).includes(etat.id)) {
+        // On retire de sa collection ce qu'on a donné (une seule fois), et on reçoit l'offre de l'ami par livraison
+        S.echDirFaits = [...(S.echDirFaits || []).slice(-50), etat.id];
+        for (const cid of etat.moi.cartes) { S.owned[cid] = Math.max(0, (S.owned[cid] || 0) - 1); if (!S.owned[cid]) { delete S.owned[cid]; S.deck = S.deck.filter((x) => x !== cid); } }
+        S.coins = Math.max(0, S.coins - etat.moi.pieces); sauver(); majCoins(); verifierLivraisons();
+      }
+      return;
+    }
+    c.innerHTML = `<div class="ed-cols"><section><h4>Vous donnez ${etat.jaiValide ? "<span class='sc-ok'>✓ validé</span>" : ""}</h4>${offreHTML(etat.moi, true)}
+        <div class="row" style="gap:6px"><input id="edQ" placeholder="Ajouter une carte…" list="edListe" style="flex:1"><datalist id="edListe"></datalist><input id="edPieces" type="number" min="0" placeholder="Pièces" value="${etat.moi.pieces || ""}" style="width:100px"></div></section>
+      <section><h4>${esc(etat.ami)} donne ${etat.aValide ? "<span class='sc-ok'>✓ validé</span>" : ""}</h4>${offreHTML(etat.lui, false)}</section></div>
+      <p class="muted" style="font-size:13px">Chaque modification annule les deux validations. L'échange se fait seulement quand vous avez validé tous les deux la même offre.</p>
+      <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" id="edAnnuler">Annuler l'échange</button><button class="btn primary" id="edValider" ${etat.jaiValide ? "disabled" : ""}>${etat.jaiValide ? "En attente de votre ami…" : "✅ Valider l'échange"}</button></div>`;
+    const envoyer = async (o) => { if (enCours) return; enCours = true; try { etat = await api(`direct/echange/${id}/offre`, { methode: "PUT", corps: o }); dessiner(); } catch (e) { toast("⚠ " + e.message); } enCours = false; };
+    $("#edQ").oninput = (e) => {
+      const q = sansAccents(e.target.value);
+      $("#edListe").innerHTML = q.length < 2 ? "" : CARDS.filter((x) => has(x.id) && sansAccents(x.nom).includes(q)).slice(0, 15).map((x) => `<option value="${esc(x.nom)}">`).join("");
+      const carte = CARDS.find((x) => has(x.id) && sansAccents(x.nom) === q);
+      if (carte) envoyer({ cartes: [...etat.moi.cartes, carte.id], pieces: etat.moi.pieces });
+    };
+    $("#edPieces").onchange = (e) => envoyer({ cartes: etat.moi.cartes, pieces: Number(e.target.value) || 0 });
+    $$("[data-ed-retirer]", c).forEach((b) => b.onclick = () => envoyer({ cartes: etat.moi.cartes.filter((_, i) => i !== Number(b.dataset.edRetirer)), pieces: etat.moi.pieces }));
+    $("#edAnnuler").onclick = async () => { await api(`direct/echange/${id}/annuler`, { methode: "POST", corps: {} }).catch(() => {}); fermerModal(); };
+    $("#edValider").onclick = async () => { try { etat = await api(`direct/echange/${id}/valider`, { methode: "POST", corps: { version: etat.version } }); dessiner(); } catch (e) { toast("⚠ " + e.message); etat = await api(`direct/echange/${id}`).catch(() => etat); dessiner(); } };
+  };
+  // Suivi en direct : on se met à jour quand l'ami modifie ou valide
+  while (echDirEtat.ouvert === id) {
+    try {
+      const n = await api(`direct/echange/${id}`);
+      const change = !etat || n.version !== etat.version || n.statut !== etat.statut || n.aValide !== etat.aValide || n.jaiValide !== etat.jaiValide;
+      etat = n; if (change && !enCours && document.activeElement?.id !== "edQ" && document.activeElement?.id !== "edPieces") dessiner();
+      if (n.statut !== "ouvert") { dessiner(); break; }
+    } catch { break; }
+    await pause(2000);
+  }
+}
+async function proposerEchangeDirect(pseudo) {
+  try { const { id } = await api("direct/echange", { methode: "POST", corps: { pseudo } }); ouvrirEchangeDirect(id); } catch (e) { toast("⚠ " + e.message); }
+}
+setInterval(async () => {
+  if (typeof connecte !== "function" || !connecte() || document.hidden || !$("#modal").classList.contains("hidden")) return;
+  try {
+    const { invitations } = await api("direct/echanges");
+    const inv = invitations.find((i) => !echDirEtat.vues.has(i.id)); if (!inv) return;
+    echDirEtat.vues.add(inv.id);
+    ouvrirModal(`<div style="text-align:center"><h2 style="margin-top:0">🤝 Échange en direct</h2>${avatarHTML(inv.pseudo, "grand")}<p><b>${esc(inv.pseudo)}</b> veut échanger des cartes avec vous.</p>
+      <div class="row" style="justify-content:center;gap:8px"><button class="btn primary" id="edOui">Ouvrir l'échange</button><button class="btn" data-close>Plus tard</button></div></div>`);
+    $("#edOui").onclick = () => ouvrirEchangeDirect(inv.id);
+  } catch {}
+}, 9000);
+
+/* ---------- Guerre de guildes (week-end) ---------- */
+async function blocGuerre(el) {
+  try {
+    const g = await api("guerre"), w = g.weekend;
+    if (!g.guilde) { el.innerHTML = `<h3 style="margin-top:0">⚔️ Guerre de guildes</h3><p class="muted">Chaque week-end, les guildes s'affrontent : chaque victoire classée d'un membre rapporte 1 point à sa guilde. La guilde gagnante reçoit 500 🪙 et un booster Or par membre.</p><button class="btn" data-aller="guilde">Rejoindre une guilde</button>`; brancherLiens(el); return; }
+    const debut = new Date(w.debut);
+    el.innerHTML = `<h3 style="margin-top:0">⚔️ Guerre de guildes · week-end du ${debut.toLocaleDateString("fr-FR")}</h3>
+      ${w.enCours ? (g.adversaire ? `<div class="guerre"><div><span>${esc(g.guilde.embleme)}</span><b>[${esc(g.guilde.tag)}] ${esc(g.guilde.nom)}</b><strong>${g.guilde.score}</strong></div><em>VS</em><div><span>${esc(g.adversaire.embleme)}</span><b>[${esc(g.adversaire.tag)}] ${esc(g.adversaire.nom)}</b><strong>${g.adversaire.score}</strong></div></div>
+          <p class="muted">Fin dimanche à minuit (UTC). Chaque victoire classée (arène, duel classé, matchmaking) compte.</p>` : `<p class="muted">Pas d'adversaire ce week-end (nombre impair de guildes ou guilde de moins de 2 membres).</p>`)
+        : `<p class="muted">La prochaine guerre commence samedi à 0 h (UTC). Préparez vos decks !</p>`}
+      ${g.membres.length ? `<p><b>Meilleurs membres</b> : ${g.membres.filter((m) => m.v).slice(0, 5).map((m) => `${esc(m.pseudo)} (${m.v})`).join(", ") || "—"}</p>` : ""}`;
+  } catch (e) { el.innerHTML = ""; }
+}
+const _hubEvenementsV4 = hubEvenements;
+hubEvenements = async function (el) { await _hubEvenementsV4(el); const s = document.createElement("section"); s.className = "panel"; s.style.marginBottom = "14px"; $(".hub-raccourcis", el)?.after(s); blocGuerre(s); };
+
+/* ---------- Albums à thème ---------- */
+async function vueAlbums(v) {
+  v.innerHTML = `<header class="page-tete"><h1>Albums</h1><p>Complétez des albums à thème. Le 1er joueur à terminer un album gagne 3× la récompense, les 10 premiers 2×.</p></header><div id="alListe" class="muted">Chargement…</div>`;
+  try {
+    const { albums } = await api("albums");
+    $("#alListe").innerHTML = `<div class="albums">${albums.map((a) => {
+      const manquantes = a.ids.filter((id) => !has(id)), local = a.ids.length - manquantes.length;
+      return `<article class="album"><header><span class="al-ic">${esc(a.icone)}</span><div><b>${esc(a.nom)}</b><small class="muted">${local}/${a.ids.length} cartes · ${a.termines} joueur(s) l'ont terminé</small></div></header>
+        <div class="pvbar"><i style="width:${Math.round((local / a.ids.length) * 100)}%"></i></div>
+        ${a.moi ? `<p class="sc-ok">✓ Terminé (${a.moi}${a.moi === 1 ? "er" : "e"})</p>` : manquantes.length ? `<details><summary>${manquantes.length} carte(s) manquante(s)</summary><p class="muted" style="font-size:13px">${manquantes.slice(0, 40).map((id) => esc(BY_ID[id]?.nom || id)).join(", ")}${manquantes.length > 40 ? "…" : ""}</p></details>`
+          : `<button class="btn primary" data-album="${esc(a.cle)}">🏆 Valider l'album (+${fmt(a.pieces)} 🪙 ou plus)</button>`}
+        ${a.premiers.length ? `<p class="muted" style="font-size:12.5px;margin-bottom:0">Premiers : ${a.premiers.slice(0, 5).map((x, i) => `${["🥇", "🥈", "🥉"][i] || i + 1} ${esc(x.pseudo)}`).join(" · ")}</p>` : ""}</article>`;
+    }).join("")}</div>`;
+    $$("[data-album]", v).forEach((b) => b.onclick = async () => {
+      if (typeof connecte !== "function" || !connecte()) return aller("compte");
+      b.disabled = true;
+      try { await envoyerSauvegarde(); const r = await api(`albums/${b.dataset.album}/terminer`, { methode: "POST", corps: {} }); S.coins += r.pieces; sauver(); majCoins(); toast(`🏆 ${esc(r.nom)} terminé (${r.rang}${r.rang === 1 ? "er" : "e"}) : +${fmt(r.pieces)} 🪙`, 6000); vueAlbums(v); }
+      catch (e) { toast("⚠ " + e.message); b.disabled = false; }
+    });
+  } catch (e) { $("#alListe").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+ajouterPage("albums", "📒", "Albums", vueAlbums);
+ICONES.albums = '<path d="M4 4h12a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h12"/>';
