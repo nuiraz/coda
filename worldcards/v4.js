@@ -232,7 +232,9 @@ async function adminReglages(el) {
       <label>Combats classés comptés par jour<input name="parJour" type="number" min="1" max="50" value="${R.classe.parJour}"></label>
       <label>Duels classés qui rapportent des points contre un même adversaire (par jour)<input name="memeAdversaire" type="number" min="0" max="10" value="${R.classe.memeAdversaire}"></label>
     </div></section>
+    <section class="panel"><h3 style="margin-top:0">🏅 Récompenses des succès (pièces)</h3><div class="rf-grille" id="rgSucces"><p class="muted">Chargement…</p></div></section>
     <button class="btn primary">Enregistrer les réglages</button> <span class="muted" id="rgEtat"></span></form>`;
+  api("succes").then(({ succes }) => { const z = $("#rgSucces"); if (z) z.innerHTML = succes.map((x) => `<label>${x.icone} ${esc(x.nom)}<input type="number" min="0" max="100000" data-succes="${esc(x.cle)}" value="${x.pieces}"></label>`).join(""); }).catch(() => { const z = $("#rgSucces"); if (z) z.textContent = "Indisponible."; });
   const majPc = () => $$("tr[data-pack]", el).forEach((tr) => {
     const k = tr.dataset.pack, w = rs.map((r) => { const i = $(`[data-r="${r}"]`, tr); return Number(i.value === "" ? i.placeholder : i.value) || 0; });
     const tot = w.reduce((a, b) => a + b, 0) || 1;
@@ -249,7 +251,8 @@ async function adminReglages(el) {
       if (!vide || g !== "") packsOut[tr.dataset.pack] = { poids: vide ? null : poids, garantie: g === "" ? undefined : g === "aucune" ? null : Number(g) };
     });
     const corps = { chances: { pityPas: f.pityPas.value, bonusNouvelle: f.bonusNouvelle.value, packs: packsOut },
-      deck: { budget: f.budget.value, maxLegendaires: f.maxLegendaires.value }, classe: { parJour: f.parJour.value, memeAdversaire: f.memeAdversaire.value } };
+      deck: { budget: f.budget.value, maxLegendaires: f.maxLegendaires.value }, classe: { parJour: f.parJour.value, memeAdversaire: f.memeAdversaire.value },
+      succes: Object.fromEntries($$("[data-succes]", el).map((i) => [i.dataset.succes, i.value])) };
     try {
       const r = await api("admin/reglages", { methode: "PUT", corps });
       appliquerReglages({ ...r.reglages }); try { localStorage.setItem("worldcards:reglages", JSON.stringify(r.reglages)); } catch {}
@@ -620,3 +623,158 @@ vueCompte = function (v) {
   }
   return r;
 };
+
+/* ---------- Decks : plusieurs decks enregistrés, decks publics, recherche ---------- */
+const NOMS_STYLES = { equilibre: "Équilibré", attaque: "Attaque", defense: "Défense", vitesse: "Vitesse", types: "Avantage de types" };
+const decksSauves = () => (Array.isArray(S.decks) ? S.decks : (S.decks = []));
+function gestionDecks(el) {
+  const liste = decksSauves();
+  el.innerHTML = `<div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 style="margin:0">🗂️ Mes decks enregistrés</h3>
+    <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn small" id="gdSauver">💾 Enregistrer le deck actuel</button><button class="btn small" id="gdPublier">🌐 Rendre public</button><button class="btn small" data-aller="decks">🔎 Decks de la communauté</button></div></div>
+    ${liste.length ? `<div class="decks-sauves">${liste.map((d, i) => `<div class="deck-sauve"><b>${esc(d.nom)}</b><small class="muted">${d.cartes.length} cartes · ${d.cartes.filter((id) => !has(id)).length ? `${d.cartes.filter((id) => !has(id)).length} manquante(s)` : "complet"}</small>
+      <div class="row" style="gap:4px"><button class="btn small primary" data-dk-util="${i}">Utiliser</button><button class="btn small" data-dk-ren="${i}" title="Renommer">✏️</button><button class="btn small" data-dk-dup="${i}" title="Dupliquer">⧉</button><button class="btn small" data-dk-sup="${i}" title="Supprimer">🗑</button></div></div>`).join("")}</div>`
+      : `<p class="muted" style="margin:8px 0 0">Enregistrez plusieurs decks pour passer de l'un à l'autre en un clic.</p>`}`;
+  brancherLiens(el);
+  $("#gdSauver").onclick = () => {
+    if (S.deck.length !== COMBAT.TAILLE_DECK) return toast(`⚠ Complétez d'abord votre deck (${COMBAT.TAILLE_DECK} cartes).`);
+    const nom = prompt("Nom du deck :", `Deck ${liste.length + 1}`); if (!nom) return;
+    liste.push({ nom: nom.slice(0, 40), cartes: S.deck.slice() }); sauver(); gestionDecks(el); toast("💾 Deck enregistré.");
+  };
+  $("#gdPublier").onclick = () => publierDeck(S.deck);
+  $$("[data-dk-util]", el).forEach((b) => b.onclick = () => utiliserDeck(liste[b.dataset.dkUtil].cartes));
+  $$("[data-dk-ren]", el).forEach((b) => b.onclick = () => { const d = liste[b.dataset.dkRen], n = prompt("Nouveau nom :", d.nom); if (n) { d.nom = n.slice(0, 40); sauver(); gestionDecks(el); } });
+  $$("[data-dk-dup]", el).forEach((b) => b.onclick = () => { const d = liste[b.dataset.dkDup]; liste.push({ nom: (d.nom + " (copie)").slice(0, 40), cartes: d.cartes.slice() }); sauver(); gestionDecks(el); });
+  $$("[data-dk-sup]", el).forEach((b) => b.onclick = () => { if (confirm("Supprimer ce deck enregistré ?")) { liste.splice(b.dataset.dkSup, 1); sauver(); gestionDecks(el); } });
+}
+// Utiliser un deck : on garde les cartes possédées, les manquantes sont signalées puis complétées automatiquement
+function utiliserDeck(ids) {
+  const manquantes = ids.filter((id) => !has(id));
+  S.deck = ids.filter((id) => has(id) && BY_ID[id]).slice(0, COMBAT.TAILLE_DECK);
+  sauver();
+  if (manquantes.length) { toast(`${manquantes.length} carte(s) manquante(s) : ${manquantes.slice(0, 4).map((id) => esc(BY_ID[id]?.nom || id)).join(", ")}${manquantes.length > 4 ? "…" : ""}. Complétées avec vos meilleures cartes.`, 6000); deckPret(); }
+  else toast("✅ Deck chargé.");
+  aller("combat");
+}
+function publierDeck(ids) {
+  if (typeof connecte !== "function" || !connecte()) return toast("Connectez-vous pour publier un deck.");
+  if (ids.length !== COMBAT.TAILLE_DECK) return toast(`⚠ Un deck public doit contenir ${COMBAT.TAILLE_DECK} cartes.`);
+  ouvrirModal(`<h2 style="margin-top:0">🌐 Rendre ce deck public</h2><form class="form" id="fPub"><label>Nom du deck<input id="pubNom" maxlength="40" required placeholder="Ex. : Tempête européenne"></label>
+    <label>Style de jeu<select id="pubStyle">${Object.entries(NOMS_STYLES).map(([k, n]) => `<option value="${k}">${n}</option>`).join("")}</select></label>
+    <p class="muted" style="margin:0;font-size:13px">Les autres joueurs pourront le trouver, le mettre en favori et le copier. Vous pouvez le retirer à tout moment.</p>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Annuler</button><button class="btn primary">Publier</button></div></form>`);
+  $("#fPub").onsubmit = async (e) => {
+    e.preventDefault();
+    try { await api("decks", { methode: "POST", corps: { nom: $("#pubNom").value, style: $("#pubStyle").value, cartes: ids } }); fermerModal(); toast("🌐 Deck publié !"); }
+    catch (err) { toast("⚠ " + err.message); }
+  };
+}
+const decksEtat = { q: "", style: "", tri: "popularite", carte: "", rarete: "", ligue: "", mes: false, favoris: false };
+async function vueDecks(v) {
+  await chargerRangs();
+  v.innerHTML = `<header class="page-tete"><h1>Decks</h1><p>Trouvez un deck par son nom, une carte qu'il contient, son style ou la ligue de son auteur. Les cartes que vous n'avez pas sont signalées.</p></header>
+    <div class="codex-recherche"><input id="dkQ" type="search" placeholder="Nom du deck…" value="${esc(decksEtat.q)}" maxlength="40"><input id="dkCarte" list="dkCartes" placeholder="Contient la carte…" value="${esc(decksEtat.carte ? BY_ID[decksEtat.carte]?.nom || "" : "")}"><datalist id="dkCartes"></datalist></div>
+    <div class="toolbar">
+      <select id="dkStyle"><option value="">Tous les styles</option>${Object.entries(NOMS_STYLES).map(([k, n]) => `<option value="${k}" ${decksEtat.style === k ? "selected" : ""}>${n}</option>`).join("")}</select>
+      <select id="dkRarete"><option value="">Toutes raretés</option>${Object.entries(RARETES).filter(([r]) => r !== "secrete").map(([r, x]) => `<option value="${x.ordre}" ${String(decksEtat.rarete) === String(x.ordre) ? "selected" : ""}>Jusqu'à ${x.nom}</option>`).join("")}</select>
+      <select id="dkLigue"><option value="">Toutes les ligues</option>${RANGS.filter((r) => r.actif).map((r) => `<option value="${esc(r.cle)}" ${decksEtat.ligue === r.cle ? "selected" : ""}>${esc(r.nom)}</option>`).join("")}</select>
+      <select id="dkTri">${[["popularite", "Popularité"], ["date", "Plus récents"], ["performances", "Performances de l'auteur"], ["cout", "Coût le plus bas"]].map(([k, n]) => `<option value="${k}" ${decksEtat.tri === k ? "selected" : ""}>${n}</option>`).join("")}</select>
+      <button class="chip ${decksEtat.favoris ? "on" : ""}" id="dkFav">⭐ Favoris</button><button class="chip ${decksEtat.mes ? "on" : ""}" id="dkMes">Mes decks</button>
+    </div><div id="dkRes" class="muted">Chargement…</div>`;
+  const recharger = async () => {
+    const qs = new URLSearchParams({ q: decksEtat.q, style: decksEtat.style, tri: decksEtat.tri, carte: decksEtat.carte, rarete: decksEtat.rarete, ligue: decksEtat.ligue, mes: decksEtat.mes ? "1" : "", favoris: decksEtat.favoris ? "1" : "" });
+    try {
+      const { decks } = await api("decks?" + qs);
+      // Suggestions : les decks dont vous avez le plus de cartes passent en premier si aucun filtre n'est actif
+      const possede = (d) => d.cartes.filter((id) => has(id)).length;
+      const liste = !decksEtat.q && !decksEtat.carte && decksEtat.tri === "popularite" ? decks.slice().sort((a, b) => possede(b) - possede(a)) : decks;
+      $("#dkRes").innerHTML = liste.length ? `${!decksEtat.q && !decksEtat.carte && decksEtat.tri === "popularite" ? `<p class="muted">Suggestions adaptées à votre collection en premier.</p>` : ""}<div class="decks-publics">${liste.map((d) => {
+        const manque = d.cartes.filter((id) => !has(id)).length;
+        return `<article class="deck-public"><header><b>${esc(d.nom)}</b><span class="muted">${esc(NOMS_STYLES[d.style] || d.style)} · coût ${d.cout}</span></header>
+          <div class="deck-mini">${d.cartes.map((id) => { const c = BY_ID[id]; return c ? `<span class="${has(id) ? "" : "manque"}" title="${esc(c.nom)}${has(id) ? "" : " (manquante)"}">${c.type === "pays" && c.code ? `<img src="flags/${esc(c.code.toLowerCase())}.svg" alt="" class="dm-drapeau">` : esc(c.emoji || "🃏")}<small>${esc(c.nom)}</small></span>` : ""; }).join("")}</div>
+          <footer><span>${rangBadge(d.rang, "petit")} <a href="#" data-joueur="${esc(d.auteur)}">${esc(d.auteur)}</a> · ⭐ ${d.favoris}</span><span class="${manque ? "dk-manque" : "dk-ok"}">${manque ? `${manque} carte(s) manquante(s)` : "✓ Vous avez toutes les cartes"}</span>
+          <span class="row" style="gap:4px">${connecte() ? `<button class="btn small" data-fav="${d.id}">${d.monFavori ? "★" : "☆"}</button>` : ""}<button class="btn small primary" data-util="${d.id}">Utiliser</button>${d.mien || COMPTE.admin ? `<button class="btn small" data-suppr="${d.id}">🗑</button>` : ""}</span></footer></article>`;
+      }).join("")}</div>` : `<div class="vide-hub"><span>🃏</span><b>Aucun deck trouvé</b><p class="muted">Changez les filtres, ou publiez le vôtre depuis la page Combat.</p><button class="btn" data-aller="combat">Aller au Combat</button></div>`;
+      brancherLiens(v);
+      $$("[data-util]", v).forEach((b) => b.onclick = () => utiliserDeck(decks.find((d) => d.id === Number(b.dataset.util)).cartes));
+      $$("[data-fav]", v).forEach((b) => b.onclick = async () => { try { await api(`decks/${b.dataset.fav}/favori`, { methode: "POST", corps: {} }); recharger(); } catch (e) { toast("⚠ " + e.message); } });
+      $$("[data-suppr]", v).forEach((b) => b.onclick = async () => { if (confirm("Retirer ce deck public ?")) { await api(`decks/${b.dataset.suppr}`, { methode: "DELETE" }).catch(() => {}); recharger(); } });
+      $$("[data-joueur]", v).forEach((a) => a.onclick = (e) => { e.preventDefault(); profilComplet(a.dataset.joueur); });
+    } catch (e) { $("#dkRes").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  };
+  let t; $("#dkQ").oninput = (e) => { decksEtat.q = e.target.value; clearTimeout(t); t = setTimeout(recharger, 250); };
+  $("#dkCarte").oninput = (e) => {
+    const q = sansAccents(e.target.value);
+    $("#dkCartes").innerHTML = q.length < 2 ? "" : CARDS.filter((c) => sansAccents(c.nom).includes(q)).slice(0, 15).map((c) => `<option value="${esc(c.nom)}">`).join("");
+    const c = CARDS.find((x) => sansAccents(x.nom) === q); decksEtat.carte = c ? c.id : "";
+    if (c || !q) { clearTimeout(t); t = setTimeout(recharger, 250); }
+  };
+  for (const [id, k] of [["#dkStyle", "style"], ["#dkRarete", "rarete"], ["#dkLigue", "ligue"], ["#dkTri", "tri"]]) $(id).onchange = (e) => { decksEtat[k] = e.target.value; recharger(); };
+  $("#dkFav").onclick = () => { decksEtat.favoris = !decksEtat.favoris; vueDecks(v); };
+  $("#dkMes").onclick = () => { decksEtat.mes = !decksEtat.mes; vueDecks(v); };
+  recharger();
+}
+ajouterPage("decks", "🃏", "Decks", vueDecks);
+ICONES.decks = '<rect x="3" y="6" width="12" height="15" rx="2"/><path d="M8 3h10a2 2 0 0 1 2 2v12"/>';
+// Page Combat : gestionnaire de decks sous le deck actuel
+const _vueCombatV4 = vueCombat;
+vueCombat = function (v) {
+  const r = _vueCombatV4.apply(this, arguments);
+  const premier = $(".panel", v);
+  if (premier) { const g = document.createElement("div"); g.className = "panel"; g.style.marginTop = "16px"; premier.after(g); gestionDecks(g); }
+  return r;
+};
+
+/* ---------- Mode streamer : plein écran, compteur, meilleures cartes, infos personnelles masquées ---------- */
+const streamer = (() => { try { return JSON.parse(localStorage.getItem("worldcards:streamer")) || null; } catch { return null; } })() || { ouvertures: 0, meilleures: [], masquer: true, fond: "jeu", debut: Date.now() };
+const sauverStreamer = () => { try { localStorage.setItem("worldcards:streamer", JSON.stringify(streamer)); } catch {} };
+let modeStreamer = false;
+function majOverlayStreamer() {
+  const o = $("#overlayStreamer"); if (!o) return;
+  o.innerHTML = `<div class="os-tete"><img src="icons/logo-site.png" alt="Play2F1"><span>play2f1.com</span></div>
+    <div class="os-compteur"><b>${streamer.ouvertures}</b><span>booster${streamer.ouvertures > 1 ? "s" : ""} ouvert${streamer.ouvertures > 1 ? "s" : ""}</span></div>
+    <h4>🏆 Meilleures cartes</h4><ol>${streamer.meilleures.slice(0, 8).map((m) => `<li class="r-${m.r}"><span>${esc(m.e || "🃏")}</span><b>${esc(m.n)}</b><small>${esc(RARETES[m.r]?.nom || "")}${m.s ? " ✨" : ""}</small></li>`).join("") || `<li class="muted">Ouvrez un booster !</li>`}</ol>
+    <div class="os-actions"><button id="osReset" title="Remettre le compteur à zéro">↺</button><button id="osQuitter">Quitter le mode streamer</button></div>`;
+  $("#osReset").onclick = () => { if (confirm("Remettre le compteur et l'historique à zéro ?")) { Object.assign(streamer, { ouvertures: 0, meilleures: [], debut: Date.now() }); sauverStreamer(); majOverlayStreamer(); } };
+  $("#osQuitter").onclick = () => basculerStreamer(false);
+}
+function basculerStreamer(actif) {
+  modeStreamer = actif;
+  document.body.classList.toggle("mode-streamer", actif);
+  document.body.classList.toggle("streamer-masque", actif && streamer.masquer);
+  document.body.dataset.fondStreamer = actif ? streamer.fond : "";
+  $("#overlayStreamer")?.remove();
+  if (actif) { document.body.insertAdjacentHTML("beforeend", `<aside id="overlayStreamer" class="overlay-streamer" aria-label="Mode streamer"></aside>`); majOverlayStreamer(); aller("boosters"); document.documentElement.requestFullscreen?.().catch(() => {}); }
+  else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+}
+// Chaque booster ouvert alimente le compteur et l'historique ; une carte exceptionnelle est mise en valeur à l'écran
+const _deballerV4 = deballer;
+deballer = function (type) {
+  const res = _deballerV4.apply(this, arguments);
+  if (modeStreamer) {
+    streamer.ouvertures++;
+    for (const x of res) {
+      const ordre = RARETES[x.c.rarete]?.ordre ?? 0;
+      if (ordre >= 3 || x.shiny) streamer.meilleures.push({ id: x.c.id, n: x.c.nom, r: x.c.rarete, e: x.c.emoji, s: !!x.shiny, o: ordre + (x.shiny ? 0.5 : 0), t: Date.now() });
+    }
+    streamer.meilleures.sort((a, b) => b.o - a.o || b.t - a.t); streamer.meilleures = streamer.meilleures.slice(0, 20);
+    sauverStreamer(); majOverlayStreamer();
+    const top = res.slice().sort((a, b) => (RARETES[b.c.rarete]?.ordre ?? 0) - (RARETES[a.c.rarete]?.ordre ?? 0))[0];
+    if (top && (RARETES[top.c.rarete]?.ordre ?? 0) >= 4) setTimeout(() => {
+      document.body.insertAdjacentHTML("beforeend", `<div class="streamer-alerte r-${top.c.rarete}"><span>${esc(RARETES[top.c.rarete].nom.toUpperCase())} !</span><b>${esc(top.c.nom)}</b></div>`);
+      setTimeout(() => $(".streamer-alerte")?.remove(), 4200);
+    }, 2600);
+  }
+  return res;
+};
+async function vueStreamer(v) {
+  v.innerHTML = `<header class="page-tete"><h1>Mode streamer</h1><p>Un affichage plein écran pensé pour Twitch, YouTube ou TikTok Live : compteur d'ouvertures, historique des meilleures cartes, alerte à l'écran pour les ultra rares et légendaires. Appuyez sur <kbd>Espace</kbd> pour ouvrir et faire défiler les cartes.</p></header>
+    <section class="panel form"><label class="check"><input type="checkbox" id="stMasquer" ${streamer.masquer ? "checked" : ""}> Masquer mes informations personnelles (pseudo, pièces, compte, notifications)</label>
+      <label>Fond<select id="stFond"><option value="jeu" ${streamer.fond === "jeu" ? "selected" : ""}>Fond du jeu</option><option value="vert" ${streamer.fond === "vert" ? "selected" : ""}>Fond vert (incrustation OBS)</option><option value="noir" ${streamer.fond === "noir" ? "selected" : ""}>Noir</option></select></label>
+      <p class="muted" style="margin:0">Compteur actuel : <b>${streamer.ouvertures}</b> booster(s) depuis le ${new Date(streamer.debut).toLocaleString("fr-FR")}.</p>
+      <button class="btn primary" id="stGo">🎥 Lancer le mode streamer</button></section>`;
+  $("#stMasquer").onchange = (e) => { streamer.masquer = e.target.checked; sauverStreamer(); };
+  $("#stFond").onchange = (e) => { streamer.fond = e.target.value; sauverStreamer(); };
+  $("#stGo").onclick = () => basculerStreamer(true);
+}
+ajouterPage("streamer", "🎥", "Mode streamer", vueStreamer);
+ICONES.streamer = '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3z"/>';

@@ -100,6 +100,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS photos_perso ( carte TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS rangs ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, couleur TEXT NOT NULL DEFAULT '#888888', description TEXT NOT NULL DEFAULT '', min_pts INTEGER NOT NULL DEFAULT 0, max_pts INTEGER, ordre INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, divisions INTEGER NOT NULL DEFAULT 1, montee TEXT NOT NULL DEFAULT '', descente TEXT NOT NULL DEFAULT '', recompense_pieces INTEGER NOT NULL DEFAULT 0, recompense_boosters INTEGER NOT NULL DEFAULT 0, logo TEXT, logo_maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS offres ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', badge TEXT NOT NULL DEFAULT '', prix_cents INTEGER NOT NULL, prix_reference_cents INTEGER, reference_note TEXT NOT NULL DEFAULT '', pieces INTEGER NOT NULL DEFAULT 0, boosters TEXT NOT NULL DEFAULT '{}', une_fois INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, ordre INTEGER NOT NULL DEFAULT 0, debut INTEGER, fin INTEGER, maj INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS decks_publics ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, nom TEXT NOT NULL, style TEXT NOT NULL DEFAULT 'equilibre', cartes TEXT NOT NULL, cout INTEGER NOT NULL DEFAULT 0, rarete_max INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL, maj INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS decks_favoris ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, deck_id INTEGER NOT NULL REFERENCES decks_publics(id) ON DELETE CASCADE, PRIMARY KEY (user_id, deck_id) )`,
   `CREATE TABLE IF NOT EXISTS succes_recus ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, cle TEXT NOT NULL, pieces INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, cle) )`,
   `CREATE TABLE IF NOT EXISTS rangs_historique ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, ancien TEXT, nouveau TEXT NOT NULL, trophees INTEGER NOT NULL, cree_le INTEGER NOT NULL )`,
   `CREATE INDEX IF NOT EXISTS rangs_historique_u ON rangs_historique (user_id, id)`,
@@ -2597,6 +2599,55 @@ route("PUT", "admin/offres/([a-z0-9-]{2,30})", async ({ request, env, user, p })
 }, { admin: true });
 
 
+
+/* =====================================================================
+   Decks publics : partager un deck, le retrouver par nom, carte, style ou ligue, le mettre en favori
+   ===================================================================== */
+const STYLES_DECK = ["equilibre", "attaque", "defense", "vitesse", "types"];
+const ORDRE_RARETE = { "commun": 0, "peu-commun": 1, "rare": 2, "epique": 3, "ultra-rare": 4, "legendaire": 5, "secrete": 5 };
+route("POST", "decks", async ({ request, env, user }) => {
+  const b = await corps(request);
+  const nom = nettoyerTexte(b.nom).slice(0, 40), style = STYLES_DECK.includes(b.style) ? b.style : "equilibre";
+  if (nom.length < 2 || nom.includes("•")) return erreur("Nom de deck invalide (2 à 40 caractères, sans gros mots).");
+  const ids = Array.isArray(b.cartes) ? b.cartes.map(String) : [];
+  if (ids.length !== COMBAT.TAILLE_DECK || new Set(ids).size !== ids.length || ids.some((id) => !CATALOGUE[id])) return erreur(`Un deck public doit contenir ${COMBAT.TAILLE_DECK} cartes différentes.`);
+  const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM decks_publics WHERE user_id = ?").bind(user.id).first();
+  if (n.n >= 20 && !b.id) return erreur("20 decks publics au maximum : supprimez-en un d'abord.");
+  const cout = ids.reduce((t, id) => t + (COMBAT.COUT[CATALOGUE[id].rarete] || 1), 0), rmax = Math.max(...ids.map((id) => ORDRE_RARETE[CATALOGUE[id].rarete] || 0));
+  if (b.id) {
+    const r = await env.DB.prepare("UPDATE decks_publics SET nom = ?, style = ?, cartes = ?, cout = ?, rarete_max = ?, maj = ? WHERE id = ? AND user_id = ?").bind(nom, style, JSON.stringify(ids), cout, rmax, maintenant(), Number(b.id), user.id).run();
+    if (!r.meta.changes) return erreur("Deck introuvable.", 404);
+    return json({ id: Number(b.id) });
+  }
+  const r = await env.DB.prepare("INSERT INTO decks_publics (user_id, nom, style, cartes, cout, rarete_max, cree_le, maj) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(user.id, nom, style, JSON.stringify(ids), cout, rmax, maintenant(), maintenant()).run();
+  return json({ id: r.meta.last_row_id }, 201);
+}, { connecte: true });
+route("DELETE", "decks/(\\d+)", async ({ env, user, p }) => {
+  await env.DB.prepare("DELETE FROM decks_publics WHERE id = ? AND (user_id = ? OR ? = 1)").bind(p[1], user.id, user.admin ? 1 : 0).run();
+  return json({ ok: true });
+}, { connecte: true });
+route("POST", "decks/(\\d+)/favori", async ({ env, user, p }) => {
+  const r = await env.DB.prepare("INSERT OR IGNORE INTO decks_favoris (user_id, deck_id) SELECT ?, id FROM decks_publics WHERE id = ?").bind(user.id, p[1]).run();
+  if (!r.meta.changes) await env.DB.prepare("DELETE FROM decks_favoris WHERE user_id = ? AND deck_id = ?").bind(user.id, p[1]).run();
+  return json({ favori: !!r.meta.changes });
+}, { connecte: true });
+route("GET", "decks", async ({ request, env, user }) => {
+  const q = new URL(request.url).searchParams, rangs = await chargerRangs(env);
+  const texte = String(q.get("q") || "").trim().slice(0, 40), carte = String(q.get("carte") || "").slice(0, 60), style = STYLES_DECK.includes(q.get("style")) ? q.get("style") : "";
+  const rarete = q.get("rarete") !== null && q.get("rarete") !== "" ? Math.round(nombre(q.get("rarete"), 0, 5, 0)) : null, ligue = String(q.get("ligue") || "").slice(0, 30);
+  const tri = { popularite: "favoris DESC, d.maj DESC", date: "d.maj DESC", performances: "trophees DESC", cout: "d.cout ASC" }[q.get("tri")] || "favoris DESC, d.maj DESC";
+  const mes = q.get("mes") === "1" && user, favs = q.get("favoris") === "1" && user;
+  const { results } = await env.DB.prepare(`SELECT d.id, d.nom, d.style, d.cartes, d.cout, d.rarete_max, d.maj, u.pseudo, COALESCE(a.trophees, 1000) AS trophees,
+      (SELECT COUNT(*) FROM decks_favoris f WHERE f.deck_id = d.id) AS favoris, EXISTS (SELECT 1 FROM decks_favoris f WHERE f.deck_id = d.id AND f.user_id = ?1) AS monFavori
+    FROM decks_publics d JOIN users u ON u.id = d.user_id LEFT JOIN arene a ON a.user_id = d.user_id
+    WHERE u.banni = 0 AND (?2 = '' OR d.nom LIKE '%' || ?2 || '%') AND (?3 = '' OR d.cartes LIKE '%"' || ?3 || '"%') AND (?4 = '' OR d.style = ?4)
+      AND (?5 IS NULL OR d.rarete_max <= ?5) AND (?6 = 0 OR d.user_id = ?1) AND (?7 = 0 OR EXISTS (SELECT 1 FROM decks_favoris f WHERE f.deck_id = d.id AND f.user_id = ?1))
+    ORDER BY ${tri} LIMIT 120`).bind(user?.id ?? 0, texte, carte, style, rarete, mes ? 1 : 0, favs ? 1 : 0).all();
+  let decks = results.map((d) => ({ id: d.id, nom: d.nom, style: d.style, cartes: JSON.parse(d.cartes), cout: d.cout, auteur: d.pseudo, maj: d.maj, favoris: d.favoris, monFavori: !!d.monFavori, rang: rangDe(d.trophees, rangs), mien: !!user && d.pseudo === user.pseudo }));
+  if (ligue) decks = decks.filter((d) => d.rang?.cle === ligue);
+  return json({ decks: decks.slice(0, 60), styles: STYLES_DECK });
+});
+
 /* =====================================================================
    Profil public : confidentialité, bannière, succès (vérifiés et récompensés côté serveur, une seule fois)
    ===================================================================== */
@@ -2706,9 +2757,10 @@ route("GET", "rang-logo/([a-z0-9-]{2,30})", async ({ env, p }) => {
   if (!m) return new Response(null, { status: 404 });
   return new Response(Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/" + m[1], "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
 });
-route("GET", "rangs/historique/(.{2,24})", async ({ env, p }) => {
-  const u = await env.DB.prepare("SELECT id FROM users WHERE pseudo = ? AND banni = 0").bind(decodeURIComponent(p[1])).first();
+route("GET", "rangs/historique/(.{2,24})", async ({ env, p, user }) => {
+  const u = await env.DB.prepare("SELECT id, confidentialite FROM users WHERE pseudo = ? AND banni = 0").bind(decodeURIComponent(p[1])).first();
   if (!u) return erreur("Joueur introuvable.", 404);
+  if (user?.id !== u.id && !lireConfidentialite(u.confidentialite).historique) return json({ historique: [] });
   const { results } = await env.DB.prepare("SELECT ancien, nouveau, trophees, cree_le FROM rangs_historique WHERE user_id = ? ORDER BY id DESC LIMIT 20").bind(u.id).all();
   return json({ historique: results });
 });

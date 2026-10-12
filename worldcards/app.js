@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v43"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v44"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -1390,7 +1390,7 @@ function ouvrirBooster(type) {
     const top = ordre[ordre.length - 1], st = statsDe(top.c);
     scene.innerHTML = `<div class="meilleure-carte r-${top.c.rarete}"><span>🏆 Meilleure carte</span><b>${esc(top.c.nom)}</b>
         <small>${RARETES[top.c.rarete].nom}${top.shiny ? " · ✨ Shiny" : ""} · ${esc(TYPES[top.c.type] || "")} n° ${String(top.c.num || 0).padStart(3, "0")} · ⚔️ ${st.atk} · 🛡️ ${st.def} · ❤️ ${st.pv}</small></div>
-      <div class="opening">${ordre.map((x, k) => `<div class="flip done${x === top ? " top" : ""}" style="--k:${k}" data-voir="${x.c.id}"><div class="face back"></div>
+      <div class="opening">${ordre.map((x, k) => `<div class="flip done${x === top ? " la-meilleure" : ""}" style="--k:${k}" data-voir="${x.c.id}"><div class="face back"></div>
         <div class="face front">${etiquette(x, true)}${cardHTML(x.c, { locked: false, shiny: x.shiny, holo: x.holo })}</div></div>`).join("")}</div>
       <div class="row" style="justify-content:center;margin-top:14px">
         ${encore ? `<button class="btn primary" id="again">Ouvrir un booster ${PACKS[encore].nom} (${S.boosters[encore]})</button>` : ""}
