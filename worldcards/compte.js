@@ -128,7 +128,8 @@ function ouvrirModalFeedback() {
 // Événement en cours (activé par l'administrateur)
 async function chargerEvenement() {
   try {
-    const { evenement } = await api("evenement");
+    const { evenement, prochain } = await api("evenement");
+    PROCHAIN_EVENEMENT = prochain && prochain.debut > Date.now() ? prochain : null;
     const avant = JSON.stringify(EVENEMENT);
     EVENEMENT = evenement && evenement.fin > Date.now() ? evenement : null;
     try { localStorage.setItem("worldcards:evenement", JSON.stringify(EVENEMENT)); } catch {}
@@ -1167,15 +1168,17 @@ async function adminEvenements(el) {
     <p>Événement en cours : <b>${EVENEMENT ? `${esc(evs[EVENEMENT.cle]?.nom || EVENEMENT.cle)} (jusqu'au ${new Date(EVENEMENT.fin).toLocaleString("fr-FR")})` : "aucun"}</b></p>
     <div class="form" style="max-width:520px">
       <label>Durée (jours)<input id="evJours" type="number" min="1" max="60" value="7"></label>
+      <label>Début (laisser vide pour tout de suite)<input id="evDebut" type="datetime-local"></label>
+      ${typeof PROCHAIN_EVENEMENT !== "undefined" && PROCHAIN_EVENEMENT ? `<p>⏰ Programmé : <b>${esc(evs[PROCHAIN_EVENEMENT.cle]?.nom || PROCHAIN_EVENEMENT.cle)}</b> le ${new Date(PROCHAIN_EVENEMENT.debut).toLocaleString("fr-FR")}</p>` : ""}
       <label class="check"><input type="checkbox" id="evPrevenir" checked> Prévenir les joueurs par notification</label>
       <div class="row">${Object.entries(evs).map(([k, e]) => `<button class="btn primary" data-ev="${k}">${e.emoji} Lancer ${esc(e.nom)} (${e.cartes.length} cartes)</button>`).join("")}
       ${EVENEMENT ? `<button class="btn" data-ev="">⏹ Arrêter l'événement</button>` : ""}</div>
     </div></div>`;
   $$("[data-ev]", el).forEach((b) => b.onclick = async () => {
     try {
-      const r = await api("admin/evenement", { methode: "POST", corps: { cle: b.dataset.ev || null, jours: $("#evJours").value, prevenir: $("#evPrevenir").checked } });
-      EVENEMENT = r.evenement; try { localStorage.setItem("worldcards:evenement", JSON.stringify(EVENEMENT)); } catch {}
-      toast(r.evenement ? "🎉 Événement lancé !" : "Événement arrêté."); aller("admin");
+      const r = await api("admin/evenement", { methode: "POST", corps: { cle: b.dataset.ev || null, jours: $("#evJours").value, prevenir: $("#evPrevenir").checked, debut: $("#evDebut").value ? new Date($("#evDebut").value).getTime() : undefined } });
+      EVENEMENT = r.evenement; PROCHAIN_EVENEMENT = r.prochain || null; try { localStorage.setItem("worldcards:evenement", JSON.stringify(EVENEMENT)); } catch {}
+      toast(r.evenement ? "🎉 Événement lancé !" : r.prochain ? `⏰ Événement programmé pour le ${new Date(r.prochain.debut).toLocaleString("fr-FR")}.` : "Événement arrêté."); aller("admin");
     } catch (e) { toast("⚠ " + e.message); }
   });
 }

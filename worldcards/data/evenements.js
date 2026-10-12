@@ -101,5 +101,19 @@ const EVENEMENTS_EXTRA = {
     ["explo_route_encens", "Route de l'encens", "OM", "🪔", "peu-commun", "Depuis le Dhofar, l'encens était acheminé par caravanes jusqu'à la Méditerranée dès l'Antiquité.", "Route de l'encens"],
     ["explo_azalai", "Caravane Azalaï", "ML", "🐪", "peu-commun", "Ces caravanes de dromadaires transportent encore des plaques de sel de Taoudeni jusqu'à Tombouctou à travers le Sahara.", "Azalaï"],
   ] },
+  "coupe-du-monde": { nom: "Coupe du monde", theme: "Football", emoji: "⚽", couleur: "#1e9e5a", cartes: [
+    ["foot_trophee", "Trophée de la Coupe du monde", "CH", "🏆", "legendaire", "Le trophée actuel, en or massif de 18 carats, mesure 36,8 cm et est remis depuis 1974. La FIFA a son siège à Zurich.", "Coupe du monde de football"],
+    ["foot_jules_rimet", "Coupe Jules-Rimet", "FR", "🏆", "legendaire", "Premier trophée de la Coupe du monde, nommé d'après le Français Jules Rimet. Le Brésil l'a gardé pour toujours en 1970 après sa 3e victoire, puis il a été volé à Rio en 1983.", "Coupe Jules-Rimet"],
+    ["foot_olympiastadion", "Olympiastadion de Berlin", "DE", "🏟️", "ultra-rare", "Construit pour les Jeux olympiques de 1936, il a accueilli la finale de la Coupe du monde 2006, remportée par l'Italie.", "Olympiastadion (Berlin)"],
+    ["foot_loujniki", "Stade Loujniki", "RU", "🏟️", "ultra-rare", "Plus grand stade de Russie, il a accueilli la finale de 2018, gagnée 4-2 par la France contre la Croatie.", "Stade Loujniki"],
+    ["foot_centenario", "Stade Centenario", "UY", "🏟️", "epique", "Il a accueilli la finale de la toute première Coupe du monde, en 1930, remportée par l'Uruguay.", "Estadio Centenario"],
+    ["foot_bernabeu", "Stade Santiago-Bernabéu", "ES", "🏟️", "epique", "Le stade du Real Madrid a accueilli la finale de la Coupe du monde 1982, remportée par l'Italie.", "Stade Santiago-Bernabéu"],
+    ["foot_telstar", "Ballon Telstar", "DE", "⚽", "epique", "Ballon officiel de la Coupe du monde 1970, conçu par Adidas : ses panneaux noirs et blancs le rendaient bien visible à la télévision en noir et blanc.", "Adidas Telstar"],
+    ["foot_lusail", "Stade de Lusail", "QA", "🏟️", "rare", "Il a accueilli la finale de 2022, remportée par l'Argentine aux tirs au but contre la France.", "Stade de Lusail"],
+    ["foot_soccer_city", "Soccer City", "ZA", "🏟️", "rare", "Ce stade de Johannesburg en forme de calebasse a accueilli la finale de 2010, la première Coupe du monde en Afrique.", "FNB Stadium"],
+    ["foot_rose_bowl", "Rose Bowl", "US", "🏟️", "rare", "Ce stade de Pasadena a accueilli la finale de 1994, la première décidée aux tirs au but, gagnée par le Brésil.", "Rose Bowl (stade)"],
+    ["foot_world_cup_willie", "World Cup Willie", "GB", "🦁", "peu-commun", "Ce lion vêtu de l'Union Jack, créé pour la Coupe du monde 1966 en Angleterre, est la toute première mascotte de l'histoire du tournoi.", "World Cup Willie"],
+    ["foot_yokohama", "Stade international de Yokohama", "JP", "🏟️", "peu-commun", "Il a accueilli la finale de 2002, première Coupe du monde organisée en Asie, gagnée par le Brésil.", "Stade international de Yokohama"],
+  ] },
 };
 if (typeof module === "object" && module.exports) module.exports = { EVENEMENTS_EXTRA };

@@ -103,6 +103,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS rangs ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, couleur TEXT NOT NULL DEFAULT '#888888', description TEXT NOT NULL DEFAULT '', min_pts INTEGER NOT NULL DEFAULT 0, max_pts INTEGER, ordre INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, divisions INTEGER NOT NULL DEFAULT 1, montee TEXT NOT NULL DEFAULT '', descente TEXT NOT NULL DEFAULT '', recompense_pieces INTEGER NOT NULL DEFAULT 0, recompense_boosters INTEGER NOT NULL DEFAULT 0, logo TEXT, logo_maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS offres ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', badge TEXT NOT NULL DEFAULT '', prix_cents INTEGER NOT NULL, prix_reference_cents INTEGER, reference_note TEXT NOT NULL DEFAULT '', pieces INTEGER NOT NULL DEFAULT 0, boosters TEXT NOT NULL DEFAULT '{}', une_fois INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, ordre INTEGER NOT NULL DEFAULT 0, debut INTEGER, fin INTEGER, maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS defi_jour ( jour TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, essais TEXT NOT NULL DEFAULT '[]', fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL, PRIMARY KEY (jour, user_id) )`,
+  `CREATE TABLE IF NOT EXISTS nations_points ( semaine TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, nation TEXT NOT NULL, points INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (semaine, user_id) )`,
   `CREATE TABLE IF NOT EXISTS activite ( user_id INTEGER NOT NULL, jour TEXT NOT NULL, PRIMARY KEY (user_id, jour) )`,
   `CREATE TABLE IF NOT EXISTS notifs_campagnes ( id INTEGER PRIMARY KEY AUTOINCREMENT, titre TEXT NOT NULL, texte TEXT NOT NULL, url TEXT NOT NULL, cible TEXT NOT NULL, total INTEGER NOT NULL DEFAULT 0, envoyes INTEGER NOT NULL DEFAULT 0, par TEXT, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS notifs_file ( campagne_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (campagne_id, user_id) )`,
@@ -157,6 +158,8 @@ const MIGRATIONS = [
   `ALTER TABLE notifs_campagnes ADD COLUMN programme_le INTEGER`,
   `ALTER TABLE notifs_campagnes ADD COLUMN statut TEXT NOT NULL DEFAULT 'fini'`,
   `ALTER TABLE notifs_campagnes ADD COLUMN discord INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE users ADD COLUMN nation TEXT`,
+  `ALTER TABLE users ADD COLUMN nation_le INTEGER NOT NULL DEFAULT 0`,
 ];
 let schemaPret = false;
 // Empreinte du schéma : si la base est déjà à jour, une seule lecture suffit au démarrage d'une instance
@@ -391,7 +394,8 @@ async function controleTriche(env, user, data) {
   const gainPieces = coins - (Number(ps.coins) || 0), gainCartes = ex - totalExemplaires(ps);
   const gainBoosters = totalBoosters(sv) - totalBoosters(ps), gainXp = (Number(sv.xp) || 0) - (Number(ps.xp) || 0);
   // Marges larges : quêtes, badges, niveaux, doublons, passe… ne doivent jamais déclencher de faux positif
-  const maxPieces = cr.p + 12000 + 6000 * h, maxCartes = cr.c + 40 + ouverts * 12 + 25 * h, maxBoosters = cr.b + 15 + 6 * h, maxXp = 4000 + 2500 * h;
+  // (les boosters achetés en lot avec des pièces sont couverts par les pièces dépensées)
+  const maxPieces = cr.p + 12000 + 6000 * h, maxCartes = cr.c + 40 + ouverts * 12 + 25 * h, maxBoosters = cr.b + 15 + 6 * h + Math.max(0, -gainPieces) / 100, maxXp = 4000 + 2500 * h;
   const raisons = [];
   if (gainPieces > maxPieces) raisons.push(`+${gainPieces} pièces en ${h.toFixed(1)} h (max ${Math.round(maxPieces)})`);
   if (gainCartes > maxCartes) raisons.push(`+${gainCartes} cartes en ${h.toFixed(1)} h (max ${Math.round(maxCartes)})`);
@@ -812,6 +816,8 @@ export async function planifie(env) {
   try { await cronTournoiDirect(env); } catch (e) { console.error(e); }
   try { await cloturerGuerres(env); } catch (e) { console.error(e); }
   try { await cronNotifs(env); } catch (e) { console.error(e); }
+  try { await cronEvenement(env); } catch (e) { console.error(e); }
+  try { await cloturerNations(env); } catch (e) { console.error(e); }
   const jourSync = new Date().toISOString().slice(0, 10), dejaJour = (await lireConfig(env, "sync_jour")) === jourSync;
   if (!dejaJour) await ecrireConfig(env, "sync_jour", jourSync);
   try { await syncSupabase(env, !dejaJour); } catch (e) { console.error(e); }
@@ -1005,6 +1011,7 @@ route("POST", "arene/fin", async ({ request, env, user, ctx }) => {
   const deltaDef = -Math.round(delta / 2);
   const pieces = c.recompense ? (gagne ? 60 : 15) : 0;
   if (c.classe) await ajouterPointsTournoi(env, user, gagne ? 100 : 25, gagne, true);
+  if (c.classe && gagne) enArrierePlan(ctx, pointsNations(env, user.id, 3));
   await env.DB.batch([
     env.DB.prepare("UPDATE combats SET fini = 1, gagne = ?, delta = ?, actions = ? WHERE id = ?").bind(gagne ? 1 : 0, delta, JSON.stringify(actions), c.id),
     env.DB.prepare("UPDATE arene SET trophees = MAX(0, trophees + ?), victoires = victoires + ?, defaites = defaites + ? WHERE user_id = ?").bind(delta, gagne ? 1 : 0, gagne ? 0 : 1, user.id),
@@ -1046,8 +1053,10 @@ route("POST", "presence/ping", async ({ request, env, user }) => {
     // Temps de jeu : on compte le temps écoulé depuis le dernier signal (au plus 2 minutes)
     if (user && avant && maintenant() - avant.vu < EN_LIGNE_MS) requetes.push(env.DB.prepare("UPDATE users SET temps_jeu = temps_jeu + ? WHERE id = ?").bind(Math.round((maintenant() - avant.vu) / 1000), user.id));
   }
-  if (user && ACTIVITE_VUE.get(user.id) !== jourUTC()) { ACTIVITE_VUE.set(user.id, jourUTC()); requetes.push(env.DB.prepare("INSERT OR IGNORE INTO activite (user_id, jour) VALUES (?, ?)").bind(user.id, jourUTC())); }
+  let nouveauJour = false;
+  if (user && ACTIVITE_VUE.get(user.id) !== jourUTC()) { ACTIVITE_VUE.set(user.id, jourUTC()); nouveauJour = true; requetes.push(env.DB.prepare("INSERT OR IGNORE INTO activite (user_id, jour) VALUES (?, ?)").bind(user.id, jourUTC())); }
   if (requetes.length) await env.DB.batch(requetes);
+  if (nouveauJour) { const r = await env.DB.prepare("INSERT OR IGNORE INTO notifs_envoyees (user_id, type, cle, cree_le) VALUES (?, 'nation-jour', ?, ?)").bind(user.id, jourUTC(), maintenant()).run(); if (r.meta.changes) await pointsNations(env, user.id, 1); }
   const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM presence WHERE vu > ?").bind(maintenant() - EN_LIGNE_MS).first();
   const alerte = user?.admin ? await lireConfig(env, "alerte") : null;
   const t = user ? await env.DB.prepare("SELECT temps_jeu FROM users WHERE id = ?").bind(user.id).first() : null;
@@ -1295,22 +1304,34 @@ async function recompenserTournoi(env) {
 const EVENEMENTS = [...new Set([...Object.keys(EXTENSIONS.EVENEMENTS_SAISONNIERS), ...Object.keys(EVENEMENTS_DATA.EVENEMENTS_EXTRA)])];
 const NOM_EVENEMENT = (cle) => EVENEMENTS_DATA.EVENEMENTS_EXTRA[cle]?.nom || EXTENSIONS.EVENEMENTS_SAISONNIERS[cle]?.nom || cle;
 route("GET", "evenement", async ({ env }) => {
-  const e = await lireConfig(env, "evenement");
-  return json({ evenement: e && e.fin > maintenant() ? e : null });
+  const e = await lireConfig(env, "evenement"), t = maintenant();
+  const actif = e && e.fin > t && (e.debut || 0) <= t;
+  return json({ evenement: actif ? { cle: e.cle, debut: e.debut, fin: e.fin } : null, prochain: e && (e.debut || 0) > t ? { cle: e.cle, debut: e.debut, fin: e.fin } : null });
 });
+// Annonce (notification + Discord) au moment où un événement programmé commence
+async function annoncerEvenement(env, ev) {
+  await annoncerDiscord(env, "evenements", { titre: `🎉 Événement : ${NOM_EVENEMENT(ev.cle)} !`, texte: `Booster limité et cartes exclusives jusqu'au ${new Date(ev.fin).toLocaleString("fr-FR", { timeZone: "Europe/Brussels", dateStyle: "long", timeStyle: "short" })}. Ne le ratez pas !`, url: "./#boosters", couleur: 0x9b51e0 });
+  if (ev.prevenir) {
+    const { results } = await env.DB.prepare("SELECT DISTINCT user_id FROM abonnements LIMIT 1000").all();
+    for (const { user_id } of results) await envoyerPush(env, user_id, { titre: `🎉 Événement : ${NOM_EVENEMENT(ev.cle)} !`, texte: "Booster limité et cartes exclusives : c'est parti !", url: "./#boosters" });
+  }
+}
+async function cronEvenement(env) {
+  const e = await lireConfig(env, "evenement");
+  if (!e || e.annonce || (e.debut || 0) > maintenant() || e.fin <= maintenant()) return;
+  await ecrireConfig(env, "evenement", { ...e, annonce: true });
+  await annoncerEvenement(env, e);
+}
 route("POST", "admin/evenement", async ({ request, env, ctx }) => {
   const b = await corps(request);
   if (!b.cle) { await ecrireConfig(env, "evenement", null); return json({ ok: true, evenement: null }); }
   if (!EVENEMENTS.includes(b.cle)) return erreur("Événement inconnu.");
-  const jours = Math.max(1, Math.min(60, Math.floor(Number(b.jours) || 7)));
-  const ev = { cle: b.cle, debut: maintenant(), fin: maintenant() + jours * JOUR };
+  const jours = Math.max(1, Math.min(60, Number(b.jours) || 7));
+  const t = maintenant(), debut = Number(b.debut) > t + 60000 ? Math.min(Number(b.debut), t + 90 * JOUR) : t;
+  const ev = { cle: b.cle, debut, fin: debut + Math.round(jours * JOUR), prevenir: !!b.prevenir, annonce: debut <= t };
   await ecrireConfig(env, "evenement", ev);
-  enArrierePlan(ctx, annoncerDiscord(env, "evenements", { titre: `🎉 Événement : ${NOM_EVENEMENT(b.cle)} !`, texte: `Des cartes exclusives à collectionner jusqu'au ${new Date(ev.fin).toLocaleDateString("fr-FR", { timeZone: "Europe/Brussels" })}. Ouvrez vite un booster d'événement !`, url: "./#boosters", couleur: 0x9b51e0 }));
-  if (b.prevenir) enArrierePlan(ctx, (async () => {
-    const { results } = await env.DB.prepare("SELECT DISTINCT user_id FROM abonnements LIMIT 1000").all();
-    for (const { user_id } of results) await envoyerPush(env, user_id, { titre: `🎉 Événement : ${NOM_EVENEMENT(b.cle)} !`, texte: "Cartes exclusives à collectionner pendant une durée limitée.", url: "./#boosters" });
-  })());
-  return json({ ok: true, evenement: ev });
+  if (ev.annonce) enArrierePlan(ctx, annoncerEvenement(env, ev));
+  return json({ ok: true, evenement: debut <= t ? ev : null, prochain: debut > t ? ev : null });
 }, { admin: true });
 
 
@@ -2565,6 +2586,7 @@ async function terminerDuelClasse(env, d) {
     await majRang(env, null, d.b_id, B.trophees, Math.max(0, B.trophees + pb), rangs);
   }
   await env.DB.prepare("UPDATE duels SET points_a = ?, points_b = ? WHERE id = ?").bind(pa, pb, d.id).run();
+  if (pa || pb) await pointsNations(env, d.gagnant, 5);
   console.log(JSON.stringify({ duel: d.id, evenement: "classe", points: [pa, pb] }));
 }
 
@@ -2828,7 +2850,7 @@ const CIBLES_NOTIF = {
   premium: { nom: "Joueurs Premium", sql: "SELECT DISTINCT a.user_id FROM abonnements a JOIN users u ON u.id = a.user_id WHERE u.banni = 0 AND u.premium_jusqu > ?", args: (t) => [t] },
   guildes: { nom: "Membres d'une guilde", sql: "SELECT DISTINCT a.user_id FROM abonnements a JOIN users u ON u.id = a.user_id JOIN guilde_membres m ON m.user_id = u.id WHERE u.banni = 0", args: () => [] },
 };
-const PAGES_NOTIF = ["accueil", "boosters", "ligues", "hub", "missions", "combat", "albums", "decks", "succes", "passe", "samedi", "guilde", "premium"];
+const PAGES_NOTIF = ["accueil", "boosters", "ligues", "hub", "missions", "combat", "albums", "decks", "succes", "passe", "samedi", "guilde", "premium", "defi", "nations"];
 // Prépare la file d'envoi d'une campagne (les destinataires sont calculés au moment de l'envoi)
 async function preparerCampagne(env, c) {
   const t = maintenant();
@@ -3032,10 +3054,67 @@ route("POST", "defi/essai", async ({ request, env, user, ctx }) => {
   if (res.juste) {
     recompense = RECOMPENSES_DEFI[essais.length];
     await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, ?, 0, ?, ?)").bind(user.id, recompense, `🌍 Défi du jour n° ${numeroDefi(jour)} trouvé en ${essais.length} essai${essais.length > 1 ? "s" : ""} !`, maintenant()).run();
-    if (typeof pointsNations === "function") enArrierePlan(ctx, pointsNations(env, user.id, 7 - essais.length, "defi"));
+    enArrierePlan(ctx, pointsNations(env, user.id, 7 - essais.length));
   }
   return json({ resultat: res, fini, gagne: res.juste, recompense, essais, solution: fini ? { code: cible, nom: NOMS_PAYS[cible] } : null, serie: fini ? await serieDefi(env, user.id, jour) : 0 });
 }, {});
+
+/* =====================================================================
+   Coupe des nations : chaque joueur représente un pays ; les points de la semaine s'additionnent
+   (connexion du jour +1, défi du jour +1 à +6, victoire classée en arène +3, duel classé gagné +5).
+   ===================================================================== */
+const LOTS_NATIONS = [[500, { or: 1 }, "🥇"], [300, { argent: 1 }, "🥈"], [150, {}, "🥉"]];
+const MIN_POINTS_LOT = 5;
+async function pointsNations(env, userId, points) {
+  if (!userId || !points) return;
+  const u = await env.DB.prepare("SELECT nation FROM users WHERE id = ?").bind(userId).first();
+  if (!u?.nation) return;
+  await env.DB.prepare(`INSERT INTO nations_points (semaine, user_id, nation, points) VALUES (?, ?, ?, ?)
+    ON CONFLICT(semaine, user_id) DO UPDATE SET points = points + excluded.points`).bind(semaineCourante(), userId, u.nation, points).run();
+}
+async function classementNations(env, semaine) {
+  const { results } = await env.DB.prepare(`SELECT n.nation, SUM(n.points) AS points, COUNT(*) AS joueurs,
+      (SELECT u.pseudo FROM nations_points m JOIN users u ON u.id = m.user_id WHERE m.semaine = n.semaine AND m.nation = n.nation AND u.banni = 0 ORDER BY m.points DESC LIMIT 1) AS meilleur
+    FROM nations_points n JOIN users u ON u.id = n.user_id WHERE n.semaine = ? AND u.banni = 0 GROUP BY n.nation ORDER BY points DESC LIMIT 100`).bind(semaine).all();
+  return results.map((x) => ({ ...x, nom: NOMS_PAYS[x.nation] || x.nation }));
+}
+// Lundi : les membres actifs (au moins 5 points) des 3 meilleures nations de la semaine passée reçoivent un lot
+async function cloturerNations(env) {
+  const passee = semaineCourante(1);
+  if ((await lireConfig(env, "nations_cloture")) === passee) return;
+  await ecrireConfig(env, "nations_cloture", passee);
+  const podium = (await classementNations(env, passee)).slice(0, 3);
+  for (const [i, n] of podium.entries()) {
+    const [pieces, detail, med] = LOTS_NATIONS[i];
+    const { results } = await env.DB.prepare("SELECT user_id FROM nations_points WHERE semaine = ? AND nation = ? AND points >= ?").bind(passee, n.nation, MIN_POINTS_LOT).all();
+    for (let k = 0; k < results.length; k += 50) await env.DB.batch(results.slice(k, k + 50).map((x) => env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, boosters_detail, message, cree_le) VALUES (?, ?, 0, ?, ?, ?)")
+      .bind(x.user_id, pieces, JSON.stringify(detail), `${med} Coupe des nations : ${n.nom} termine ${i + 1}${i ? "e" : "re"} de la semaine !`, maintenant())));
+  }
+  if (podium.length) await annoncerDiscord(env, "tournois", { titre: `🌍 Coupe des nations : ${podium[0].nom} gagne la semaine !`, texte: podium.map((n, i) => `${LOTS_NATIONS[i][2]} **${n.nom}** — ${n.points} points (${n.joueurs} joueur${n.joueurs > 1 ? "s" : ""})`).join("\n"), url: "./#nations", couleur: 0x2fbf71 });
+}
+route("GET", "nations", async ({ env, user }) => {
+  const semaine = semaineCourante(), [classement, precedente] = [await classementNations(env, semaine), (await classementNations(env, semaineCourante(1))).slice(0, 3)];
+  let moi = null;
+  if (user) {
+    const u = await env.DB.prepare("SELECT nation, nation_le FROM users WHERE id = ?").bind(user.id).first();
+    const p = await env.DB.prepare("SELECT points FROM nations_points WHERE semaine = ? AND user_id = ?").bind(semaine, user.id).first();
+    const membres = u?.nation ? (await env.DB.prepare(`SELECT u.pseudo, n.points FROM nations_points n JOIN users u ON u.id = n.user_id WHERE n.semaine = ? AND n.nation = ? AND u.banni = 0 ORDER BY n.points DESC LIMIT 10`).bind(semaine, u.nation).all()).results : [];
+    moi = { nation: u?.nation || null, nom: u?.nation ? NOMS_PAYS[u.nation] : null, points: p?.points || 0, changementLe: (u?.nation_le || 0) + 30 * JOUR, membres };
+  }
+  const fin = Date.parse(semaine + "T00:00:00Z") + 7 * JOUR;
+  return json({ semaine, fin, classement, precedente, moi, lots: LOTS_NATIONS.map(([p, d]) => ({ pieces: p, boosters: d })), minPoints: MIN_POINTS_LOT, pays: PAYS_DEVINABLES.concat(Object.keys(NOMS_PAYS).filter((c) => !CENTRES[c])).map((c) => [c, NOMS_PAYS[c]]).sort((a, b) => a[1].localeCompare(b[1], "fr")) });
+});
+route("PUT", "nations/moi", async ({ request, env, user }) => {
+  const b = await corps(request), code = String(b.code || "").toUpperCase();
+  if (!NOMS_PAYS[code]) return erreur("Pays inconnu.");
+  const u = await env.DB.prepare("SELECT nation, nation_le FROM users WHERE id = ?").bind(user.id).first();
+  if (u.nation === code) return json({ ok: true });
+  if (u.nation && maintenant() - (u.nation_le || 0) < 30 * JOUR) return erreur(`Vous pourrez changer de pays le ${new Date(u.nation_le + 30 * JOUR).toLocaleDateString("fr-FR")}.`);
+  await env.DB.prepare("UPDATE users SET nation = ?, nation_le = ? WHERE id = ?").bind(code, maintenant(), user.id).run();
+  // Les points déjà gagnés cette semaine suivent le joueur dans son nouveau pays
+  await env.DB.prepare("UPDATE nations_points SET nation = ? WHERE semaine = ? AND user_id = ?").bind(code, semaineCourante(), user.id).run();
+  return json({ ok: true });
+}, { connecte: true });
 
 /* =====================================================================
    Tutoriel des nouveaux joueurs : récompense unique quand les étapes sont faites

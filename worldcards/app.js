@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v55"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v56"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -202,6 +202,7 @@ PACKS.mega = { nom: "Méga", emoji: "📦", prix: 1000, cartes: 10, garanties: [
 // Boosters d'événement : disponibles seulement quand l'administrateur active l'événement.
 // Ils contiennent 2 cartes de l'événement et 3 cartes normales ; les cartes d'événement ne sortent nulle part ailleurs.
 let EVENEMENT = (() => { try { const e = JSON.parse(localStorage.getItem("worldcards:evenement")); return e && e.fin > Date.now() ? e : null; } catch { return null; } })();
+let PROCHAIN_EVENEMENT = null; // événement programmé (annoncé avant son début)
 const evenementActif = (cle) => !!EVENEMENT && EVENEMENT.cle === cle && EVENEMENT.fin > Date.now();
 if (typeof EVENEMENTS_SAISONNIERS !== "undefined") for (const [cle, ev] of Object.entries(EVENEMENTS_SAISONNIERS)) {
   PACKS[cle] = { nom: ev.nom, emoji: ev.emoji, prix: 350, cartes: 5, garanties: [2], shiny: 2, evenement: cle, couleur: ev.couleur,
@@ -1145,7 +1146,10 @@ function vueBoosters(v) {
     return `<div class="offre ${k}">
       <div class="pack ${k} mini" ${p.couleur ? `style="--pc:${p.couleur}"` : ""}><span class="big">${p.emoji}</span><b>${p.nom}</b></div>
       <div><b>Booster ${p.nom}</b>${p.premium ? ` <span class="rbadge premium">💎 Premium</span>` : ""}${p.cartes > 5 ? ` <span class="rbadge" data-r="rare">${p.cartes} cartes</span>` : ""}<p class="muted">${p.desc}</p>
-      <button class="btn ${bloque ? "" : "primary"}" data-acheter="${k}" ${!bloque && S.coins < p.prix ? "disabled" : ""}>${bloque ? "💎 Devenir Premium" : `Acheter · ${fmt(p.prix)} 🪙`}</button></div></div>`;
+      ${bloque ? `<button class="btn" data-acheter="${k}">💎 Devenir Premium</button>` : `<div class="achat-lot">
+        <button class="btn primary" data-acheter="${k}" data-n="1" ${S.coins < p.prix ? "disabled" : ""}>Acheter · ${fmt(p.prix)} 🪙</button>
+        <button class="btn" data-acheter="${k}" data-n="5" ${S.coins < p.prix * 5 ? "disabled" : ""}>×5 · ${fmt(p.prix * 5)} 🪙</button>
+        <button class="btn" data-acheter="${k}" data-n="10" ${S.coins < p.prix * 10 ? "disabled" : ""}>×10 · ${fmt(p.prix * 10)} 🪙 <small>+1 offert</small></button></div>`}</div></div>`;
   };
   v.innerHTML = `
     <div class="panel" style="text-align:center">
@@ -1192,11 +1196,14 @@ function vueBoosters(v) {
     </div>`;
   $$("[data-ouvrir]", v).forEach((b) => b.onclick = () => ouvrirBooster(b.dataset.ouvrir));
   $$("[data-acheter]", v).forEach((b) => b.onclick = () => {
-    const k = b.dataset.acheter, p = PACKS[k];
+    const k = b.dataset.acheter, p = PACKS[k], n = Math.max(1, Number(b.dataset.n) || 1);
     if (p.premium && !premium()) return aller("premium");
-    if (S.coins < p.prix) return;
-    S.coins -= p.prix; S.boosters[k] = (S.boosters[k] || 0) + 1; sauver(); majCoins();
-    ouvrirBooster(k);
+    if (S.coins < p.prix * n) return;
+    // Par lot de 10, un booster est offert ; les boosters achetés en lot vont dans « Mes boosters »
+    const recus = n + (n >= 10 ? 1 : 0);
+    S.coins -= p.prix * n; S.boosters[k] = (S.boosters[k] || 0) + recus; sauver(); majCoins();
+    if (n === 1) { ouvrirBooster(k); return; }
+    toast(`🎁 ${recus} boosters ${esc(p.nom)} ajoutés à vos boosters !`); aller("boosters"); scrollTo({ top: 0, behavior: "smooth" });
   });
   $("#acheterOffre")?.addEventListener("click", () => {
     if (S.coins < prixOffre(offre) || S.offreJour === today()) return;
@@ -1388,6 +1395,51 @@ function ouvrirBooster(type) {
     etape = "retournee";
     indice(i < ordre.length - 1 ? "Touchez pour la carte suivante" : "Touchez pour voir votre booster");
   }
+  // Ouverture façon Hearthstone : toutes les cartes posées face cachée, on les retourne dans l'ordre qu'on veut.
+  // L'aura du dos annonce la rareté avant de retourner la carte.
+  const retournees = new Set();
+  function table() {
+    if (!scene.isConnected) return;
+    etape = "table"; delete scene.dataset.ambiance; $("#pkPoints").innerHTML = "";
+    texte("#pkCompte", `${p.emoji} Booster ${p.nom}`);
+    // Les cartes sont placées au hasard sur la table (la plus rare n'est pas toujours au même endroit)
+    const places = ordre.map((_, k) => k).sort(() => Math.random() - 0.5);
+    scene.innerHTML = `<div class="hs-table n${ordre.length}">${places.map((k, pos) => { const x = ordre[k], rare = RARETES[x.c.rarete].ordre >= 2 || x.shiny;
+      return `<button type="button" class="hs-carte" style="--pos:${pos};--n:${ordre.length}" data-i="${k}" aria-label="Retourner la carte ${pos + 1}"><div class="flip">
+        <div class="face back ${rare ? "glow-" + (x.shiny ? "shiny" : x.c.rarete) : ""} ${typeof dosChoisi === "function" ? dosChoisi().cls : ""}" style="${typeof dosChoisi === "function" ? dosChoisi().style : ""}">${typeof dosChoisi === "function" ? dosChoisi().ic : UNIVERS.monde.dos}</div>
+        <div class="face front">${etiquette(x, true)}${cardHTML(x.c, { locked: false, shiny: x.shiny, holo: x.holo })}</div></div></button>`; }).join("")}</div>
+      <div class="pk-rarete"></div>`;
+    indice("Touchez les cartes pour les retourner");
+    $$(".hs-carte", scene).forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); retournerTable(Number(b.dataset.i)); }));
+  }
+  async function retournerTable(k) {
+    const b = scene.querySelector(`.hs-carte[data-i="${k}"]`);
+    if (!b) return;
+    if (retournees.has(k)) { ficheCarte(ordre[k].c); return; }
+    retournees.add(k);
+    const x = ordre[k], c = x.c, r = x.shiny ? 6 : RARETES[c.rarete].ordre, flip = $(".flip", b);
+    if (r >= 3 && !rapide) { flip.classList.add("suspense"); await attendre(r >= 4 ? 700 : 450); flip.classList.remove("suspense"); }
+    if (!scene.isConnected) return;
+    flip.classList.add("done"); b.classList.add("vue", "r-" + (x.shiny ? "shiny" : c.rarete));
+    const lab = scene.querySelector(".pk-rarete");
+    if (lab) { lab.dataset.r = x.shiny ? "shiny" : c.rarete; lab.textContent = x.shiny ? "✨ Shiny !" : x.nouveauHolo && r < 4 ? `🌈 ${RARETES[c.rarete].nom} Holo` : RARETES[c.rarete].nom; }
+    if (r >= 2) {
+      const sr = scene.getBoundingClientRect(), br = b.getBoundingClientRect();
+      const avant = scene.children.length;
+      etincelles(6 + r * 5, x.shiny ? "shiny" : couleurRarete[c.rarete]);
+      [...scene.children].slice(avant).forEach((el) => { el.style.left = `${br.left - sr.left + br.width / 2}px`; el.style.top = `${br.top - sr.top + br.height / 2}px`; });
+      navigator.vibrate?.(r >= 4 ? [30, 50, 80] : 20);
+      if (typeof son === "function") son(r >= 4 ? "niveau" : "badge");
+    }
+    if (retournees.size === ordre.length) {
+      indice("Touchez une carte pour la voir en grand");
+      setTimeout(() => {
+        if (!scene.isConnected || etape !== "table") return;
+        scene.insertAdjacentHTML("beforeend", `<div class="hs-fin"><button class="btn primary" id="hsSuite">Voir le résumé</button></div>`);
+        $("#hsSuite")?.addEventListener("click", (e) => { e.stopPropagation(); resume(); });
+      }, 500);
+    }
+  }
   async function suivante() {
     scene.querySelector(".pk-carte")?.classList.add("sort");
     await attendre(260);
@@ -1440,7 +1492,8 @@ function ouvrirBooster(type) {
     if (occupe) return accelerer();
     occupe = true; rapide = false;
     try {
-      if (etape === "paquet") { $("#pkPaquet")?.classList.add("dechire"); await attendre(650); if (vivant()) montrer(); }
+      if (etape === "paquet") { $("#pkPaquet")?.classList.add("dechire"); await attendre(650); if (vivant()) (S.modeOuverture === "une" ? montrer : table)(); }
+      else if (etape === "table") { const k = ordre.findIndex((_, i) => !retournees.has(i)); if (k >= 0) await retournerTable(k); else resume(); }
       else if (etape === "carte") await retourner();
       else if (etape === "retournee") await suivante();
     } finally { occupe = false; rapide = false; finAttente = null; }
@@ -1731,11 +1784,16 @@ function son(type) {
 /* =====================================================================
    Réglages : thème, sauvegarde, remise à zéro
    ===================================================================== */
-function appliquerTheme() { document.documentElement.dataset.theme = S.theme === "light" ? "light" : "dark"; } // sombre par défaut (nouvelle DA), clair sur demande
+// Thème clair « Éclat » par défaut ; le thème sombre reste disponible dans les réglages.
+// Les joueurs passent une fois au nouveau thème clair lors de son arrivée.
+function appliquerTheme() {
+  if (!S.daEclat) { S.daEclat = true; S.theme = ""; }
+  document.documentElement.dataset.theme = S.theme === "dark" ? "dark" : "light";
+}
 $("#settingsBtn").onclick = () => {
   ouvrirModal(`<h2 style="margin-top:0">Réglages</h2>
     <div class="form">
-      <label>Thème<select id="sTheme"><option value="dark">Sombre (par défaut)</option><option value="light">Clair</option></select></label>
+      <label>Thème<select id="sTheme"><option value="light">Clair (par défaut)</option><option value="dark">Sombre</option></select></label>
       <div class="panel" style="padding:12px">
         <b>Sauvegarde</b>
         <p class="muted" style="margin:4px 0 10px;font-size:13.5px">Votre progression reste dans ce navigateur (et dans le cloud si vous avez un compte). Exportez-la pour la garder ou la transférer.</p>
@@ -1746,7 +1804,7 @@ $("#settingsBtn").onclick = () => {
       <label style="display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" id="sPhotos" ${S.photos !== false ? "checked" : ""}> Afficher les vraies photos (Wikipédia)</label>
       <p class="muted" style="font-size:12.5px;margin:0">Photos : Wikipédia et Wikimedia Commons, sous licences libres ; l'auteur et la licence de chaque photo sont indiqués sur la fiche de la carte. Carte : Natural Earth (domaine public). Drapeaux : flag-icons (licence MIT).</p>
     </div>`);
-  $("#sTheme").value = S.theme;
+  $("#sTheme").value = S.theme || "light";
   $("#sTheme").onchange = (e) => { S.theme = e.target.value; sauver(); appliquerTheme(); };
   $("#sSon").onchange = (e) => { S.son = e.target.checked; sauver(); if (S.son) son("badge"); };
   $("#sPhotos").onchange = (e) => { S.photos = e.target.checked; sauver(); aller(S.vue); if (S.photos) chargerPhotos(); };

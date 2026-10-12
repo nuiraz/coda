@@ -174,3 +174,80 @@ vueAccueil = function (v) {
   }
   return r;
 };
+
+/* =====================================================================
+   Boosters à durée limitée : compte à rebours en direct et annonce de l'événement à venir
+   ===================================================================== */
+function texteRebours(ms) {
+  if (ms <= 0) return "terminé";
+  const j = Math.floor(ms / 864e5), h = Math.floor(ms / 36e5) % 24, m = Math.floor(ms / 6e4) % 60, s = Math.floor(ms / 1000) % 60;
+  const d2 = (n) => String(n).padStart(2, "0");
+  return j ? `${j} j ${d2(h)} h ${d2(m)} min` : `${d2(h)} h ${d2(m)} min ${d2(s)} s`;
+}
+const reboursHTML = (fin, prefixe = "Plus que") => `<span class="rebours" data-fin="${fin}"><small>${prefixe}</small> <b>${texteRebours(fin - Date.now())}</b></span>`;
+setInterval(() => {
+  for (const el of document.querySelectorAll(".rebours[data-fin]")) {
+    const reste = Number(el.dataset.fin) - Date.now(), b = el.querySelector("b");
+    if (b) b.textContent = texteRebours(reste);
+    if (reste <= 0 && !el.dataset.fini) { el.dataset.fini = "1"; if (typeof chargerEvenement === "function") chargerEvenement(); }
+  }
+}, 1000);
+function decorerEvenement(v) {
+  const ev = EVENEMENT && EVENEMENTS_SAISONNIERS?.[EVENEMENT.cle] ? EVENEMENTS_SAISONNIERS[EVENEMENT.cle] : null;
+  const ban = $(".bandeau-evenement", v);
+  if (ev && ban && !$(".rebours", ban)) $("div", ban)?.insertAdjacentHTML("beforeend", `<br>${reboursHTML(EVENEMENT.fin)}`);
+  const ev2 = PROCHAIN_EVENEMENT && EVENEMENTS_SAISONNIERS?.[PROCHAIN_EVENEMENT.cle];
+  if (!ev && ev2 && !$(".bandeau-bientot", v)) {
+    const el = document.createElement("div");
+    el.className = "panel bandeau-evenement bandeau-bientot"; el.style.setProperty("--ec", ev2.couleur || "var(--accent)");
+    el.innerHTML = `<span class="big">${ev2.emoji}</span><div><b>Bientôt : événement ${esc(ev2.nom)}</b><br><span>${ev2.cartes.length} cartes exclusives et un booster limité.</span><br>${reboursHTML(PROCHAIN_EVENEMENT.debut, "Début dans")}</div>`;
+    const ref = $(".accueil-booster", v) || v.firstChild;
+    ref?.after(el);
+  }
+}
+const _vueAccueilV5c = vueAccueil;
+vueAccueil = function (v) { const r = _vueAccueilV5c.apply(this, arguments); decorerEvenement(v); return r; };
+const _vueBoostersV5 = vueBoosters;
+vueBoosters = function (v) {
+  const r = _vueBoostersV5.apply(this, arguments);
+  const t = $(".boutique.evenement", v);
+  if (t && EVENEMENT && !$(".rebours", t.previousElementSibling || t)) (t.previousElementSibling || t).insertAdjacentHTML("beforeend", reboursHTML(EVENEMENT.fin));
+  return r;
+};
+
+/* =====================================================================
+   Coupe des nations : chaque joueur représente un pays
+   ===================================================================== */
+const drapeau = (code) => `<img class="drap" src="flags/${esc(String(code).toLowerCase())}.svg" alt="" loading="lazy">`;
+async function vueNations(v) {
+  v.innerHTML = `<header class="page-tete"><h1>🏳️ Coupe des nations</h1><p>Représentez un pays : vos points de la semaine s'ajoutent à ceux de tous ses joueurs. Lundi, les membres actifs des 3 meilleures nations reçoivent un lot.</p></header><div id="naCorps"><p class="muted">Chargement…</p></div>`;
+  for (let i = 0; i < 40 && typeof COMPTE !== "undefined" && COMPTE.etat === "inconnu"; i++) await new Promise((r) => setTimeout(r, 100));
+  let d; try { d = await api("nations"); } catch (e) { $("#naCorps").innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  const el = $("#naCorps"); if (!el) return;
+  const lots = d.lots.map((l, i) => `${["🥇", "🥈", "🥉"][i]} ${l.pieces} 🪙${Object.entries(l.boosters).map(([k, n]) => ` + ${n} booster ${PACKS[k]?.nom || k}`).join("")}`).join(" · ");
+  const moi = d.moi;
+  el.innerHTML = `<div class="na-grille">
+    <section class="panel na-moi">${moi ? (moi.nation ? `<div class="na-pays">${drapeau(moi.nation)}<div><small class="muted">Vous représentez</small><h2>${esc(moi.nom)}</h2></div></div>
+        <p>Vos points cette semaine : <b>${moi.points}</b>${moi.points < d.minPoints ? ` <small class="muted">(${d.minPoints} minimum pour recevoir le lot)</small>` : " ✅"}</p>
+        ${moi.membres.length ? `<h4>Meilleurs joueurs de ${esc(moi.nom)}</h4><ol class="df-top">${moi.membres.map((m) => `<li><b>${esc(m.pseudo)}</b><span>${m.points} pts</span></li>`).join("")}</ol>` : ""}
+        <details><summary class="muted">Changer de pays</summary><div class="na-choix"></div></details>`
+      : `<h3 style="margin-top:0">Choisissez votre pays</h3><p class="muted">Vous pourrez en changer tous les 30 jours.</p><div class="na-choix"></div>`)
+      : `<h3 style="margin-top:0">Rejoignez la Coupe</h3><p>Créez un compte gratuit pour représenter votre pays.</p><button class="btn primary" id="naCompte">Créer un compte</button>`}
+      <h4>Comment gagner des points</h4><ul class="na-regles"><li>Venir jouer chaque jour : <b>+1</b></li><li>Réussir le défi du jour : <b>+1 à +6</b></li><li>Victoire classée en arène : <b>+3</b></li><li>Duel classé gagné : <b>+5</b></li></ul>
+      <p class="muted" style="font-size:13px">Lots du lundi : ${lots}.</p></section>
+    <section class="panel"><div class="na-tete"><h3 style="margin:0">Classement de la semaine</h3>${reboursHTML(d.fin, "Fin dans")}</div>
+      ${d.classement.length ? `<table class="classement na-table"><tbody>${d.classement.map((n, i) => `<tr class="${moi?.nation === n.nation ? "moi" : ""}"><td>${["🥇", "🥈", "🥉"][i] || i + 1}</td><td>${drapeau(n.nation)} <b>${esc(n.nom)}</b><br><small class="muted">${n.joueurs} joueur${n.joueurs > 1 ? "s" : ""} · meilleur : ${esc(n.meilleur || "—")}</small></td><td><b>${fmt(n.points)}</b> pts</td></tr>`).join("")}</tbody></table>`
+        : `<p class="muted">Aucun point cette semaine pour l'instant. Choisissez votre pays et marquez les premiers !</p>`}
+      ${d.precedente.length ? `<h4>Semaine dernière</h4><p>${d.precedente.map((n, i) => `${["🥇", "🥈", "🥉"][i]} ${drapeau(n.nation)} ${esc(n.nom)} (${fmt(n.points)})`).join(" · ")}</p>` : ""}</section></div>`;
+  $("#naCompte")?.addEventListener("click", () => aller("compte"));
+  const choix = $(".na-choix", el);
+  if (choix) {
+    choix.innerHTML = `<form class="row" id="naForm"><select id="naPays" style="flex:1;min-width:180px">${d.pays.map(([c, n]) => `<option value="${c}" ${moi?.nation === c ? "selected" : ""}>${esc(n)}</option>`).join("")}</select><button class="btn primary">Représenter ce pays</button></form><p class="err" id="naErr"></p>`;
+    $("#naForm").onsubmit = async (e) => {
+      e.preventDefault();
+      try { await api("nations/moi", { methode: "PUT", corps: { code: $("#naPays").value } }); toast("🏳️ C'est noté : vous jouez pour " + $("#naPays").selectedOptions[0].textContent + " !"); aller("nations"); }
+      catch (err) { $("#naErr").textContent = err.message; }
+    };
+  }
+}
+ajouterPage("nations", "🏳️", "Coupe des nations", vueNations);
