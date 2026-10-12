@@ -231,7 +231,7 @@ const RE_EMOJI = /(?:\p{Extended_Pictographic}|[\u{1F7E0}-\u{1F7EB}])[︎️]?(?
 const RE_TEST = /[\p{Extended_Pictographic}\u{1F7E0}-\u{1F7EB}]/u;
 const PAS_EMOJI = new Set(["©", "®", "™", "‼", "⁉", "↔", "↕", "▪", "◀", "↗", "↘", "↙", "↖", "⤴", "⤵", "〰", "〽", "㊗", "㊙"]);
 // Zones qui gardent leurs emoji : illustrations de cartes et de boosters, messages des joueurs
-const GARDER = ".card, .pack, .art, .garder-emoji, .bulle-texte, .card3d, .cb-carte, .hs-carte, textarea, input, select, script, style, title, svg, code, pre, [contenteditable]";
+const GARDER = ".card, .pack, .art, .garder-emoji, .bulle-texte, .card3d, .cb-carte, textarea, input, select, script, style, title, svg, code, pre, [contenteditable]";
 
 function cleEmoji(e) { return e.replace(/[︎️⃣]|\p{Emoji_Modifier}/gu, "").split("‍")[0]; }
 function remplacerTexte(noeud) {

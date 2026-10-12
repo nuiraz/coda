@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v67"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v68"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -1817,12 +1817,15 @@ function son(type) {
 // Les joueurs passent une fois au nouveau thème clair lors de son arrivée.
 function appliquerTheme() {
   if (!S.daEclat) { S.daEclat = true; S.theme = ""; }
-  document.documentElement.dataset.theme = S.theme === "dark" ? "dark" : "light";
+  // Thème sombre par défaut pour tout le monde (on peut repasser en clair dans les Réglages)
+  if (!S.sombreDefaut) { S.sombreDefaut = true; S.theme = "dark"; }
+  document.documentElement.dataset.theme = S.theme === "light" ? "light" : "dark";
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", S.theme === "light" ? "#fcf6ed" : "#16121a");
 }
 $("#settingsBtn").onclick = () => {
   ouvrirModal(`<h2 style="margin-top:0">Réglages</h2>
     <div class="form">
-      <label>Thème<select id="sTheme"><option value="light">Clair (par défaut)</option><option value="dark">Sombre</option></select></label>
+      <label>Thème<select id="sTheme"><option value="dark">Sombre (par défaut)</option><option value="light">Clair</option></select></label>
       <div class="panel" style="padding:12px">
         <b>Sauvegarde</b>
         <p class="muted" style="margin:4px 0 10px;font-size:13.5px">Votre progression reste dans ce navigateur (et dans le cloud si vous avez un compte). Exportez-la pour la garder ou la transférer.</p>
@@ -1833,7 +1836,7 @@ $("#settingsBtn").onclick = () => {
       <label style="display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" id="sPhotos" ${S.photos !== false ? "checked" : ""}> Afficher les vraies photos (Wikipédia)</label>
       <p class="muted" style="font-size:12.5px;margin:0">Photos : Wikipédia et Wikimedia Commons, sous licences libres ; l'auteur et la licence de chaque photo sont indiqués sur la fiche de la carte. Carte : Natural Earth (domaine public). Drapeaux : flag-icons (licence MIT).</p>
     </div>`);
-  $("#sTheme").value = S.theme || "light";
+  $("#sTheme").value = S.theme || "dark";
   $("#sTheme").onchange = (e) => { S.theme = e.target.value; sauver(); appliquerTheme(); };
   $("#sSon").onchange = (e) => { S.son = e.target.checked; sauver(); if (S.son) son("badge"); };
   $("#sPhotos").onchange = (e) => { S.photos = e.target.checked; sauver(); aller(S.vue); if (S.photos) chargerPhotos(); };

@@ -340,3 +340,27 @@ svg.ico-e { width: 1.15em; height: 1.15em; vertical-align: -0.2em; display: inli
 .eco-graphe i { width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; opacity: .8; }
 .eco-graphe small { font-size: 9px; color: var(--muted, #888); }
 .eco-deux { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+
+/* =====================================================================
+   Ouverture des boosters : plus lumineuse et plus lisible (clair et sombre)
+   ===================================================================== */
+#modal.sombre { background: radial-gradient(circle at 50% 38%, #3a2232, #0e0a10 80%); }
+#modal.sombre .box { background: radial-gradient(130% 85% at 50% 38%, #55304a 0%, #2a1a26 50%, #150f17 100%); border-color: rgba(255, 255, 255, .14); }
+.poke-top { font-size: 16.5px; color: #fff; }
+.poke-scene { background: radial-gradient(circle at 50% 46%, rgba(255, 205, 140, .22), transparent 58%); border-radius: 24px; }
+.poke-indice { color: #fff; font-size: 15.5px; font-weight: 600; text-shadow: 0 1px 3px rgba(0, 0, 0, .6); }
+.poke-indice:not(:has(button)):not(:empty) { background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .16); padding: 8px 16px; border-radius: 99px; display: inline-block; }
+.pack.grand { box-shadow: 0 0 0 2px rgba(255, 255, 255, .45), 0 0 70px 16px rgba(255, 190, 120, .38), 0 26px 50px rgba(0, 0, 0, .55); }
+.pack.grand b, .pack.grand small { color: #fff; text-shadow: 0 2px 6px rgba(0, 0, 0, .55); }
+/* Dos de carte par défaut : aux couleurs de Play2F1, bien visible sur fond sombre */
+.face.back.dos-classique, .cosm-dos.dos-classique {
+  background: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, .25) 0 21%, transparent 22%), repeating-linear-gradient(45deg, rgba(255, 255, 255, .09) 0 6px, transparent 6px 12px), linear-gradient(150deg, #ec7193, #c4477a 48%, #f2a64c);
+  border: 2px solid rgba(255, 255, 255, .9); color: #fff; }
+.face.back svg.ico-e { color: #fff; width: 1em; height: 1em; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .35)); }
+.hs-carte .flip > .face.back { box-shadow: 0 0 0 1px rgba(255, 255, 255, .25), 0 12px 26px rgba(0, 0, 0, .5); }
+/* Cartes de la table : un peu plus de relief, nom de rareté bien lisible */
+#modal.sombre .rarete-annonce, #modal.sombre [class*="annonce"] { text-shadow: 0 2px 12px rgba(0, 0, 0, .7); }
+/* Pendant l'ouverture, les messages s'affichent en haut pour ne pas cacher les indications */
+body:has(#modal.plein:not(.hidden)) #toasts, body:has(#modal.sombre:not(.hidden)) #toasts { top: calc(12px + env(safe-area-inset-top)); bottom: auto; }
+.pk-rarete { text-shadow: 0 2px 10px rgba(0, 0, 0, .7); filter: brightness(1.35) saturate(1.2); }
+.pk-rarete[data-r="commune"], .pk-rarete.commune { color: #f2ece4 !important; }
