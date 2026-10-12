@@ -2,9 +2,9 @@
    Play2F1 — direction artistique « Éclat » : crème, rose poudré, vert sauge et encre,
    titres en Fraunces, formes douces. Chargée après style.css : elle a le dernier mot.
    ===================================================================== */
-@font-face { font-family: "Fraunces"; src: url("fonts/fraunces-latin-normal.woff2") format("woff2"); font-weight: 300 900; font-style: normal; font-display: swap; }
-@font-face { font-family: "Fraunces"; src: url("fonts/fraunces-latin-italic.woff2") format("woff2"); font-weight: 300 900; font-style: italic; font-display: swap; }
-@font-face { font-family: "DM Sans"; src: url("fonts/dmsans-latin.woff2") format("woff2"); font-weight: 300 800; font-style: normal; font-display: swap; }
+@font-face { font-family: "Fraunces"; src: url("fonts/fraunces-latin-normal-v2.woff2") format("woff2"); font-weight: 400 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Fraunces"; src: url("fonts/fraunces-latin-italic-v2.woff2") format("woff2"); font-weight: 400 700; font-style: italic; font-display: swap; }
+@font-face { font-family: "DM Sans"; src: url("fonts/dmsans-latin-v2.woff2") format("woff2"); font-weight: 400 800; font-style: normal; font-display: swap; }
 
 :root, :root:not([data-theme="dark"]) {
   --bg: #fcf6ed; --panel: #fffdf9; --panel2: #f6ede1; --text: #252b25; --muted: #6c695f; --border: #ecdccb;
@@ -199,3 +199,17 @@ input, select, textarea { border-radius: 12px; border-color: var(--border); back
   input, select, textarea, .search { font-size: 16px !important; }
 }
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+.cards-suite { height: 1px; }
+/* (rétablis) couleurs du Codex et accueil compact sur mobile */
+:root[data-theme="light"] .codex-badge, :root[data-theme="light"] .codex-tete h1 { color: var(--accent-2); }
+:root[data-theme="light"] .cx-onglets button.on { color: var(--bg); }
+@media (max-width: 820px) {
+  .ec-boosters { min-height: 0; padding: 18px 0 4px; }
+  .ec-pile { width: 118px; margin-top: 6px; } .ec-pile .pack .big { font-size: 38px; }
+  .ec-p1 { transform: rotate(7deg) translate(18px, 4px); } .ec-p2 { transform: rotate(-12deg) translate(-18px, 8px); }
+  .ec-blob { inset: 0 14% 22%; }
+  .ec-note { font-size: 18px; margin-top: 18px; }
+  .ec-hero h1 { font-size: clamp(36px, 10vw, 48px); }
+  .ec-intro { font-size: 15px; margin: 12px auto 16px; }
+  .ec-stats { margin-top: 18px; } .ec-stats dd { font-size: 23px; }
+}

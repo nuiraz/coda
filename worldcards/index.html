@@ -30,12 +30,12 @@
 <meta property="og:description" content="Play2F1 (World Cards) est un jeu de cartes à collectionner gratuit en ligne : ouvrez des boosters, collectionnez les 195 pays et leurs drapeaux, 2 400+ cartes de villes, monuments, animaux et plats, échangez avec d'autres joueurs et combattez dans l'arène.">
 <link rel="icon" href="icons/logo-2f1.png" type="image/png">
 <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
-<link rel="preload" href="fonts/fraunces-latin-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/dmsans-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css">
-<link rel="stylesheet" href="eclat.css">
+<link rel="preload" href="fonts/fraunces-latin-normal-v2.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/dmsans-latin-v2.woff2" as="font" type="font/woff2" crossorigin>
+<!-- style.css + eclat.css, réunies et minifiées (node outils/construire.cjs) -->
+<link rel="stylesheet" href="site.min.css?v=e083d804b0">
 <!-- Tous les scripts du jeu en un seul fichier minifié (liste : scripts.json, construction : node outils/construire.cjs) -->
-<script src="jeu.min.js?v=8e497f2b4d" defer></script>
+<script src="jeu.min.js?v=49c200854b" defer></script>
 <link rel="manifest" href="/manifest.webmanifest?v=4">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=4">
 <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon-precomposed.png?v=4">
@@ -49,13 +49,13 @@
 <div id="adminSecurityAlert" class="admin-sec-banner hidden" role="alert"></div>
 <!-- Menu latéral (ordinateur) -->
 <aside class="sidebar" id="sidebar" aria-label="Menu principal">
-  <div class="brand side-brand"><img class="brand-site" src="icons/logo-site.png" alt="Play2F1" width="148" height="46"></div>
+  <div class="brand side-brand"><img class="brand-site" src="icons/logo-site.webp" alt="Play2F1" width="148" height="46"></div>
   <button class="joueur-bloc" id="joueurBloc" aria-label="Mon compte"></button>
   <nav id="navSide"></nav>
   <div class="side-bas" id="sideBas"></div>
 </aside>
 <header class="top">
-  <div class="brand"><img class="brand-site" src="icons/logo-site.png" alt="Play2F1" width="148" height="46"></div>
+  <div class="brand"><img class="brand-site" src="icons/logo-site.webp" alt="Play2F1" width="148" height="46"></div>
   <h2 class="titre-vue" id="titreVue"></h2>
   <div class="online-pill" id="onlinePill" title="Joueurs connectés en temps réel">
     <span class="dot-live"></span><span id="nbEnLigne">…</span><span class="lbl"> en ligne</span>
@@ -69,7 +69,7 @@
   <button class="hidden" id="settingsBtn" aria-hidden="true" tabindex="-1"></button>
 </header>
 <nav id="nav"></nav>
-<main id="view"><noscript><h1>Play2F1 — jeu de cartes à collectionner gratuit</h1><p>Collectionnez les pays, drapeaux, villes et monuments du monde en ouvrant des boosters. Activez JavaScript pour jouer.</p></noscript></main>
+<main id="view"><div class="chargement-jeu" style="min-height:70vh;display:grid;place-items:center;text-align:center;color:#6c695f;font:16px system-ui,sans-serif"><div><img src="icons/logo-2f1.png" alt="" width="84" height="84" style="border-radius:20px;animation:respire 1.4s ease-in-out infinite alternate"><p style="margin:14px 0 0">Chargement de vos cartes…</p></div></div><style>@keyframes respire{to{transform:scale(1.06);opacity:.75}}html,body{background:#fcf6ed}</style><noscript><h1>Play2F1 — jeu de cartes à collectionner gratuit</h1><p>Collectionnez les pays, drapeaux, villes et monuments du monde en ouvrant des boosters. Activez JavaScript pour jouer.</p></noscript></main>
 <footer class="pied">
   <div class="liens"><a href="#" data-pied="hub">Communauté & Échanges</a> · <a href="#" data-pied="tournoi">🏆 Tournoi</a> · <a href="#" data-pied="compte">Mon compte</a> ·
   <a href="#" data-pied-legal="mentions">Mentions légales</a> · <a href="#" data-pied-legal="cgu">Conditions d'utilisation</a> ·

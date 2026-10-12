@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v58"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v59"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -1573,14 +1573,32 @@ function dessinerSections() {
   if (T === "tout" || T === "culture") sections.push(["🎭 Culture", of("monde", "culture")]);
   if (T === "tout" || T === "merveille") sections.push(["🌟 Merveilles du monde moderne", of("monde", "merveille").filter((c) => c.groupe === "modernes")], ["🏺 Merveilles du monde antique", of("monde", "merveille").filter((c) => c.groupe === "antiques")]);
   if (T === "tout" || T === "secrete") sections.push(["✦ Cartes secrètes", of("monde", "secrete")]);
-  const html = sections.map(([titre, list]) => {
-    const vis = trier(list.filter(ok));
-    if (!vis.length) return "";
-    return `<div class="sectiontitle"><h3>${titre}</h3><span class="muted">${count(list.map((c) => c.id))}/${list.length}</span></div>
-      <div class="cards">${vis.map((c) => cardHTML(c, { compte: true })).join("")}</div>`;
-  }).join("");
-  $("#sections").innerHTML = html || `<p class="muted" style="text-align:center;margin-top:40px">Aucune carte ne correspond.</p>`;
+  // Affichage progressif : 2 500 cartes d'un coup bloquaient le téléphone plusieurs secondes.
+  // Chaque rubrique montre ses premières cartes, la suite arrive pendant qu'on fait défiler.
+  const blocs = sections.map(([titre, list]) => ({ titre, list, vis: trier(list.filter(ok)), n: 0 })).filter((b) => b.vis.length);
+  albumObs?.disconnect();
+  const zone = $("#sections");
+  if (!blocs.length) { zone.innerHTML = `<p class="muted" style="text-align:center;margin-top:40px">Aucune carte ne correspond.</p>`; return; }
+  zone.innerHTML = blocs.map((b, i) => `<div class="sectiontitle"><h3>${b.titre}</h3><span class="muted">${count(b.list.map((c) => c.id))}/${b.list.length}</span></div>
+      <div class="cards" data-bloc="${i}"></div><div class="cards-suite" data-bloc="${i}" aria-hidden="true"></div>`).join("");
+  const suite = (i) => {
+    const b = blocs[i], el = zone.querySelector(`.cards[data-bloc="${i}"]`);
+    if (!el || b.n >= b.vis.length) return false;
+    const lot = b.vis.slice(b.n, b.n + ALBUM_LOT); b.n += lot.length;
+    el.insertAdjacentHTML("beforeend", lot.map((c) => cardHTML(c, { compte: true })).join(""));
+    if (b.n >= b.vis.length) zone.querySelector(`.cards-suite[data-bloc="${i}"]`)?.remove();
+    return true;
+  };
+  suite(0);
+  if (typeof IntersectionObserver === "undefined") { blocs.forEach((_, i) => { while (suite(i)); }); return; }
+  albumObs = new IntersectionObserver((entrees) => {
+    // On réobserve après chaque lot : si la fin de la rubrique est encore proche, le lot suivant arrive aussitôt
+    for (const e of entrees) if (e.isIntersecting) { albumObs.unobserve(e.target); if (suite(Number(e.target.dataset.bloc)) && e.target.isConnected) albumObs.observe(e.target); }
+  }, { rootMargin: "1200px 0px" });
+  zone.querySelectorAll(".cards-suite").forEach((x) => albumObs.observe(x));
 }
+const ALBUM_LOT = 36;
+let albumObs = null;
 
 /* =====================================================================
    Atlas interactif
