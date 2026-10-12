@@ -84,6 +84,40 @@ const TRAD_EN = {
   "Le combat commence !": "The battle begins!", "Le graphique se remplit jour après jour : revenez demain !": "The chart fills up day after day: come back tomorrow!",
   "Ouvrez des boosters !": "Open some boosters!", "Aucune pour l'instant.": "None yet.", "Calcul du résultat…": "Calculating the result…", "Vos cartes": "Your cards",
 };
+// Nouveautés v40 → v49
+Object.assign(TRAD_EN, {
+  "Collection": "Collection", "Ligues": "Leagues", "Decks": "Decks", "Succès": "Achievements", "Missions": "Missions", "Albums": "Albums", "Mode streamer": "Streamer mode",
+  "Forge": "Forge", "Codex": "Codex", "Défis": "Challenges", "Joueurs": "Players", "Classements": "Leaderboards", "Activité": "Activity", "Événements": "Events",
+  "Notifications": "Notifications", "Discussion": "Chat", "Messages": "Messages", "Échanges": "Trades", "Amis": "Friends", "Profil": "Profile", "Mon deck": "My deck",
+  "Votre prochain booster vous attend": "Your next booster is waiting", "Ouvrez un booster": "Open a booster", "Ouvrir maintenant": "Open now", "OUVRIR MAINTENANT": "OPEN NOW",
+  "Voir la boutique": "See the shop", "Récupérer le booster gratuit": "Claim the free booster", "🏆 Meilleure carte": "🏆 Best card", "📤 Partager": "📤 Share", "📤 Partager…": "📤 Share…",
+  "⬇️ Télécharger l'image": "⬇️ Download image", "🔗 Copier le lien": "🔗 Copy link", "🌐 Page publique de la carte": "🌐 Card's public page", "Story 9:16": "Story 9:16", "Post 4:5": "Post 4:5",
+  "🎯 Missions de combat": "🎯 Battle missions", "Toutes les missions →": "All missions →", "Aujourd'hui": "Today", "Cette semaine": "This week", "✓ Reçu": "✓ Claimed",
+  "✨ Carte du jour": "✨ Card of the day", "Change à minuit (UTC)": "Changes at midnight (UTC)", "✓ Déjà obtenue aujourd'hui": "✓ Already obtained today",
+  "⚡ Jouer un match classé": "⚡ Play a ranked match", "⚡ Adversaire en direct": "⚡ Live opponent", "⚡ Trouver un adversaire": "⚡ Find an opponent", "🏆 Classé": "🏆 Ranked", "🤝 Amical": "🤝 Friendly",
+  "🏆 Duel classé": "🏆 Ranked duel", "🤝 Duel amical": "🤝 Friendly duel", "Compte pour la ligue": "Counts for your league", "Sans effet sur le classement": "No effect on ranking",
+  "Annuler": "Cancel", "Fermer": "Close", "Continuer": "Continue", "Enregistrer": "Save", "Valider": "Confirm", "Accepter": "Accept", "Refuser": "Decline", "Défier": "Challenge", "⚔️ Défier": "⚔️ Challenge",
+  "🤝 Échanger": "🤝 Trade", "➕ Ami": "➕ Friend", "✉️ Message": "✉️ Message", "📚 Collection": "📚 Collection", "▶ Revoir": "▶ Replay", "Utiliser": "Use",
+  "Mon rang": "My rank", "Les rangs": "Ranks", "🏆 Classement": "🏆 Leaderboard", "📈 Mon historique de rang": "📈 My rank history", "⚔️ Arène": "⚔️ Arena", "🤝 Défier un ami": "🤝 Challenge a friend",
+  "📜 Journal du combat": "📜 Battle log", "K.O. infligés": "K.O. dealt", "Main": "Hand", "⚔️ Attaque": "⚔️ Attack", "🛡️ Garde": "🛡️ Guard", "⏩ Auto": "⏩ Auto", "🏳️ Abandon": "🏳️ Forfeit",
+  "🏆 Victoire !": "🏆 Victory!", "💀 Défaite…": "💀 Defeat…", "Victoire": "Victory", "Défaite": "Defeat",
+  "⚡ Remplir avec mes meilleures cartes": "⚡ Fill with my best cards", "🗂️ Mes decks enregistrés": "🗂️ My saved decks", "💾 Enregistrer le deck actuel": "💾 Save current deck",
+  "🌐 Rendre public": "🌐 Make public", "🔎 Decks de la communauté": "🔎 Community decks", "⭐ Favoris": "⭐ Favorites", "Mes decks": "My decks", "Tous les styles": "All styles",
+  "Toutes raretés": "All rarities", "Toutes les ligues": "All leagues", "Popularité": "Popularity", "Plus récents": "Newest", "Coût le plus bas": "Lowest cost",
+  "Équilibré": "Balanced", "Défense": "Defense", "Vitesse": "Speed", "Avantage de types": "Type advantage", "✓ Vous avez toutes les cartes": "✓ You own every card",
+  "🛍️ Packs": "🛍️ Packs", "Acheter": "Buy", "Déjà acheté": "Already bought", "Bientôt disponible": "Coming soon", "Probabilités des boosters": "Booster odds", "Limité à un achat par compte.": "Limited to one purchase per account.",
+  "Purement décoratif : aucun avantage en combat": "Purely cosmetic: no battle advantage", "Offre de lancement": "Launch offer", "Cosmétique": "Cosmetic",
+  "🏅 Succès": "🏅 Achievements", "📜 Derniers matchs": "📜 Recent matches", "🃏 Deck favori": "🃏 Favourite deck", "⭐ Cartes favorites": "⭐ Favourite cards", "📈 Rangs": "📈 Ranks",
+  "⚙️ Mon profil public": "⚙️ My public profile", "Voir mon profil": "View my profile", "🎙️ Soutenir un créateur": "🎙️ Support a creator", "Statistiques de combat": "Battle statistics",
+  "Historique des matchs": "Match history", "Activité récente": "Recent activity", "🎨 Titres et cadres": "🎨 Titles and frames", "⭐ Choisir mes cartes favorites": "⭐ Choose my favourite cards",
+  "📌 Annonces et actualités": "📌 Announcements and news", "Invitations reçues": "Invitations received", "Aucune invitation": "No invitations", "Pas encore d'amis": "No friends yet",
+  "Trouver des joueurs": "Find players", "Défier un ami": "Challenge a friend", "Tout est à jour": "All caught up", "🏅 Ligues (PvP)": "🏅 Leagues (PvP)", "🌟 Semaine": "🌟 This week",
+  "⚔️ Guerre de guildes": "⚔️ Guild war", "🔥 Plus belles ouvertures de la semaine": "🔥 Best openings of the week", "Rejoindre une guilde": "Join a guild",
+  "🤝 Échange en direct": "🤝 Live trade", "✅ Valider l'échange": "✅ Confirm trade", "Annuler l'échange": "Cancel trade", "Ouvrir l'échange": "Open trade", "Plus tard": "Later",
+  "🎥 Lancer le mode streamer": "🎥 Start streamer mode", "Quitter le mode streamer": "Exit streamer mode", "🏆 Meilleures cartes": "🏆 Best cards",
+  "Mon profil": "My profile", "Chargement…": "Loading…", "Récompense déjà reçue.": "Reward already claimed.",
+});
+
 // Règles pour les textes avec des nombres ou des noms (appliquées si aucun texte exact ne correspond)
 const REGLES_EN = [
   [/^Booster (.+)$/, (m, x) => `${tr(x)} booster`], [/^Carte (\d+) \/ (\d+)$/, "Card $1 / $2"], [/^(\d[\d\s]*) cartes?$/, "$1 cards"], [/^Acheter · (.+)$/, "Buy · $1"],

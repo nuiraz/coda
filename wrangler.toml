@@ -17,3 +17,11 @@ database_name = "worldcards"
 # Tâche planifiée : notifications « booster gratuit prêt » et ménage
 [triggers]
 crons = ["*/15 * * * *"]
+
+# Stockage des images (visuels de boosters, photos de cartes, logos des rangs) dans Cloudflare R2.
+# 1. Créer un bucket nommé « play2f1-images » dans Cloudflare → R2 (offre gratuite : 10 Go).
+# 2. Décommenter les 3 lignes ci-dessous et redéployer : les nouvelles images iront dans R2.
+# 3. Admin → Images → « Déplacer vers R2 » pour y transférer les images déjà envoyées.
+# [[r2_buckets]]
+# binding = "IMAGES"
+# bucket_name = "play2f1-images"

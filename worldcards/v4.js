@@ -1122,3 +1122,36 @@ async function blocOuvertures(el) {
 }
 const _hubEvenementsV4b = hubEvenements;
 hubEvenements = async function (el) { await _hubEvenementsV4b(el); const s = document.createElement("section"); s.className = "panel"; s.style.marginBottom = "14px"; el.append(s); blocOuvertures(s); };
+
+/* ---------- Admin : tableau de bord des combats et stockage des images ---------- */
+async function adminCombats(el) {
+  el.innerHTML = `<p class="muted">Chargement…</p>`;
+  try {
+    const r = await api("admin/combats");
+    const jours = [...new Set([...r.parJour.arene, ...r.parJour.duels].map((x) => x.j))].sort();
+    const n = (l, j) => l.find((x) => x.j === j)?.n || 0, max = Math.max(1, ...jours.map((j) => n(r.parJour.arene, j) + n(r.parJour.duels, j)));
+    const tableau = (titre, l) => `<section class="panel"><h3 style="margin-top:0">${titre}</h3>${l.length ? `<table class="classement"><thead><tr><th>Carte</th><th>Rareté</th><th>Jouée</th><th>Victoires</th></tr></thead><tbody>${l.map((c) => `<tr><td>${esc(c.nom)}</td><td class="r-${c.rarete}">${esc(RARETES[c.rarete]?.nom || "")}</td><td>${c.joues}</td><td>${c.taux} %</td></tr>`).join("")}</tbody></table>` : `<p class="muted">Pas encore assez de combats.</p>`}</section>`;
+    el.innerHTML = `<section class="panel"><h3 style="margin-top:0">📊 Combats des 14 derniers jours</h3>
+        <div class="statgrid petit"><div class="stat"><b>${fmt(r.parJour.arene.reduce((t, x) => t + x.n, 0))}</b><span>arène</span></div><div class="stat"><b>${fmt(r.modes.classes || 0)}</b><span>duels classés</span></div><div class="stat"><b>${fmt(r.modes.amicaux || 0)}</b><span>duels amicaux</span></div><div class="stat"><b>${fmt(r.modes.matchmaking || 0)}</b><span>via matchmaking</span></div></div>
+        <div class="barres" role="img" aria-label="Combats par jour">${jours.map((j) => `<div title="${j} : ${n(r.parJour.arene, j)} arène, ${n(r.parJour.duels, j)} duels"><i class="b-duel" style="height:${(n(r.parJour.duels, j) / max) * 100}%"></i><i class="b-arene" style="height:${(n(r.parJour.arene, j) / max) * 100}%"></i><small>${j.slice(8)}</small></div>`).join("") || `<p class="muted">Aucun combat.</p>`}</div>
+        <p class="muted" style="font-size:12.5px">■ arène · <span style="color:var(--accent)">■</span> duels en direct</p></section>
+      <div class="grid2">${tableau("🃏 Cartes les plus jouées", r.plusJouees)}${tableau("💪 Meilleur taux de victoire (5 combats min.)", r.meilleures)}</div>${tableau("🔻 Taux de victoire le plus bas", r.pires)}
+      <p class="muted">Pour rééquilibrer : ajustez le budget des decks et le nombre de légendaires dans « 🎲 Chances & règles ».</p>`;
+  } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+async function adminImages(el) {
+  el.innerHTML = `<p class="muted">Chargement…</p>`;
+  try {
+    const r = await api("admin/images"), mo = (o) => (o / 1048576).toFixed(1) + " Mo";
+    const ligne = (n, x) => `<tr><td>${n}</td><td>${x.n}</td><td>${x.r2}</td><td>${mo(x.octets)}</td></tr>`;
+    el.innerHTML = `<section class="panel"><h3 style="margin-top:0">💾 Stockage des images</h3>
+      <p>${r.r2 ? "✅ Le bucket R2 « IMAGES » est relié : les nouvelles images y sont stockées." : "ℹ️ Les images sont stockées dans la base D1 (500 Mo en offre gratuite). Pour passer à Cloudflare R2 (10 Go gratuits) : créez un bucket « play2f1-images » dans Cloudflare → R2, puis décommentez le bloc <code>[[r2_buckets]]</code> du fichier <code>wrangler.toml</code> et redéployez."}</p>
+      <table class="classement"><thead><tr><th></th><th>Images</th><th>Dans R2</th><th>Poids dans D1</th></tr></thead><tbody>${ligne("Visuels de boosters", r.visuels)}${ligne("Photos de cartes", r.photos)}${ligne("Logos des rangs", r.rangs)}</tbody></table>
+      ${r.r2 ? `<button class="btn primary" id="imMigrer" style="margin-top:12px">Déplacer les images de D1 vers R2</button> <span class="muted" id="imEtat"></span>` : ""}</section>`;
+    $("#imMigrer")?.addEventListener("click", async () => {
+      let total = 0;
+      for (;;) { const x = await api("admin/images/migrer", { methode: "POST", corps: {} }).catch((e) => ({ erreur: e.message })); if (x.erreur) { $("#imEtat").textContent = "⚠ " + x.erreur; return; } total += x.migrees; $("#imEtat").textContent = `${total} image(s) déplacée(s)…`; if (!x.migrees) break; }
+      toast(`💾 ${total} image(s) déplacée(s) vers R2.`); adminImages(el);
+    });
+  } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}

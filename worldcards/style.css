@@ -2030,3 +2030,7 @@ body[data-fond-streamer="vert"] { background: #00b140 !important; } body[data-fo
 .top-ouvertures { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .top-ouvertures li { display: grid; grid-template-columns: 30px 1fr auto auto; gap: 10px; align-items: center; padding: 7px 10px; border-radius: 9px; background: var(--panel2); }
 .top-ouvertures a { color: var(--text); font-weight: 600; text-decoration: none; } .to-cartes { display: flex; gap: 3px; font-size: 18px; } .to-cartes i { font-style: normal; }
+.barres { display: flex; align-items: flex-end; gap: 6px; height: 160px; padding: 10px 0 18px; }
+.barres > div { position: relative; flex: 1; height: 100%; display: flex; flex-direction: column-reverse; }
+.barres i { display: block; width: 100%; } .barres .b-arene { background: var(--muted); border-radius: 4px 4px 0 0; } .barres .b-duel { background: var(--accent); }
+.barres small { position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 10.5px; color: var(--muted); }

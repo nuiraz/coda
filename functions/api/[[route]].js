@@ -2431,9 +2431,7 @@ route("GET", "visuels", async ({ env }) => {
 });
 route("GET", "visuel/([A-Za-z0-9-]{2,40})", async ({ env, p }) => {
   const v = await env.DB.prepare("SELECT image FROM visuels WHERE cle = ?").bind(p[1]).first();
-  const m = v && VISUEL_RE.exec(v.image);
-  if (!m) return new Response(null, { status: 404 });
-  return new Response(Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/" + m[1], "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+  return reponseImage(env, "visuels/" + p[1], v?.image);
 });
 route("POST", "admin/visuels", async ({ request, env }) => {
   const b = await corps(request);
@@ -2441,11 +2439,12 @@ route("POST", "admin/visuels", async ({ request, env }) => {
   const m = VISUEL_RE.exec(String(b.image || ""));
   if (!m) return erreur("Image invalide (WebP, JPEG ou PNG).");
   if (m[2].length > 1400000) return erreur("Image trop lourde : 1 Mo maximum après compression.");
-  await env.DB.prepare("INSERT INTO visuels (cle, image, maj) VALUES (?, ?, ?) ON CONFLICT(cle) DO UPDATE SET image = excluded.image, maj = excluded.maj").bind(b.cle, b.image, maintenant()).run();
+  await env.DB.prepare("INSERT INTO visuels (cle, image, maj) VALUES (?, ?, ?) ON CONFLICT(cle) DO UPDATE SET image = excluded.image, maj = excluded.maj").bind(b.cle, await stockerImage(env, "visuels/" + b.cle, b.image), maintenant()).run();
   return json({ ok: true, maj: maintenant() });
 }, { admin: true });
 route("DELETE", "admin/visuels/([A-Za-z0-9-]{2,40})", async ({ env, p }) => {
   await env.DB.prepare("DELETE FROM visuels WHERE cle = ?").bind(p[1]).run();
+  await env.IMAGES?.delete("visuels/" + p[1]).catch(() => {});
   return json({ ok: true });
 }, { admin: true });
 
@@ -2659,6 +2658,66 @@ route("PUT", "admin/offres/([a-z0-9-]{2,30})", async ({ request, env, user, p })
 
 
 
+
+
+/* =====================================================================
+   Stockage des images : Cloudflare R2 si le bucket « IMAGES » est relié au Worker, sinon la base D1 (base64)
+   ===================================================================== */
+async function stockerImage(env, chemin, dataUrl) {
+  const m = VISUEL_RE.exec(String(dataUrl || ""));
+  if (!m || !env.IMAGES) return dataUrl;
+  await env.IMAGES.put(chemin, Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0)), { httpMetadata: { contentType: "image/" + m[1] } });
+  return "r2:image/" + m[1];
+}
+async function reponseImage(env, chemin, valeur) {
+  const entetes = (type) => ({ "content-type": type, "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" });
+  if (typeof valeur === "string" && valeur.startsWith("r2:")) {
+    const o = env.IMAGES ? await env.IMAGES.get(chemin) : null;
+    return o ? new Response(o.body, { headers: entetes(valeur.slice(3)) }) : new Response(null, { status: 404 });
+  }
+  const m = valeur && VISUEL_RE.exec(valeur);
+  if (!m) return new Response(null, { status: 404 });
+  return new Response(Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0)), { headers: entetes("image/" + m[1]) });
+}
+route("GET", "admin/images", async ({ env }) => {
+  const [v, ph, rg] = await env.DB.batch([
+    env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN image LIKE 'data:%' THEN LENGTH(image) ELSE 0 END), 0) AS octets, SUM(image LIKE 'r2:%') AS r2 FROM visuels"),
+    env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN image LIKE 'data:%' THEN LENGTH(image) ELSE 0 END), 0) AS octets, SUM(image LIKE 'r2:%') AS r2 FROM photos_perso"),
+    env.DB.prepare("SELECT COUNT(logo) AS n, COALESCE(SUM(CASE WHEN logo LIKE 'data:%' THEN LENGTH(logo) ELSE 0 END), 0) AS octets, SUM(logo LIKE 'r2:%') AS r2 FROM rangs"),
+  ]);
+  const t = (r) => ({ n: r.results[0].n || 0, octets: r.results[0].octets || 0, r2: r.results[0].r2 || 0 });
+  return json({ r2: !!env.IMAGES, visuels: t(v), photos: t(ph), rangs: t(rg) });
+}, { admin: true });
+// Déplace les images encore stockées en base64 dans D1 vers R2 (par lots de 40 pour rester sous les limites du Worker)
+route("POST", "admin/images/migrer", async ({ env, user }) => {
+  if (!env.IMAGES) return erreur("Aucun bucket R2 « IMAGES » n'est relié au Worker.", 400);
+  let n = 0;
+  for (const [table, col, cleCol, prefixe, conv] of [["visuels", "image", "cle", "visuels/", (k) => k], ["photos_perso", "image", "carte", "photos/", (k) => k.replace(":", "~")], ["rangs", "logo", "cle", "rangs/", (k) => k]]) {
+    const { results } = await env.DB.prepare(`SELECT ${cleCol} AS k, ${col} AS d FROM ${table} WHERE ${col} LIKE 'data:%' LIMIT 40`).all();
+    for (const r of results) { const v = await stockerImage(env, prefixe + conv(r.k), r.d); if (v.startsWith("r2:")) { await env.DB.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${cleCol} = ?`).bind(v, r.k).run(); n++; } }
+  }
+  await journaliser(env, user.id, "images migrées vers R2", `${n} image(s)`, "admin");
+  return json({ migrees: n });
+}, { admin: true });
+
+/* ---------- Tableau de bord des combats (équilibrage) ---------- */
+route("GET", "admin/combats", async ({ env }) => {
+  const depuis = maintenant() - 14 * JOUR;
+  const [parJourA, parJourD, decks, duelsDecks, modes] = await env.DB.batch([
+    env.DB.prepare("SELECT strftime('%Y-%m-%d', cree_le / 1000, 'unixepoch') AS j, COUNT(*) AS n FROM combats WHERE fini = 1 AND cree_le >= ? GROUP BY j ORDER BY j").bind(depuis),
+    env.DB.prepare("SELECT strftime('%Y-%m-%d', fini_le / 1000, 'unixepoch') AS j, COUNT(*) AS n FROM duels WHERE statut = 'fini' AND fini_le >= ? GROUP BY j ORDER BY j").bind(depuis),
+    env.DB.prepare("SELECT a, gagne FROM combats WHERE fini = 1 AND cree_le >= ? ORDER BY id DESC LIMIT 600").bind(depuis),
+    env.DB.prepare("SELECT deck_a, deck_b, gagnant, a_id FROM duels WHERE statut = 'fini' AND deck_b IS NOT NULL AND fini_le >= ? ORDER BY id DESC LIMIT 400").bind(depuis),
+    env.DB.prepare("SELECT SUM(classe = 1) AS classes, SUM(classe = 0) AS amicaux, SUM(aleatoire = 1) AS matchmaking FROM duels WHERE statut = 'fini' AND fini_le >= ?").bind(depuis),
+  ]);
+  const st = {};
+  const compter = (deck, gagne) => { let d; try { d = JSON.parse(deck); } catch { return; } for (const u of d) { const x = (st[u.id] ||= { id: u.id, nom: CATALOGUE[u.id]?.nom || u.id, rarete: CATALOGUE[u.id]?.rarete, joues: 0, gagnes: 0 }); x.joues++; if (gagne) x.gagnes++; } };
+  for (const c of decks.results) compter(c.a, !!c.gagne);
+  for (const d of duelsDecks.results) { const aGagne = d.gagnant === d.a_id; compter(d.deck_a, aGagne); compter(d.deck_b, !aGagne); }
+  const cartes = Object.values(st).map((x) => ({ ...x, taux: Math.round((x.gagnes / x.joues) * 100) }));
+  return json({ parJour: { arene: parJourA.results, duels: parJourD.results }, modes: modes.results[0],
+    plusJouees: cartes.sort((a, b) => b.joues - a.joues).slice(0, 15), meilleures: cartes.filter((x) => x.joues >= 5).sort((a, b) => b.taux - a.taux).slice(0, 10), pires: cartes.filter((x) => x.joues >= 5).sort((a, b) => a.taux - b.taux).slice(0, 10) });
+}, { admin: true });
 
 /* =====================================================================
    Défi viral : les plus belles ouvertures de booster de la semaine, et les amis prévenus d'une légendaire
@@ -3196,9 +3255,7 @@ route("GET", "rangs", async ({ env, user }) => {
 });
 route("GET", "rang-logo/([a-z0-9-]{2,30})", async ({ env, p }) => {
   const v = await env.DB.prepare("SELECT logo FROM rangs WHERE cle = ?").bind(p[1]).first();
-  const m = v?.logo && VISUEL_RE.exec(v.logo);
-  if (!m) return new Response(null, { status: 404 });
-  return new Response(Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/" + m[1], "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+  return reponseImage(env, "rangs/" + p[1], v?.logo);
 });
 route("GET", "rangs/historique/(.{2,24})", async ({ env, p, user }) => {
   const u = await env.DB.prepare("SELECT id, confidentialite FROM users WHERE pseudo = ? AND banni = 0").bind(decodeURIComponent(p[1])).first();
@@ -3229,7 +3286,7 @@ route("POST", "admin/rangs/([a-z0-9-]{2,30})/logo", async ({ request, env, user,
   const m = VISUEL_RE.exec(String(b.image || ""));
   if (!m || !["png", "webp"].includes(m[1])) return erreur("Logo invalide : PNG ou WebP uniquement (pour garder la transparence).");
   if (m[2].length > 1400000) return erreur("Logo trop lourd : 1 Mo maximum.");
-  const r = await env.DB.prepare("UPDATE rangs SET logo = ?, logo_maj = ? WHERE cle = ?").bind(b.image, maintenant(), p[1]).run();
+  const r = await env.DB.prepare("UPDATE rangs SET logo = ?, logo_maj = ? WHERE cle = ?").bind(await stockerImage(env, "rangs/" + p[1], b.image), maintenant(), p[1]).run();
   if (!r.meta.changes) return erreur("Rang introuvable.", 404);
   rangsCache = { t: 0, v: null };
   await journaliser(env, user.id, `logo du rang ${p[1]} importé`, "", "admin");
@@ -3237,6 +3294,7 @@ route("POST", "admin/rangs/([a-z0-9-]{2,30})/logo", async ({ request, env, user,
 }, { admin: true });
 route("DELETE", "admin/rangs/([a-z0-9-]{2,30})/logo", async ({ env, p }) => {
   await env.DB.prepare("UPDATE rangs SET logo = NULL, logo_maj = 0 WHERE cle = ?").bind(p[1]).run();
+  await env.IMAGES?.delete("rangs/" + p[1]).catch(() => {});
   rangsCache = { t: 0, v: null };
   return json({ ok: true });
 }, { admin: true });
@@ -3251,9 +3309,7 @@ route("GET", "photos/perso", async ({ env }) => {
 });
 route("GET", "photo-perso/([a-z]+~[A-Za-z0-9_-]{1,40})", async ({ env, p }) => {
   const v = await env.DB.prepare("SELECT image FROM photos_perso WHERE carte = ?").bind(p[1].replace("~", ":")).first();
-  const m = v && VISUEL_RE.exec(v.image);
-  if (!m) return new Response(null, { status: 404 });
-  return new Response(Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/" + m[1], "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+  return reponseImage(env, "photos/" + p[1], v?.image);
 });
 route("POST", "admin/photo-perso", async ({ request, env }) => {
   const b = await corps(request);
@@ -3261,11 +3317,12 @@ route("POST", "admin/photo-perso", async ({ request, env }) => {
   const m = VISUEL_RE.exec(String(b.image || ""));
   if (!m) return erreur("Image invalide (WebP, JPEG ou PNG).");
   if (m[2].length > 1400000) return erreur("Image trop lourde : 1 Mo maximum après compression.");
-  await env.DB.prepare("INSERT INTO photos_perso (carte, image, maj) VALUES (?, ?, ?) ON CONFLICT(carte) DO UPDATE SET image = excluded.image, maj = excluded.maj").bind(b.carte, b.image, maintenant()).run();
+  await env.DB.prepare("INSERT INTO photos_perso (carte, image, maj) VALUES (?, ?, ?) ON CONFLICT(carte) DO UPDATE SET image = excluded.image, maj = excluded.maj").bind(b.carte, await stockerImage(env, "photos/" + b.carte.replace(":", "~"), b.image), maintenant()).run();
   return json({ ok: true, maj: maintenant() });
 }, { admin: true });
 route("DELETE", "admin/photo-perso/([a-z]+~[A-Za-z0-9_-]{1,40})", async ({ env, p }) => {
   await env.DB.prepare("DELETE FROM photos_perso WHERE carte = ?").bind(p[1].replace("~", ":")).run();
+  await env.IMAGES?.delete("photos/" + p[1]).catch(() => {});
   return json({ ok: true });
 }, { admin: true });
 
