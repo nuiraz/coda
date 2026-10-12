@@ -802,6 +802,7 @@ addEventListener("DOMContentLoaded", async () => {
   for (let essai = 0; essai < 5; essai++) {
     try {
       const r = await api("stripe/valider", { methode: "POST", corps: { session } });
+      if (r.formule === "pack") { await verifierCadeaux(); aller("boosters"); toast(`🛍️ ${esc(r.nomPack || "Pack")} livré : merci pour votre achat !`, 6000); return; }
       if (r.formule === "passe") { passeEtat.actif = true; ouvrirModal(`<div class="reveal"><div style="font-size:56px">🎟️</div><h2>Merci ! Votre passe de saison est actif.</h2><p>La piste Premium est débloquée : récupérez vos récompenses !</p><button class="btn primary" data-close>Voir mon passe</button></div>`, () => aller("passe")); }
       else { majPremium(r.premiumJusqu); COMPTE.stripe = true; majBoutonCompte(); ouvrirModal(`<div class="reveal"><div style="font-size:56px">💎</div><h2>Merci ! Votre Premium est activé.</h2><p>${r.formule === "vie" ? "Premium à vie : merci pour votre soutien !" : "Votre abonnement se renouvelle automatiquement ; vous pouvez le gérer depuis la page Premium."}</p><button class="btn primary" data-close>Super !</button></div>`, () => aller("premium")); }
       return;

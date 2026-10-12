@@ -24,6 +24,9 @@ function appliquerReglages(r) {
     // La garantie réglée remplace la rareté minimale de la dernière carte du booster
     p.garanties = !c || c.garantie === undefined ? g.slice() : c.garantie === null ? g.slice(0, -1) : [...g.slice(0, -1), c.garantie];
   }
+  // La description du booster Classique suit la garantie réglée par l'admin
+  const gm = PACKS.monde?.garanties?.slice(-1)[0], rg = Object.values(RARETES).find((x) => x.ordre === gm);
+  if (PACKS.monde) PACKS.monde.desc = rg && gm > 0 ? `5 cartes, dont au moins une ${rg.nom.toLowerCase()} ou mieux.` : "5 cartes du monde entier.";
   if (r.deck) { COMBAT.BUDGET = r.deck.budget; REGLES_DECK.maxLegendaires = r.deck.maxLegendaires; }
 }
 try { appliquerReglages(JSON.parse(localStorage.getItem("worldcards:reglages")) || REGLAGES_CLIENT_DEFAUT); } catch { appliquerReglages(REGLAGES_CLIENT_DEFAUT); }
@@ -358,3 +361,88 @@ ficheCarte = function (c) {
   }
   return r;
 };
+
+/* ---------- Boutique de packs payants ---------- */
+const prixEuros = (n) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+const valeurPieces = (o) => o.pieces + Object.entries(o.boosters || {}).reduce((t, [k, n]) => t + (PACKS[k]?.prix || 0) * n, 0);
+function contenuPack(o) {
+  return [o.pieces ? `${fmt(o.pieces)} 🪙 pièces` : null, ...Object.entries(o.boosters || {}).filter(([k, n]) => n && PACKS[k]).map(([k, n]) => `${n} booster${n > 1 ? "s" : ""} ${PACKS[k].emoji} ${PACKS[k].nom}`)].filter(Boolean);
+}
+async function blocPacks(el) {
+  let r; try { r = await api("offres"); } catch { el.remove(); return; }
+  if (!r.offres.length) { el.remove(); return; }
+  el.innerHTML = `<div class="sectiontitle"><h3>🛍️ Packs</h3><span class="muted">Paiement sécurisé par Stripe · prix TTC · contenu livré immédiatement</span></div>
+    <div class="packs-offres">${r.offres.map((o) => `<article class="offre ${o.badge ? "mise-en-avant" : ""}">
+      ${o.badge ? `<span class="offre-badge">${esc(o.badge)}</span>` : ""}<h4>${esc(o.nom)}</h4><p class="muted">${esc(o.description)}</p>
+      <ul>${contenuPack(o).map((l) => `<li>${l}</li>`).join("")}</ul>
+      <p class="offre-valeur">Contenu équivalent à ${fmt(valeurPieces(o))} 🪙 en jeu</p>
+      <div class="offre-prix">${o.prixReference ? `<s title="${esc(o.referenceNote)}">${prixEuros(o.prixReference)}</s>` : ""}<b>${prixEuros(o.prix)}</b></div>
+      ${o.prixReference ? `<p class="offre-note">Prix de référence : ${esc(o.referenceNote)}</p>` : ""}
+      ${o.uneFois ? `<p class="offre-note">Limité à un achat par compte.</p>` : ""}${o.fin ? `<p class="offre-note">Jusqu'au ${new Date(o.fin).toLocaleDateString("fr-FR")}.</p>` : ""}
+      <button class="btn primary" data-offre="${esc(o.cle)}" ${o.dejaAchete || !r.stripe ? "disabled" : ""}>${o.dejaAchete ? "Déjà acheté" : r.stripe ? "Acheter" : "Bientôt disponible"}</button>
+      <button class="lien-chances" data-chances="${esc(o.cle)}">Probabilités des boosters</button></article>`).join("")}</div>`;
+  $$("[data-chances]", el).forEach((b) => b.onclick = () => {
+    const o = r.offres.find((x) => x.cle === b.dataset.chances);
+    ouvrirModal(`<h2 style="margin-top:0">🎲 Probabilités : ${esc(o.nom)}</h2><p class="muted">Chances par carte selon le booster (la dernière carte a une rareté minimale garantie). Mêmes règles pour tous les joueurs.</p>
+      ${Object.keys(o.boosters || {}).filter((k) => PACKS[k]).map((k) => `<h4>${PACKS[k].emoji} ${esc(PACKS[k].nom)}</h4><div class="row">${chancesPack(k).map(([rr, pc]) => `<span class="rbadge" data-r="${rr}">${RARETES[rr].nom} · ${pc} %</span>`).join(" ")}</div>`).join("")}`);
+  });
+  $$("[data-offre]", el).forEach((b) => b.onclick = () => {
+    if (typeof connecte !== "function" || !connecte()) return aller("compte");
+    const o = r.offres.find((x) => x.cle === b.dataset.offre);
+    ouvrirModal(`<h2 style="margin-top:0">${esc(o.nom)} · ${prixEuros(o.prix)}</h2><ul>${contenuPack(o).map((l) => `<li>${l}</li>`).join("")}</ul>
+      <p class="muted" style="font-size:13px">Contenu numérique (monnaie et boosters virtuels, sans valeur réelle ni revente possible), livré sur votre compte dès le paiement confirmé. Prix TTC. Voir les <a href="#" data-legal="cgv">conditions de vente</a>.</p>
+      <label class="check"><input type="checkbox" id="ofRenonce"> Je demande la livraison immédiate et je reconnais perdre mon droit de rétractation de 14 jours une fois le contenu livré.</label>
+      <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-close>Annuler</button><button class="btn primary" id="ofPayer" disabled>Payer ${prixEuros(o.prix)} avec Stripe</button></div>`);
+    brancherLiens($("#modal"));
+    $("#ofRenonce").onchange = (e) => { $("#ofPayer").disabled = !e.target.checked; };
+    $("#ofPayer").onclick = async () => {
+      $("#ofPayer").disabled = true;
+      try { location.href = (await api("stripe/pack", { methode: "POST", corps: { cle: o.cle, renonciation: true } })).url; }
+      catch (e) { toast("⚠ " + e.message); $("#ofPayer").disabled = false; }
+    };
+  });
+}
+const _vueBoostersV4 = vueBoosters;
+vueBoosters = function (v) {
+  const r = _vueBoostersV4.apply(this, arguments);
+  const bloc = document.createElement("section"); bloc.className = "bloc-packs";
+  const avant = $(".poussiere-bloc", v) || $(".sectiontitle", v);
+  if (avant) avant.before(bloc); else v.append(bloc);
+  blocPacks(bloc);
+  return r;
+};
+async function adminOffres(el) {
+  el.innerHTML = `<p class="muted">Les packs payants de la boutique (payés par Stripe, livrés automatiquement). <b>Prix barré</b> : n'indiquez un prix de référence que s'il s'agit d'un prix réellement pratiqué avant la réduction (règle européenne : le prix le plus bas des 30 jours précédents) ; sinon laissez vide. La « valeur en jeu » affichée aux joueurs est calculée automatiquement à partir du prix des boosters en pièces.</p><div id="aoListe">Chargement…</div>
+    <button class="btn" id="aoNouveau" style="margin-top:12px">＋ Nouvelle offre</button>`;
+  const { offres } = await api("admin/offres");
+  const dateLocale = (ms) => (ms ? new Date(ms - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "");
+  const formulaire = (o, nouveau) => `<form class="panel form rang-form" data-cle="${esc(o.cle || "")}" style="--rc:var(--accent)">
+      <div class="rf-tete"><div><b>${esc(o.nom || "Nouvelle offre")}</b><span class="muted">${nouveau ? "" : "clé : " + esc(o.cle)}</span></div></div>
+      <div class="rf-grille">
+        ${nouveau ? `<label>Clé (lettres, chiffres, tirets)<input name="cle" required pattern="[a-z0-9-]{2,30}"></label>` : ""}
+        <label>Nom<input name="nom" value="${esc(o.nom || "")}" required maxlength="60"></label>
+        <label>Badge (ex. Offre de lancement)<input name="badge" value="${esc(o.badge || "")}" maxlength="40"></label>
+        <label>Prix TTC (€)<input name="prix" type="number" step="0.01" min="0.5" value="${o.prix ?? ""}" required></label>
+        <label>Prix de référence barré (€, facultatif)<input name="prixReference" type="number" step="0.01" min="0.5" value="${o.prixReference ?? ""}"></label>
+        <label class="large">Justification du prix de référence<input name="referenceNote" value="${esc(o.referenceNote || "")}" maxlength="300" placeholder="Ex. : prix pratiqué du 1er au 30 septembre 2026"></label>
+        <label>Pièces<input name="pieces" type="number" min="0" value="${o.pieces ?? 0}"></label>
+        ${["monde", "argent", "or", "prestige"].map((k) => `<label>Boosters ${esc(PACKS[k]?.nom || k)}<input name="b_${k}" type="number" min="0" max="500" value="${o.boosters?.[k] ?? 0}"></label>`).join("")}
+        <label>Ordre<input name="ordre" type="number" min="0" max="99" value="${o.ordre ?? 0}"></label>
+        <label>Début (facultatif)<input name="debut" type="datetime-local" value="${dateLocale(o.debut)}"></label>
+        <label>Fin (facultatif)<input name="fin" type="datetime-local" value="${dateLocale(o.fin)}"></label>
+        <label class="large">Description<input name="description" value="${esc(o.description || "")}" maxlength="300"></label>
+        <label class="check"><input name="uneFois" type="checkbox" ${o.uneFois ? "checked" : ""}> Un seul achat par compte</label>
+        <label class="check"><input name="actif" type="checkbox" ${o.actif !== false ? "checked" : ""}> Offre active</label>
+      </div><p class="muted" data-etat></p><button class="btn primary">Enregistrer</button></form>`;
+  $("#aoListe").innerHTML = `<div class="admin-rangs">${offres.map((o) => formulaire(o, false)).join("")}</div>`;
+  $("#aoNouveau").onclick = () => { $("#aoListe .admin-rangs").insertAdjacentHTML("afterbegin", formulaire({}, true)); brancher(); };
+  const brancher = () => $$("#aoListe form").forEach((f) => f.onsubmit = async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(f)), cle = f.dataset.cle || d.cle;
+    const corps = { ...d, uneFois: !!f.elements.uneFois.checked, actif: !!f.elements.actif.checked, boosters: Object.fromEntries(["monde", "argent", "or", "prestige"].map((k) => [k, d["b_" + k]])),
+      debut: d.debut ? new Date(d.debut).toISOString() : null, fin: d.fin ? new Date(d.fin).toISOString() : null };
+    try { await api(`admin/offres/${cle}`, { methode: "PUT", corps }); toast("🛍️ Offre enregistrée."); adminOffres(el); }
+    catch (err) { $("[data-etat]", f).textContent = "⚠ " + err.message; }
+  });
+  brancher();
+}

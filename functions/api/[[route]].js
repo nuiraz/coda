@@ -99,6 +99,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS visuels ( cle TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS photos_perso ( carte TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS rangs ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, couleur TEXT NOT NULL DEFAULT '#888888', description TEXT NOT NULL DEFAULT '', min_pts INTEGER NOT NULL DEFAULT 0, max_pts INTEGER, ordre INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, divisions INTEGER NOT NULL DEFAULT 1, montee TEXT NOT NULL DEFAULT '', descente TEXT NOT NULL DEFAULT '', recompense_pieces INTEGER NOT NULL DEFAULT 0, recompense_boosters INTEGER NOT NULL DEFAULT 0, logo TEXT, logo_maj INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS offres ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', badge TEXT NOT NULL DEFAULT '', prix_cents INTEGER NOT NULL, prix_reference_cents INTEGER, reference_note TEXT NOT NULL DEFAULT '', pieces INTEGER NOT NULL DEFAULT 0, boosters TEXT NOT NULL DEFAULT '{}', une_fois INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, ordre INTEGER NOT NULL DEFAULT 0, debut INTEGER, fin INTEGER, maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS rangs_historique ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, ancien TEXT, nouveau TEXT NOT NULL, trophees INTEGER NOT NULL, cree_le INTEGER NOT NULL )`,
   `CREATE INDEX IF NOT EXISTS rangs_historique_u ON rangs_historique (user_id, id)`,
   `CREATE TABLE IF NOT EXISTS decouvertes ( carte TEXT PRIMARY KEY, user_id INTEGER NOT NULL, pseudo TEXT NOT NULL, cree_le INTEGER NOT NULL )`,
@@ -126,6 +127,7 @@ const MIGRATIONS = [
   `ALTER TABLE duels ADD COLUMN traite INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE duels ADD COLUMN points_a INTEGER`,
   `ALTER TABLE duels ADD COLUMN points_b INTEGER`,
+  `ALTER TABLE cadeaux ADD COLUMN boosters_detail TEXT`,
 ];
 let schemaPret = false;
 async function preparerSchema(env) {
@@ -492,7 +494,7 @@ route("GET", "profil/([A-Za-z0-9_-]{3,20})", async ({ env, p }) => {
 
 // ----- Cadeaux -----
 route("GET", "cadeaux", async ({ env, user }) => {
-  const r = await env.DB.prepare(`SELECT c.id, c.pieces, c.boosters, c.message FROM cadeaux c
+  const r = await env.DB.prepare(`SELECT c.id, c.pieces, c.boosters, c.boosters_detail, c.message FROM cadeaux c
     WHERE (c.user_id = ?1 OR c.user_id IS NULL) AND NOT EXISTS (SELECT 1 FROM cadeaux_recus r WHERE r.cadeau_id = c.id AND r.user_id = ?1)
     ORDER BY c.id`).bind(user.id).all();
   return json({ cadeaux: r.results });
@@ -503,8 +505,10 @@ route("POST", "cadeaux/(\\d+)/recevoir", async ({ env, user, p }) => {
   if (!c) return erreur("Cadeau introuvable.", 404);
   const r = await env.DB.prepare("INSERT OR IGNORE INTO cadeaux_recus (cadeau_id, user_id) VALUES (?, ?)").bind(c.id, user.id).run();
   if (!r.meta.changes) return erreur("Cadeau déjà reçu.", 409);
-  await crediter(env, user.id, c.pieces, 0, c.boosters);
-  return json({ pieces: c.pieces, boosters: c.boosters, message: c.message });
+  let detail = {}; try { detail = JSON.parse(c.boosters_detail || "{}") || {}; } catch {}
+  const totalDetail = Object.values(detail).reduce((t, n) => t + (Number(n) || 0), 0);
+  await crediter(env, user.id, c.pieces, 0, c.boosters + totalDetail);
+  return json({ pieces: c.pieces, boosters: c.boosters, detail, message: c.message });
 }, { connecte: true });
 
 // ----- Administration -----
@@ -1964,16 +1968,17 @@ route("POST", "stripe/valider", async ({ request, env, user, ctx }) => {
   if (!/^cs_(live|test)_[A-Za-z0-9]+$/.test(id)) return erreur("Session de paiement invalide.");
   const s = await stripeApi(env, "GET", "checkout/sessions/" + id, { expand: ["subscription"] });
   const formule = s.metadata?.formule;
-  if (s.metadata?.user_id !== String(user.id) || !PRIX_STRIPE[formule]) return erreur("Ce paiement ne correspond pas à votre compte.", 403);
+  if (s.metadata?.user_id !== String(user.id) || (!PRIX_STRIPE[formule] && formule !== "pack")) return erreur("Ce paiement ne correspond pas à votre compte.", 403);
   if (s.status !== "complete" || !["paid", "no_payment_required"].includes(s.payment_status)) return erreur("Le paiement n'est pas encore confirmé.", 402);
   await activerSessionStripe(env, ctx, s);
   const u = await env.DB.prepare("SELECT premium_jusqu FROM users WHERE id = ?").bind(user.id).first();
-  return json({ ok: true, formule, premiumJusqu: u.premium_jusqu });
+  return json({ ok: true, formule, pack: s.metadata?.pack || null, nomPack: s.metadata?.nom || null, premiumJusqu: u.premium_jusqu });
 }, { connecte: true });
 const NOMS_FORMULES = { mois: "Premium mensuel", an: "Premium annuel", vie: "Premium à vie", passe: "Passe de saison" };
 // Active l'achat d'une session Checkout payée (appelé au retour sur le site ET par le webhook : sans double effet)
 async function activerSessionStripe(env, ctx, s) {
   const userId = Number(s.metadata?.user_id), formule = s.metadata?.formule;
+  if (userId && formule === "pack") return livrerPack(env, ctx, s, userId);
   if (!userId || !PRIX_STRIPE[formule]) return;
   const neuf = await env.DB.prepare("INSERT OR IGNORE INTO paiements (commande, user_id, formule, montant, statut, cree_le) VALUES (?, ?, ?, ?, 'paye', ?)")
     .bind(s.id, userId, formule, ((s.amount_total || 0) / 100).toFixed(2), maintenant()).run();
@@ -2463,6 +2468,96 @@ async function terminerDuelClasse(env, d) {
   await env.DB.prepare("UPDATE duels SET points_a = ?, points_b = ? WHERE id = ?").bind(pa, pb, d.id).run();
   console.log(JSON.stringify({ duel: d.id, evenement: "classe", points: [pa, pb] }));
 }
+
+
+/* =====================================================================
+   Boutique de packs payants (configurables dans l'admin), payés par Stripe et livrés une seule fois
+   ===================================================================== */
+const OFFRES_DEFAUT = [
+  ["debutant", "Pack Débutant", "Offre de lancement", "Le meilleur départ : de quoi ouvrir une vingtaine de boosters et viser vos premières cartes Or.", 500, 3000, { monde: 10, argent: 3, or: 1 }, 1],
+  ["collectionneur", "Pack Collectionneur", "", "Pour compléter vos pays et vos continents plus vite.", 999, 6000, { monde: 15, argent: 6, or: 2 }, 0],
+  ["premium", "Pack Premium", "", "Beaucoup de boosters Argent et Or pour les cartes épiques et ultra rares.", 1999, 15000, { monde: 20, argent: 10, or: 5 }, 0],
+  ["legendaire", "Pack Légendaire", "", "Le pack ultime pour les chasseurs de légendaires.", 4999, 40000, { monde: 30, argent: 20, or: 15 }, 0],
+];
+const TYPES_BOOSTERS_PACK = ["monde", "argent", "or", "prestige", "halloween", "noel"];
+async function chargerOffres(env) {
+  let { results } = await env.DB.prepare("SELECT * FROM offres ORDER BY ordre, prix_cents").all();
+  if (!results.length) {
+    await env.DB.batch(OFFRES_DEFAUT.map(([cle, nom, badge, description, prix, pieces, boosters, uneFois], i) =>
+      env.DB.prepare("INSERT OR IGNORE INTO offres (cle, nom, badge, description, prix_cents, pieces, boosters, une_fois, ordre, maj) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(cle, nom, badge, description, prix, pieces, JSON.stringify(boosters), uneFois, i, maintenant())));
+    ({ results } = await env.DB.prepare("SELECT * FROM offres ORDER BY ordre, prix_cents").all());
+  }
+  return results.map((o) => ({ ...o, boosters: (() => { try { return JSON.parse(o.boosters) || {}; } catch { return {}; } })() }));
+}
+const offrePublique = (o, deja) => ({ cle: o.cle, nom: o.nom, description: o.description, badge: o.badge, prix: o.prix_cents / 100,
+  prixReference: o.prix_reference_cents ? o.prix_reference_cents / 100 : null, referenceNote: o.reference_note, pieces: o.pieces, boosters: o.boosters,
+  uneFois: !!o.une_fois, dejaAchete: !!deja, debut: o.debut, fin: o.fin });
+const offreDisponible = (o) => o.actif && (!o.debut || o.debut <= maintenant()) && (!o.fin || o.fin > maintenant());
+route("GET", "offres", async ({ env, user }) => {
+  const offres = (await chargerOffres(env)).filter(offreDisponible);
+  const achats = user ? (await env.DB.prepare("SELECT formule FROM paiements WHERE user_id = ? AND formule LIKE 'pack:%' AND statut = 'paye'").bind(user.id).all()).results.map((x) => x.formule.slice(5)) : [];
+  return json({ offres: offres.map((o) => offrePublique(o, o.une_fois && achats.includes(o.cle))), stripe: !!(await secret(env, "STRIPE_SECRET_KEY")) });
+});
+route("POST", "stripe/pack", async ({ request, env, user }) => {
+  const b = await corps(request);
+  const o = (await chargerOffres(env)).find((x) => x.cle === String(b.cle || ""));
+  if (!o || !offreDisponible(o)) return erreur("Cette offre n'est plus disponible.", 404);
+  if (b.renonciation !== true) return erreur("Vous devez demander la livraison immédiate du contenu numérique pour continuer.");
+  if (o.une_fois && await env.DB.prepare("SELECT 1 FROM paiements WHERE user_id = ? AND formule = ? AND statut = 'paye'").bind(user.id, "pack:" + o.cle).first()) return erreur("Cette offre est limitée à un achat par compte.");
+  const origine = new URL(request.url).origin;
+  const contenu = JSON.stringify({ p: o.pieces, b: o.boosters });
+  const meta = { user_id: String(user.id), formule: "pack", pack: o.cle, nom: o.nom, contenu, renonciation: "oui" };
+  const session = await stripeApi(env, "POST", "checkout/sessions", {
+    mode: "payment",
+    line_items: [{ quantity: 1, price_data: { currency: "eur", unit_amount: o.prix_cents, product_data: { name: `Play2F1 — ${o.nom}`, description: `${o.pieces} pièces et ${Object.values(o.boosters).reduce((t, n) => t + n, 0)} boosters (contenu numérique livré immédiatement)` } } }],
+    success_url: `${origine}/?stripe_session={CHECKOUT_SESSION_ID}`, cancel_url: `${origine}/?stripe=annule#boosters`,
+    client_reference_id: String(user.id), metadata: meta, payment_intent_data: { metadata: meta }, locale: "fr",
+    customer: user.stripe_client || undefined, customer_creation: user.stripe_client ? undefined : "always",
+  });
+  return json({ url: session.url });
+}, { connecte: true });
+// Livraison d'un pack payé : un cadeau (pièces + boosters) récupéré automatiquement par le jeu, une seule fois par paiement
+async function livrerPack(env, ctx, s, userId) {
+  const cle = String(s.metadata?.pack || "");
+  let contenu = {}; try { contenu = JSON.parse(s.metadata?.contenu || "{}"); } catch {}
+  const neuf = await env.DB.prepare("INSERT OR IGNORE INTO paiements (commande, user_id, formule, montant, statut, cree_le) VALUES (?, ?, ?, ?, 'paye', ?)")
+    .bind(s.id, userId, "pack:" + cle, ((s.amount_total || 0) / 100).toFixed(2), maintenant()).run();
+  if (s.customer) await env.DB.prepare("UPDATE users SET stripe_client = ? WHERE id = ?").bind(typeof s.customer === "string" ? s.customer : s.customer.id, userId).run();
+  if (!neuf.meta.changes) return;
+  const detail = {};
+  for (const [k, n] of Object.entries(contenu.b || {})) if (TYPES_BOOSTERS_PACK.includes(k) && Number(n) > 0) detail[k] = Math.min(500, Math.round(Number(n)));
+  const monde = detail.monde || 0; delete detail.monde;
+  await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, boosters_detail, message, cree_le) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(userId, Math.min(1000000, Math.round(Number(contenu.p) || 0)), monde, JSON.stringify(detail), `${s.metadata?.nom || "Pack"} : merci pour votre achat !`, maintenant()).run();
+  const u = await env.DB.prepare("SELECT pseudo FROM users WHERE id = ?").bind(userId).first();
+  enArrierePlan(ctx, prevenirAdmins(env, { titre: "💰 Pack vendu", texte: `${u?.pseudo} : ${s.metadata?.nom || cle} (${((s.amount_total || 0) / 100).toFixed(2)} €)`, url: "./#admin" }));
+  enArrierePlan(ctx, envoyerPush(env, userId, { titre: "🛍️ Pack livré !", texte: `${s.metadata?.nom || "Votre pack"} vous attend dans le jeu.`, url: "./#boosters" }));
+}
+route("GET", "admin/offres", async ({ env }) => json({ offres: (await chargerOffres(env)).map((o) => ({ ...offrePublique(o, false), actif: !!o.actif, ordre: o.ordre })) }), { admin: true });
+route("PUT", "admin/offres/([a-z0-9-]{2,30})", async ({ request, env, user, p }) => {
+  const b = await corps(request);
+  const nom = String(b.nom || "").trim().slice(0, 60);
+  if (!nom) return erreur("Le nom de l'offre est obligatoire.");
+  const prix = Math.round(nombre(b.prix, 0.5, 500, NaN) * 100);
+  if (!Number.isFinite(prix)) return erreur("Prix invalide (entre 0,50 € et 500 €).");
+  let ref = b.prixReference === "" || b.prixReference === null || b.prixReference === undefined ? null : Math.round(nombre(b.prixReference, 0.5, 5000, NaN) * 100);
+  const note = String(b.referenceNote || "").trim().slice(0, 300);
+  // Pas de fausse réduction : un prix barré doit être un prix réellement pratiqué, justifié par l'admin
+  if (ref !== null) {
+    if (!Number.isFinite(ref) || ref <= prix) return erreur("Le prix de référence doit être supérieur au prix de vente.");
+    if (note.length < 15) return erreur("Indiquez la justification du prix de référence (prix le plus bas réellement pratiqué au cours des 30 jours précédant la réduction).");
+  }
+  const boosters = {};
+  for (const k of TYPES_BOOSTERS_PACK) { const n = Math.round(nombre(b.boosters?.[k], 0, 500, 0)); if (n) boosters[k] = n; }
+  const date = (x) => (x ? Date.parse(x) || null : null);
+  await env.DB.prepare(`INSERT INTO offres (cle, nom, description, badge, prix_cents, prix_reference_cents, reference_note, pieces, boosters, une_fois, actif, ordre, debut, fin, maj) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(cle) DO UPDATE SET nom = excluded.nom, description = excluded.description, badge = excluded.badge, prix_cents = excluded.prix_cents, prix_reference_cents = excluded.prix_reference_cents,
+    reference_note = excluded.reference_note, pieces = excluded.pieces, boosters = excluded.boosters, une_fois = excluded.une_fois, actif = excluded.actif, ordre = excluded.ordre, debut = excluded.debut, fin = excluded.fin, maj = excluded.maj`)
+    .bind(p[1], nom, String(b.description || "").slice(0, 300), String(b.badge || "").slice(0, 40), prix, ref, ref ? note : "", Math.round(nombre(b.pieces, 0, 1000000, 0)), JSON.stringify(boosters),
+      b.uneFois ? 1 : 0, b.actif ? 1 : 0, Math.round(nombre(b.ordre, 0, 99, 0)), date(b.debut), date(b.fin), maintenant()).run();
+  await journaliser(env, user.id, `offre ${p[1]} enregistrée`, `${nom} · ${(prix / 100).toFixed(2)} €`, "admin");
+  return json({ ok: true });
+}, { admin: true });
 
 /* =====================================================================
    Rangs officiels 2F1 : nom, couleur, seuils, logo… tout se règle dans l'admin
