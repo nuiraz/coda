@@ -463,6 +463,7 @@ async function profilComplet(pseudo) {
     <div class="profil-tete">${avatarHTML(p.pseudo, "grand", p.cadre || null)}<div class="pt-nom"><h2>${esc(p.pseudo)}${p.admin ? " 👑" : ""}${p.premium ? " 💎" : ""}</h2>
       ${p.titre && typeof nomTitre === "function" ? `<span class="pt-titre">${esc(nomTitre(p.titre))}</span>` : ""}
       <span class="muted">Membre depuis le ${new Date(p.creeLe).toLocaleDateString("fr-FR")}${p.derniereCo ? ` · vu ${depuis(p.derniereCo)}` : ""}</span></div>
+      ${p.champion?.length ? `<span class="pt-champion" title="Champion de saison">🏆 Champion ${p.champion.map(esc).join(", ")}</span>` : ""}
       <div class="pt-rang">${rangBadge(p.rang, "grand")}<b style="color:${esc(p.rang?.couleur || "")}">${esc(p.rang?.nom || "")}</b><small>${fmt(p.rang?.trophees ?? p.trophees)} pts</small></div></div>
     <div class="statgrid"><div class="stat"><b>${fmt(p.cartes)}</b><span>cartes (${Math.round((p.cartes / (p.totalCartes || 1)) * 100)} %)</span></div>
       ${p.victoires !== undefined ? `<div class="stat"><b>${p.victoires}/${p.defaites}</b><span>victoires / défaites</span></div><div class="stat"><b>${ratio === null ? "—" : ratio + " %"}</b><span>ratio de victoires</span></div>` : ""}
@@ -830,3 +831,85 @@ async function revoirCombat(type, id) {
     setTimeout(() => $("#cbAuto")?.click(), 600);
   } catch (e) { toast("⚠ " + e.message); }
 }
+
+/* ---------- Missions PvP (vérifiées par le serveur) ---------- */
+function htmlMission(m) {
+  const rec = [m.pieces ? `${fmt(m.pieces)} 🪙` : "", ...Object.entries(m.boosters || {}).map(([k, n]) => `${n} ${PACKS[k]?.emoji || "🎁"} ${PACKS[k]?.nom || k}`)].filter(Boolean).join(" + ");
+  return `<div class="succes ${m.fait ? "fait" : ""}"><span class="sc-ic">${m.cle === "type" ? "🧩" : m.cle === "direct" ? "⚡" : m.cle === "points" ? "📈" : m.cle === "arene" ? "🏟️" : "⚔️"}</span>
+    <div class="sc-txt"><b>${esc(m.nom)}</b><div class="pvbar"><i style="width:${Math.round((m.valeur / m.n) * 100)}%"></i></div><small class="muted">${m.valeur} / ${m.n} · ${rec}</small></div>
+    ${m.fait ? m.recu ? `<span class="sc-ok">✓ Reçu</span>` : `<button class="btn primary small" data-mission="${esc(m.periode)}:${esc(m.cle)}">Récupérer</button>` : ""}</div>`;
+}
+async function blocMissions(el, compact) {
+  if (typeof connecte !== "function" || !connecte()) { el.innerHTML = compact ? "" : `<p>Connectez-vous pour recevoir des missions de combat.</p><button class="btn primary" data-aller="compte">Se connecter</button>`; brancherLiens(el); return; }
+  try {
+    const m = await api("missions");
+    const fin = new Date(); fin.setUTCHours(24, 0, 0, 0);
+    el.innerHTML = `${compact ? `<div class="sectiontitle"><h3>🎯 Missions de combat</h3><a href="#" data-aller="missions">Toutes les missions →</a></div>` : ""}
+      <h4 class="mission-titre">Aujourd'hui <small class="muted">· nouvelles missions dans ${duree(fin - Date.now())}</small></h4><div class="succes-grille">${m.jour.map(htmlMission).join("")}</div>
+      ${compact ? "" : `<h4 class="mission-titre">Cette semaine <small class="muted">· chaque lundi</small></h4><div class="succes-grille">${m.semaine.map(htmlMission).join("")}</div>`}`;
+    brancherLiens(el);
+    $$("[data-mission]", el).forEach((b) => b.onclick = async () => {
+      const [periode, cle] = b.dataset.mission.split(":"); b.disabled = true;
+      try {
+        const r = await api(`missions/${periode}/${cle}/reclamer`, { methode: "POST", corps: {} });
+        S.coins += r.pieces; for (const [k, n] of Object.entries(r.boosters || {})) if (PACKS[k]) S.boosters[k] = (S.boosters[k] || 0) + n;
+        sauver(); majCoins(); renderNav(); toast(`🎯 ${esc(r.nom)} : récompense reçue !`); blocMissions(el, compact);
+      } catch (e) { toast("⚠ " + e.message); b.disabled = false; }
+    });
+  } catch (e) { el.innerHTML = compact ? "" : `<p class="err">${esc(e.message)}</p>`; }
+}
+ajouterPage("missions", "🎯", "Missions", (v) => { v.innerHTML = `<header class="page-tete"><h1>Missions</h1><p>Des objectifs de combat chaque jour et chaque semaine. La progression vient de vos vrais combats (arène, duels en direct), comptés par le serveur.</p></header><section class="panel" id="msCorps">Chargement…</section>`; blocMissions($("#msCorps"), false); });
+ICONES.missions = '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".8" fill="currentColor"/>';
+
+/* ---------- Finale de saison ---------- */
+async function blocFinaleSaison(el) {
+  try {
+    const f = await api("saison/finale");
+    const reste = f.fin - Date.now(), j = Math.floor(reste / 864e5), h = Math.floor((reste % 864e5) / 36e5);
+    el.innerHTML = `<div class="sectiontitle"><h3>🏆 Saison ${esc(f.saison)}</h3><span class="finale-cpt">${j > 0 ? `${j} j ${h} h` : `${h} h ${Math.floor((reste % 36e5) / 6e4)} min`} avant la finale</span></div>
+      <div class="finale"><ol>${f.top.map((x, i) => `<li class="${x.pseudo === COMPTE.pseudo ? "moi" : ""}"><span class="fn-pos">${["🥇", "🥈", "🥉"][i] || i + 1}</span>${rangBadge(x.rang, "petit")}<a href="#" data-joueur="${esc(x.pseudo)}">${esc(x.pseudo)}</a><b>${fmt(x.trophees)}</b></li>`).join("") || `<li class="muted">Personne n'a encore joué en classé cette saison : soyez le premier !</li>`}</ol>
+      <div class="finale-info"><p>Le n° 1 à la fin du mois devient <b>Champion de la saison</b> : titre sur son profil, un booster 💎 Prestige, 3 boosters 🥇 Or et 5 000 🪙. Chaque rang reçoit aussi sa récompense.</p>
+        ${f.champions.length ? `<p class="muted">Derniers champions : ${f.champions.map((c) => `<b>${esc(c.pseudo)}</b> (${esc(c.saison)})`).join(", ")}</p>` : ""}
+        <button class="btn primary" id="fnJouer">⚡ Jouer un match classé</button></div></div>`;
+    $$("[data-joueur]", el).forEach((a) => a.onclick = (e) => { e.preventDefault(); profilComplet(a.dataset.joueur); });
+    $("#fnJouer").onclick = () => chercherAdversaire(true);
+  } catch { el.remove(); }
+}
+
+/* ---------- Carte du jour : une carte rare en vedette, à prix réduit, aujourd'hui seulement ---------- */
+function carteDuJour() {
+  const jour = new Date().toISOString().slice(0, 10), r = COMBAT.rng(COMBAT.hash("carte-du-jour:" + jour));
+  const pool = CARDS.filter((c) => c.univers === "monde" && ["epique", "ultra-rare", "legendaire"].includes(c.rarete) && c.type !== "secrete" && !c.saisonnier);
+  const c = pool[Math.floor(r() * pool.length)];
+  return { c, jour, poussiere: Math.round((POUSSIERE_FABRICATION[c.rarete] || 500) * 0.6), pieces: Math.round((RARETES[c.rarete].prix || 1000) * 2) };
+}
+function blocCarteDuJour(el) {
+  const d = carteDuJour(), deja = S.carteDuJour === d.jour;
+  el.innerHTML = `<div class="sectiontitle"><h3>✨ Carte du jour</h3><span class="muted">Change à minuit (UTC)</span></div>
+    <div class="cdj"><div class="cdj-carte">${cardHTML(d.c, { locked: false })}</div><div><h4>${esc(d.c.nom)}</h4><p class="muted">${esc(RARETES[d.c.rarete].nom)} · ${esc(TYPES[d.c.type] || "")}${d.c.anecdote ? ` · ${esc(d.c.anecdote)}` : ""}</p>
+      ${deja ? `<p class="sc-ok">✓ Déjà obtenue aujourd'hui</p>` : `<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn primary" id="cdjP" ${(S.poussiere || 0) < d.poussiere ? "disabled" : ""}>✨ ${fmt(d.poussiere)} poussière (-40 %)</button><button class="btn" id="cdjC" ${S.coins < d.pieces ? "disabled" : ""}>🪙 ${fmt(d.pieces)} pièces</button></div>
+      <p class="muted" style="font-size:12.5px">Une seule fois par jour. Si vous l'avez déjà, elle compte comme un doublon (niveau, poussière).</p>`}</div></div>`;
+  const acheter = (champ, prix) => { if ((S[champ] || 0) < prix || S.carteDuJour === d.jour) return; S[champ] -= prix; S.carteDuJour = d.jour; gagner(d.c.id); sauver(); majCoins(); toast(`✨ ${esc(d.c.nom)} rejoint votre collection !`); blocCarteDuJour(el); };
+  $("#cdjP")?.addEventListener("click", () => acheter("poussiere", d.poussiere));
+  $("#cdjC")?.addEventListener("click", () => acheter("coins", d.pieces));
+  $(".cdj-carte .card", el)?.addEventListener("click", (e) => { e.stopPropagation(); ficheCarte(d.c); });
+}
+// Accueil : missions, carte du jour et finale de saison sous le booster
+const _vueAccueilV4b = vueAccueil;
+vueAccueil = function (v) {
+  const r = _vueAccueilV4b.apply(this, arguments);
+  const ab = $(".accueil-booster", v);
+  const zone = document.createElement("div"); zone.className = "accueil-v4";
+  zone.innerHTML = `<section class="panel" id="acMissions"></section><div class="grid2"><section class="panel" id="acCdj"></section><section class="panel" id="acFinale"></section></div>`;
+  (ab || v.firstChild)?.after(zone);
+  blocMissions($("#acMissions"), true).then(() => { if (!$("#acMissions")?.innerHTML.trim()) $("#acMissions")?.remove(); });
+  blocCarteDuJour($("#acCdj")); blocFinaleSaison($("#acFinale"));
+  return r;
+};
+// Ligues : la finale de saison en haut de page
+const _vueLiguesV4 = vueLigues;
+vueLigues = async function (v) {
+  await _vueLiguesV4.apply(this, arguments);
+  const s = document.createElement("section"); s.className = "panel"; $("#lgMoi", v)?.after(s); blocFinaleSaison(s);
+};
+VUES_EXTRA.ligues = vueLigues;

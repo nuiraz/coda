@@ -100,6 +100,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS photos_perso ( carte TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS rangs ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, couleur TEXT NOT NULL DEFAULT '#888888', description TEXT NOT NULL DEFAULT '', min_pts INTEGER NOT NULL DEFAULT 0, max_pts INTEGER, ordre INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, divisions INTEGER NOT NULL DEFAULT 1, montee TEXT NOT NULL DEFAULT '', descente TEXT NOT NULL DEFAULT '', recompense_pieces INTEGER NOT NULL DEFAULT 0, recompense_boosters INTEGER NOT NULL DEFAULT 0, logo TEXT, logo_maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS offres ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', badge TEXT NOT NULL DEFAULT '', prix_cents INTEGER NOT NULL, prix_reference_cents INTEGER, reference_note TEXT NOT NULL DEFAULT '', pieces INTEGER NOT NULL DEFAULT 0, boosters TEXT NOT NULL DEFAULT '{}', une_fois INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, ordre INTEGER NOT NULL DEFAULT 0, debut INTEGER, fin INTEGER, maj INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS missions_recues ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, periode TEXT NOT NULL, cle TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, periode, cle) )`,
+  `CREATE TABLE IF NOT EXISTS champions ( saison TEXT PRIMARY KEY, user_id INTEGER, pseudo TEXT NOT NULL, trophees INTEGER NOT NULL, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS file_attente ( user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, trophees INTEGER NOT NULL, classe INTEGER NOT NULL DEFAULT 1, deck TEXT NOT NULL, depuis INTEGER NOT NULL, vu INTEGER NOT NULL, duel_id INTEGER )`,
   `CREATE TABLE IF NOT EXISTS decks_publics ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, nom TEXT NOT NULL, style TEXT NOT NULL DEFAULT 'equilibre', cartes TEXT NOT NULL, cout INTEGER NOT NULL DEFAULT 0, rarete_max INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS decks_favoris ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, deck_id INTEGER NOT NULL REFERENCES decks_publics(id) ON DELETE CASCADE, PRIMARY KEY (user_id, deck_id) )`,
@@ -519,6 +521,7 @@ route("GET", "profil/([A-Za-z0-9_-]{3,20})", async ({ env, p, user }) => {
     ].sort((x, y) => y.t - x.t).slice(0, 12);
     base.historiqueRangs = rh.results;
   }
+  base.champion = (await env.DB.prepare("SELECT saison FROM champions WHERE user_id = ? ORDER BY saison DESC").bind(u.id).all()).results.map((x) => x.saison);
   if (voit("succes")) base.succes = (await calculerSucces(env, u.id, rangs)).filter((x) => x.fait).map((x) => ({ cle: x.cle, nom: x.nom, icone: x.icone, desc: x.desc }));
   return json(base);
 });
@@ -1322,6 +1325,16 @@ async function finDeSaison(env) {
   await ecrireConfig(env, "saison", saison);
   const { results } = await env.DB.prepare("SELECT a.user_id, a.trophees FROM arene a JOIN users u ON u.id = a.user_id WHERE a.deck IS NOT NULL AND (a.victoires + a.defaites) > 0 AND u.banni = 0 AND u.admin = 0").all();
   const rangs = await chargerRangs(env);
+  // Champion de la saison : le n° 1 reçoit un titre, un booster Prestige et des boosters Or
+  const top = results.slice().sort((a, b) => b.trophees - a.trophees)[0];
+  if (top) {
+    const u = await env.DB.prepare("SELECT pseudo FROM users WHERE id = ?").bind(top.user_id).first();
+    const r = await env.DB.prepare("INSERT OR IGNORE INTO champions (saison, user_id, pseudo, trophees, cree_le) VALUES (?, ?, ?, ?, ?)").bind(derniere, top.user_id, u?.pseudo || "?", top.trophees, maintenant()).run();
+    if (r.meta.changes) {
+      await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, boosters_detail, message, cree_le) VALUES (?, 5000, 0, ?, ?, ?)").bind(top.user_id, JSON.stringify({ prestige: 1, or: 3 }), `🏆 Champion de la saison ${derniere} : félicitations !`, maintenant()).run();
+      await envoyerPush(env, top.user_id, { titre: "🏆 Champion de la saison !", texte: `Vous terminez n° 1 de la saison ${derniere}. Votre récompense vous attend.`, url: "./#ligues" }).catch(() => {});
+    }
+  }
   for (const x of results) {
     // Récompense du rang atteint (réglable dans l'admin) ; à défaut, l'ancien barème des paliers
     const rg = rangDe(x.trophees, rangs), p = PALIERS.find(([min]) => x.trophees >= min);
@@ -2603,6 +2616,77 @@ route("PUT", "admin/offres/([a-z0-9-]{2,30})", async ({ request, env, user, p })
 
 
 
+
+
+/* =====================================================================
+   Missions PvP (quotidiennes et hebdomadaires) : progression calculée par le serveur à partir des vrais combats
+   ===================================================================== */
+const TYPES_MISSION = ["monument", "ville", "nature", "animal", "plat", "culture", "pays"];
+const NOMS_TYPES_MISSION = { monument: "Monuments", ville: "Villes", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", pays: "Pays" };
+function missionsDe(userId, periode, hebdo) {
+  const r = COMBAT.rng(COMBAT.hash(`missions:${periode}:${userId}`)), type = TYPES_MISSION[Math.floor(r() * TYPES_MISSION.length)];
+  const L = hebdo ? [
+    { cle: "gagner", nom: "Gagne 10 combats classés", n: 10, pieces: 800, boosters: { or: 1 } },
+    { cle: "direct", nom: "Joue 5 duels en direct", n: 5, pieces: 600, boosters: { argent: 1 } },
+    { cle: "points", nom: "Gagne 60 points de classement", n: 60, pieces: 1000, boosters: { or: 1 } },
+  ] : [
+    [{ cle: "gagner", nom: "Gagne 2 combats classés", n: 2, pieces: 150, boosters: {} }, { cle: "gagner", nom: "Gagne 3 combats classés", n: 3, pieces: 220, boosters: {} }][Math.floor(r() * 2)],
+    [{ cle: "direct", nom: "Joue 1 duel en direct", n: 1, pieces: 120, boosters: {} }, { cle: "arene", nom: "Fais 3 combats d'arène", n: 3, pieces: 120, boosters: {} }][Math.floor(r() * 2)],
+    { cle: "type", nom: `Gagne un combat avec au moins 3 cartes ${NOMS_TYPES_MISSION[type]} dans ton deck`, n: 1, pieces: 200, boosters: { monde: 1 }, type },
+  ];
+  return L;
+}
+const periodeMission = (hebdo) => (hebdo ? "S" + semaineCourante() : "J" + jourUTC());
+async function etatMissions(env, user) {
+  const jour = Date.parse(jourUTC() + "T00:00:00Z"), d = new Date(), lundi = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  const stats = async (depuis) => {
+    const [ar, du] = await env.DB.batch([
+      env.DB.prepare("SELECT gagne, classe, delta, a FROM combats WHERE attaquant = ? AND fini = 1 AND cree_le >= ?").bind(user.id, depuis),
+      env.DB.prepare("SELECT gagnant, classe, a_id, points_a, points_b, deck_a, deck_b FROM duels WHERE statut = 'fini' AND (a_id = ?1 OR b_id = ?1) AND fini_le >= ?2 AND deck_b IS NOT NULL").bind(user.id, depuis),
+    ]);
+    const nbType = (deck, t) => { try { return JSON.parse(deck).filter((x) => x.type === t).length; } catch { return 0; } };
+    return {
+      gagner: ar.results.filter((c) => c.gagne && c.classe).length + du.results.filter((x) => x.classe && x.gagnant === user.id).length,
+      direct: du.results.length, arene: ar.results.length,
+      points: ar.results.reduce((t, c) => t + Math.max(0, c.classe ? c.delta || 0 : 0), 0) + du.results.reduce((t, x) => t + Math.max(0, (x.a_id === user.id ? x.points_a : x.points_b) || 0), 0),
+      type: (t) => ar.results.filter((c) => c.gagne && nbType(c.a, t) >= 3).length + du.results.filter((x) => x.gagnant === user.id && nbType(x.a_id === user.id ? x.deck_a : x.deck_b, t) >= 3).length,
+    };
+  };
+  const recus = new Set((await env.DB.prepare("SELECT periode || ':' || cle AS k FROM missions_recues WHERE user_id = ? AND periode IN (?, ?)").bind(user.id, periodeMission(false), periodeMission(true)).all()).results.map((x) => x.k));
+  const sortie = {};
+  for (const [hebdo, depuis] of [[false, jour], [true, lundi]]) {
+    const st = await stats(depuis), periode = periodeMission(hebdo);
+    sortie[hebdo ? "semaine" : "jour"] = missionsDe(user.id, periode, hebdo).map((m) => {
+      const v = m.cle === "type" ? st.type(m.type) : st[m.cle];
+      return { ...m, periode, valeur: Math.min(v, m.n), fait: v >= m.n, recu: recus.has(periode + ":" + m.cle) };
+    });
+  }
+  return sortie;
+}
+route("GET", "missions", async ({ env, user }) => json(await etatMissions(env, user)), { connecte: true });
+route("POST", "missions/([JS][0-9W-]{4,12})/([a-z]{2,10})/reclamer", async ({ env, user, p }) => {
+  const e = await etatMissions(env, user), m = [...e.jour, ...e.semaine].find((x) => x.periode === p[1] && x.cle === p[2]);
+  if (!m) return erreur("Mission inconnue ou expirée.", 404);
+  if (!m.fait) return erreur("Mission pas encore accomplie.");
+  const r = await env.DB.prepare("INSERT OR IGNORE INTO missions_recues (user_id, periode, cle, cree_le) VALUES (?, ?, ?, ?)").bind(user.id, m.periode, m.cle, maintenant()).run();
+  if (!r.meta.changes) return erreur("Récompense déjà reçue.", 409);
+  const nbB = Object.values(m.boosters).reduce((t, n) => t + n, 0);
+  await crediter(env, user.id, m.pieces, 0, nbB);
+  return json({ pieces: m.pieces, boosters: m.boosters, nom: m.nom });
+}, { connecte: true });
+
+/* ---------- Finale de saison : top 10, compte à rebours, champion de la saison précédente ---------- */
+route("GET", "saison/finale", async ({ env }) => {
+  const rangs = await chargerRangs(env);
+  const { results } = await env.DB.prepare(`SELECT u.pseudo, a.trophees, a.victoires, a.defaites FROM arene a JOIN users u ON u.id = a.user_id
+    WHERE a.deck IS NOT NULL AND u.banni = 0 AND u.admin = 0 AND (a.victoires + a.defaites) > 0 ORDER BY a.trophees DESC, a.victoires DESC LIMIT 10`).all();
+  const champions = (await env.DB.prepare("SELECT saison, pseudo, trophees FROM champions ORDER BY saison DESC LIMIT 6").all()).results;
+  return json({ saison: saisonCourante(), fin: finSaison(), top: results.map((x) => ({ ...x, rang: rangDe(x.trophees, rangs) })), champions }, 200, { "cache-control": "public, max-age=30" });
+});
+route("GET", "champions/([A-Za-z0-9_-]{3,20})", async ({ env, p }) => {
+  const { results } = await env.DB.prepare("SELECT saison FROM champions WHERE pseudo = ? ORDER BY saison DESC").bind(p[1]).all();
+  return json({ saisons: results.map((x) => x.saison) });
+});
 
 /* =====================================================================
    Matchmaking en direct : deux joueurs en ligne de niveau proche sont réunis dans un duel (classé ou amical)

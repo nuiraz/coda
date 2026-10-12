@@ -1996,3 +1996,11 @@ body[data-fond-streamer="vert"] { background: #00b140 !important; } body[data-fo
 .banc { flex-wrap: wrap; align-items: center; }
 .banc-label { font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; opacity: .7; margin: 0 2px 0 6px; }
 .mini.dos { background: repeating-linear-gradient(135deg, rgba(255,255,255,.08) 0 6px, rgba(255,255,255,.02) 6px 12px); color: rgba(255,255,255,.5); }
+.mission-titre { margin: 6px 0 8px; } .accueil-v4 { display: grid; gap: 16px; margin-bottom: 16px; } .accueil-v4 .grid2 { margin: 0; }
+.finale { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; } .finale ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.finale li { display: grid; grid-template-columns: 30px 24px 1fr auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 8px; background: var(--panel2); }
+.finale li.moi { box-shadow: inset 0 0 0 1px var(--accent); } .finale li a { color: var(--text); text-decoration: none; font-weight: 600; } .finale-info p { margin-top: 0; }
+.finale-cpt { font-weight: 800; color: var(--accent); }
+.cdj { display: grid; grid-template-columns: 150px 1fr; gap: 16px; align-items: center; } .cdj h4 { margin: 0 0 4px; font: 700 20px var(--titre); }
+.pt-champion { display: inline-block; padding: 3px 10px; border-radius: 999px; background: color-mix(in srgb, #f2b33d 22%, transparent); color: #f2b33d; font-weight: 800; font-size: 13px; }
+@media (max-width: 760px) { .finale { grid-template-columns: 1fr; } .cdj { grid-template-columns: 110px 1fr; } }
