@@ -100,6 +100,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS photos_perso ( carte TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS rangs ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, couleur TEXT NOT NULL DEFAULT '#888888', description TEXT NOT NULL DEFAULT '', min_pts INTEGER NOT NULL DEFAULT 0, max_pts INTEGER, ordre INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, divisions INTEGER NOT NULL DEFAULT 1, montee TEXT NOT NULL DEFAULT '', descente TEXT NOT NULL DEFAULT '', recompense_pieces INTEGER NOT NULL DEFAULT 0, recompense_boosters INTEGER NOT NULL DEFAULT 0, logo TEXT, logo_maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS offres ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', badge TEXT NOT NULL DEFAULT '', prix_cents INTEGER NOT NULL, prix_reference_cents INTEGER, reference_note TEXT NOT NULL DEFAULT '', pieces INTEGER NOT NULL DEFAULT 0, boosters TEXT NOT NULL DEFAULT '{}', une_fois INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, ordre INTEGER NOT NULL DEFAULT 0, debut INTEGER, fin INTEGER, maj INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS file_attente ( user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, trophees INTEGER NOT NULL, classe INTEGER NOT NULL DEFAULT 1, deck TEXT NOT NULL, depuis INTEGER NOT NULL, vu INTEGER NOT NULL, duel_id INTEGER )`,
   `CREATE TABLE IF NOT EXISTS decks_publics ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, nom TEXT NOT NULL, style TEXT NOT NULL DEFAULT 'equilibre', cartes TEXT NOT NULL, cout INTEGER NOT NULL DEFAULT 0, rarete_max INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS decks_favoris ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, deck_id INTEGER NOT NULL REFERENCES decks_publics(id) ON DELETE CASCADE, PRIMARY KEY (user_id, deck_id) )`,
   `CREATE TABLE IF NOT EXISTS succes_recus ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, cle TEXT NOT NULL, pieces INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, cle) )`,
@@ -133,6 +134,8 @@ const MIGRATIONS = [
   `ALTER TABLE cadeaux ADD COLUMN boosters_detail TEXT`,
   `ALTER TABLE users ADD COLUMN confidentialite TEXT`,
   `ALTER TABLE users ADD COLUMN banniere TEXT`,
+  `ALTER TABLE combats ADD COLUMN actions TEXT`,
+  `ALTER TABLE duels ADD COLUMN aleatoire INTEGER NOT NULL DEFAULT 0`,
 ];
 let schemaPret = false;
 async function preparerSchema(env) {
@@ -504,15 +507,15 @@ route("GET", "profil/([A-Za-z0-9_-]{3,20})", async ({ env, p, user }) => {
   if (voit("deck") && a?.deck) base.deck = JSON.parse(a.deck).map((x) => x.id);
   if (voit("historique")) {
     const [ar, du, rh] = await env.DB.batch([
-      env.DB.prepare(`SELECT c.cree_le AS t, c.gagne, c.delta, c.classe, c.attaquant, ua.pseudo AS pa, ud.pseudo AS pd FROM combats c JOIN users ua ON ua.id = c.attaquant JOIN users ud ON ud.id = c.defenseur
+      env.DB.prepare(`SELECT c.id, c.actions IS NOT NULL AS revoir, c.cree_le AS t, c.gagne, c.delta, c.classe, c.attaquant, ua.pseudo AS pa, ud.pseudo AS pd FROM combats c JOIN users ua ON ua.id = c.attaquant JOIN users ud ON ud.id = c.defenseur
         WHERE c.fini = 1 AND (c.attaquant = ?1 OR c.defenseur = ?1) ORDER BY c.id DESC LIMIT 10`).bind(u.id),
-      env.DB.prepare(`SELECT d.fini_le AS t, d.gagnant, d.classe, d.points_a, d.points_b, d.a_id, ua.pseudo AS pa, ub.pseudo AS pb FROM duels d JOIN users ua ON ua.id = d.a_id JOIN users ub ON ub.id = d.b_id
+      env.DB.prepare(`SELECT d.id, d.fini_le AS t, d.gagnant, d.classe, d.points_a, d.points_b, d.a_id, ua.pseudo AS pa, ub.pseudo AS pb FROM duels d JOIN users ua ON ua.id = d.a_id JOIN users ub ON ub.id = d.b_id
         WHERE d.statut = 'fini' AND (d.a_id = ?1 OR d.b_id = ?1) ORDER BY d.id DESC LIMIT 10`).bind(u.id),
       env.DB.prepare("SELECT ancien, nouveau, trophees, cree_le FROM rangs_historique WHERE user_id = ? ORDER BY id DESC LIMIT 10").bind(u.id),
     ]);
     base.matchs = [
-      ...ar.results.map((c) => { const att = c.attaquant === u.id; return { t: c.t, mode: "Arène", adversaire: att ? c.pd : c.pa, gagne: att ? !!c.gagne : !c.gagne, points: c.classe ? (att ? c.delta : -Math.round((c.delta || 0) / 2)) : null }; }),
-      ...du.results.map((d) => { const estA = d.a_id === u.id; return { t: d.t, mode: d.classe ? "Duel classé" : "Duel amical", adversaire: estA ? d.pb : d.pa, gagne: d.gagnant === u.id, points: d.classe ? (estA ? d.points_a : d.points_b) : null }; }),
+      ...ar.results.map((c) => { const att = c.attaquant === u.id; return { id: c.id, type: "arene", revoir: !!c.revoir, t: c.t, mode: "Arène", adversaire: att ? c.pd : c.pa, gagne: att ? !!c.gagne : !c.gagne, points: c.classe ? (att ? c.delta : -Math.round((c.delta || 0) / 2)) : null }; }),
+      ...du.results.map((d) => { const estA = d.a_id === u.id; return { id: d.id, type: "duel", revoir: true, t: d.t, mode: d.classe ? "Duel classé" : "Duel amical", adversaire: estA ? d.pb : d.pa, gagne: d.gagnant === u.id, points: d.classe ? (estA ? d.points_a : d.points_b) : null }; }),
     ].sort((x, y) => y.t - x.t).slice(0, 12);
     base.historiqueRangs = rh.results;
   }
@@ -961,7 +964,7 @@ route("POST", "arene/fin", async ({ request, env, user, ctx }) => {
   const pieces = c.recompense ? (gagne ? 60 : 15) : 0;
   if (c.classe) await ajouterPointsTournoi(env, user, gagne ? 100 : 25, gagne, true);
   await env.DB.batch([
-    env.DB.prepare("UPDATE combats SET fini = 1, gagne = ?, delta = ? WHERE id = ?").bind(gagne ? 1 : 0, delta, c.id),
+    env.DB.prepare("UPDATE combats SET fini = 1, gagne = ?, delta = ?, actions = ? WHERE id = ?").bind(gagne ? 1 : 0, delta, JSON.stringify(actions), c.id),
     env.DB.prepare("UPDATE arene SET trophees = MAX(0, trophees + ?), victoires = victoires + ?, defaites = defaites + ? WHERE user_id = ?").bind(delta, gagne ? 1 : 0, gagne ? 0 : 1, user.id),
     env.DB.prepare("UPDATE arene SET trophees = MAX(0, trophees + ?) WHERE user_id = ?").bind(deltaDef, c.defenseur),
   ]);
@@ -2599,6 +2602,58 @@ route("PUT", "admin/offres/([a-z0-9-]{2,30})", async ({ request, env, user, p })
 }, { admin: true });
 
 
+
+
+/* =====================================================================
+   Matchmaking en direct : deux joueurs en ligne de niveau proche sont réunis dans un duel (classé ou amical)
+   ===================================================================== */
+route("POST", "matchmaking", async ({ request, env, user }) => {
+  const b = await corps(request), classe = b.classe === false ? 0 : 1;
+  const moi = await ligneArene(env, user.id);
+  if (!moi.deck || JSON.parse(moi.deck).length !== COMBAT.TAILLE_DECK) return erreur(`Enregistrez d'abord un deck de ${COMBAT.TAILLE_DECK} cartes.`);
+  const t = maintenant();
+  // Déjà associé ? (l'autre joueur nous a trouvés)
+  const deja = await env.DB.prepare("SELECT duel_id FROM file_attente WHERE user_id = ?").bind(user.id).first();
+  if (deja?.duel_id) { await env.DB.prepare("DELETE FROM file_attente WHERE user_id = ?").bind(user.id).run(); return json({ duel: deja.duel_id }); }
+  await env.DB.prepare(`INSERT INTO file_attente (user_id, trophees, classe, deck, depuis, vu) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET trophees = excluded.trophees, classe = excluded.classe, deck = excluded.deck, vu = excluded.vu`).bind(user.id, moi.trophees, classe, moi.deck, t, t).run();
+  const ligne = await env.DB.prepare("SELECT depuis FROM file_attente WHERE user_id = ?").bind(user.id).first();
+  // L'écart de niveau toléré s'élargit avec l'attente : 150 points, puis +50 toutes les 5 secondes
+  const ecart = 150 + Math.floor((t - ligne.depuis) / 5000) * 50;
+  const adv = await env.DB.prepare(`SELECT f.user_id, f.deck FROM file_attente f JOIN users u ON u.id = f.user_id WHERE f.user_id != ? AND f.classe = ? AND f.duel_id IS NULL AND f.vu > ? AND ABS(f.trophees - ?) <= ? AND u.banni = 0
+    AND NOT EXISTS (SELECT 1 FROM bloques bl WHERE (bl.user_id = ?1 AND bl.bloque_id = f.user_id) OR (bl.user_id = f.user_id AND bl.bloque_id = ?1))
+    ORDER BY ABS(f.trophees - ?) LIMIT 1`).bind(user.id, classe, t - 8000, moi.trophees, ecart, moi.trophees).first();
+  if (!adv) return json({ attente: true, ecart, depuis: ligne.depuis });
+  const d = await env.DB.prepare("INSERT INTO duels (a_id, b_id, graine, deck_a, deck_b, statut, limite, cree_le, classe, aleatoire) VALUES (?, ?, ?, ?, ?, 'encours', ?, ?, ?, 1)")
+    .bind(adv.user_id, user.id, crypto.getRandomValues(new Uint32Array(1))[0], adv.deck, moi.deck, t + CHRONO_DUEL + 5000, t, classe).run();
+  const id = d.meta.last_row_id;
+  // On réserve l'adversaire ; s'il a été pris entre-temps, le duel est annulé et on réessaiera
+  const pris = await env.DB.prepare("UPDATE file_attente SET duel_id = ? WHERE user_id = ? AND duel_id IS NULL").bind(id, adv.user_id).run();
+  if (!pris.meta.changes) { await env.DB.prepare("UPDATE duels SET statut = 'annule' WHERE id = ?").bind(id).run(); return json({ attente: true, ecart }); }
+  await env.DB.prepare("DELETE FROM file_attente WHERE user_id = ?").bind(user.id).run();
+  console.log(JSON.stringify({ duel: id, evenement: "matchmaking", classe }));
+  return json({ duel: id });
+}, { connecte: true });
+route("DELETE", "matchmaking", async ({ env, user }) => {
+  await env.DB.prepare("DELETE FROM file_attente WHERE user_id = ? AND duel_id IS NULL").bind(user.id).run();
+  return json({ ok: true });
+}, { connecte: true });
+route("GET", "matchmaking/file", async ({ env }) => {
+  const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM file_attente WHERE duel_id IS NULL AND vu > ?").bind(maintenant() - 8000).first();
+  return json({ enAttente: n.n });
+});
+
+/* ---------- Revoir un combat (arène ou duel) : le moteur rejoue les mêmes actions avec la même graine ---------- */
+route("GET", "revoir/(arene|duel)/(\\d+)", async ({ env, p }) => {
+  if (p[1] === "arene") {
+    const c = await env.DB.prepare(`SELECT c.*, ua.pseudo AS pa, ud.pseudo AS pd FROM combats c JOIN users ua ON ua.id = c.attaquant JOIN users ud ON ud.id = c.defenseur WHERE c.id = ? AND c.fini = 1`).bind(p[2]).first();
+    if (!c || !c.actions) return erreur("Ce combat ne peut pas être revu.", 404);
+    return json({ a: c.pa, b: c.pd, deckA: JSON.parse(c.a), deckB: JSON.parse(c.b), graine: c.graine, actions: JSON.parse(c.actions), gagnant: c.gagne ? 0 : 1, mode: "arene" });
+  }
+  const d = await env.DB.prepare(`SELECT d.*, ua.pseudo AS pa, ub.pseudo AS pb FROM duels d JOIN users ua ON ua.id = d.a_id JOIN users ub ON ub.id = d.b_id WHERE d.id = ? AND d.statut = 'fini'`).bind(p[2]).first();
+  if (!d || !d.deck_b) return erreur("Ce duel ne peut pas être revu.", 404);
+  return json({ a: d.pa, b: d.pb, deckA: JSON.parse(d.deck_a), deckB: JSON.parse(d.deck_b), graine: d.graine, paires: JSON.parse(d.paires), gagnant: d.gagnant === d.a_id ? 0 : 1, mode: "duel" });
+});
 
 /* =====================================================================
    Decks publics : partager un deck, le retrouver par nom, carte, style ou ligue, le mettre en favori

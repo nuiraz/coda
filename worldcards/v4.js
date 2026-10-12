@@ -76,7 +76,8 @@ async function vueLigues(v) {
         <p><b>${fmt(a.trophees)}</b> points${r?.suivant ? ` · encore <b>${fmt(r.suivant.min - a.trophees)}</b> pour ${esc(r.suivant.nom)}` : " · rang maximum"}</p>
         <div class="pvbar"><i style="width:${r?.progression ?? 0}%"></i></div>
         <p class="muted">Combats classés restants aujourd'hui : <b>${a.classes?.restants ?? "—"}/${a.classes?.parJour ?? "—"}</b> · ${a.victoires} victoires · ${a.defaites} défaites</p>
-        <div class="row"><button class="btn primary" data-aller="combat">⚔️ Combat classé</button><button class="btn" data-aller="hub">🤝 Défier un ami</button></div></div>`;
+        <div class="row"><button class="btn primary" id="lgMatch">⚡ Adversaire en direct</button><button class="btn" data-aller="combat">⚔️ Arène</button><button class="btn" data-aller="hub">🤝 Défier un ami</button></div></div>`;
+      $("#lgMatch").onclick = () => chercherAdversaire();
       brancherLiens(el);
     } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
     try {
@@ -470,13 +471,14 @@ async function profilComplet(pseudo) {
     ${p.succes?.length ? `<h3>🏅 Succès (${p.succes.length})</h3><div class="succes-mini">${p.succes.map((x) => `<span title="${esc(x.nom + " : " + x.desc)}">${x.icone}</span>`).join("")}</div>` : ""}
     ${vitrine.length ? `<h3>⭐ Cartes favorites</h3><div class="cards">${vitrine.map((c) => cardHTML(c, { locked: false })).join("")}</div>` : ""}
     ${p.deck?.length ? `<h3>🃏 Deck favori</h3><div class="deck-mini">${p.deck.map((id) => { const c = BY_ID[id]; return c ? `<span title="${esc(c.nom)}">${c.type === "pays" && c.code ? `<img src="flags/${esc(c.code.toLowerCase())}.svg" alt="" class="dm-drapeau">` : esc(c.emoji || "🃏")}<small>${esc(c.nom)}</small></span>` : ""; }).join("")}</div>` : ""}
-    ${p.matchs ? `<h3>📜 Derniers matchs</h3>${p.matchs.length ? `<div class="matchs">${p.matchs.map((m) => `<div class="match ${m.gagne ? "v" : "d"}"><b>${m.gagne ? "Victoire" : "Défaite"}</b><span>${esc(m.mode)} contre ${esc(m.adversaire)}</span><span class="muted">${m.points ? `${m.points > 0 ? "+" : ""}${m.points} pts · ` : ""}${depuis(m.t)}</span></div>`).join("")}</div>` : `<p class="muted">Aucun match pour l'instant.</p>`}` : ""}
+    ${p.matchs ? `<h3>📜 Derniers matchs</h3>${p.matchs.length ? `<div class="matchs">${p.matchs.map((m) => `<div class="match ${m.gagne ? "v" : "d"}"><b>${m.gagne ? "Victoire" : "Défaite"}</b><span>${esc(m.mode)} contre ${esc(m.adversaire)}</span><span class="muted">${m.points ? `${m.points > 0 ? "+" : ""}${m.points} pts · ` : ""}${depuis(m.t)}${m.revoir ? ` <button class="btn small" data-revoir="${m.type}:${m.id}">▶ Revoir</button>` : ""}</span></div>`).join("")}</div>` : `<p class="muted">Aucun match pour l'instant.</p>`}` : ""}
     ${p.historiqueRangs?.length ? `<h3>📈 Rangs</h3>${p.historiqueRangs.map((h) => `<div class="codex-ligne"><span>${esc(RANGS.find((r) => r.cle === h.ancien)?.nom || h.ancien || "—")} → <b>${esc(RANGS.find((r) => r.cle === h.nouveau)?.nom || h.nouveau)}</b></span><small>${fmt(h.trophees)} pts · ${depuis(h.cree_le)}</small></div>`).join("")}` : ""}
     ${p.moi ? `<h3>⚙️ Mon profil public</h3><form class="form" id="pfReglages"><p class="muted" style="margin:0">Choisissez ce que les autres joueurs voient.</p>
       <div class="rf-grille">${[["statistiques", "Statistiques de combat"], ["historique", "Historique des matchs"], ["deck", "Deck favori"], ["collection", "Cartes favorites"], ["succes", "Succès"], ["activite", "Activité récente"]].map(([k, n]) => `<label class="check"><input type="checkbox" name="${k}" ${p.confidentialite?.[k] ? "checked" : ""}> ${n}</label>`).join("")}</div>
       <div class="bannieres">${Object.entries(COULEURS_BANNIERE).map(([k, c]) => `<label title="${k}"><input type="radio" name="banniere" value="${k}" ${p.banniere === k ? "checked" : ""}><span style="background:${c}"></span></label>`).join("")}</div>
       <button class="btn primary">Enregistrer</button> <button type="button" class="btn" data-aller="style">🎨 Titres et cadres</button> <button type="button" class="btn" id="pfVitrine">⭐ Choisir mes cartes favorites</button></form>` : ""}`;
   brancherLiens($("#modal"));
+  $$("[data-revoir]", $("#modal")).forEach((b) => b.onclick = () => { const [t, i] = b.dataset.revoir.split(":"); revoirCombat(t, i); });
   if (!p.moi) {
     $("#pfDuel").onclick = () => defierEnDirect(p.pseudo);
     $("#pfAmi").onclick = async () => { try { await api("amis", { methode: "POST", corps: { pseudo: p.pseudo } }); toast(`👫 ${esc(p.pseudo)} ajouté à vos amis !`); } catch (e) { toast("⚠ " + e.message); } };
@@ -778,3 +780,53 @@ async function vueStreamer(v) {
 }
 ajouterPage("streamer", "🎥", "Mode streamer", vueStreamer);
 ICONES.streamer = '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3z"/>';
+
+/* ---------- Matchmaking en direct ---------- */
+let matchEtat = null;
+async function chercherAdversaire(classe) {
+  if (typeof connecte !== "function" || !connecte()) return toast("Connectez-vous pour jouer en ligne.");
+  if (classe === undefined) {
+    let info = null; try { info = await api("classe/jour"); } catch {}
+    ouvrirModal(`<div style="text-align:center"><h2 style="margin-top:0">⚡ Trouver un adversaire</h2><p class="muted">Un joueur en ligne de niveau proche, en direct. Même plateau et mêmes règles que les duels entre amis.</p>
+      <div class="choix-duel"><button class="btn primary" id="mmClasse">🏆 Classé<small>${info ? `${info.restants}/${info.parJour} combats classés restants` : "Compte pour la ligue"}</small></button><button class="btn" id="mmAmical">🤝 Amical<small>Sans effet sur le classement</small></button></div></div>`);
+    $("#mmClasse").onclick = () => chercherAdversaire(true); $("#mmAmical").onclick = () => chercherAdversaire(false);
+    return;
+  }
+  if (!deckPret()) return;
+  try { await envoyerDeckArene(); } catch (e) { return toast("⚠ " + e.message); }
+  const debut = Date.now(), jeton = (matchEtat = { actif: true });
+  ouvrirModal(`<div style="text-align:center"><h2 style="margin-top:0">${classe ? "🏆 Match classé" : "🤝 Match amical"}</h2><div class="loader-duel"></div>
+    <p>Recherche d'un adversaire… <b id="mmTemps">0 s</b></p><p class="muted" id="mmInfo">Restez sur cette page : le duel commence dès qu'un joueur est trouvé.</p><button class="btn" id="mmAnnuler">Annuler</button></div>`, () => { jeton.actif = false; api("matchmaking", { methode: "DELETE" }).catch(() => {}); });
+  $("#mmAnnuler").onclick = () => fermerModal();
+  while (jeton.actif) {
+    const el = $("#mmTemps"); if (!el) break; el.textContent = `${Math.round((Date.now() - debut) / 1000)} s`;
+    let r; try { r = await api("matchmaking", { methode: "POST", corps: { classe } }); } catch (e) { toast("⚠ " + e.message); fermerModal(); return; }
+    if (r.duel) {
+      jeton.actif = false; duelEtat.vues.add(r.duel);
+      const m = $("#modal"); m._onClose = null;
+      try { lancerDuel(await api(`duels/${r.duel}`)); } catch (e) { toast("⚠ " + e.message); }
+      return;
+    }
+    if ($("#mmInfo") && Date.now() - debut > 30000) $("#mmInfo").textContent = `Écart de niveau accepté : ±${r.ecart} points. Invitez un ami à jouer en même temps !`;
+    await pause(2000);
+  }
+}
+// Boutons « Trouver un adversaire » : page Combat et page Ligues
+const _blocAreneV4 = blocArene;
+blocArene = async function (el, complet) {
+  await _blocAreneV4.apply(this, arguments);
+  const row = $("#aChercher")?.parentElement;
+  if (row && !$("#mmGo", el)) { row.insertAdjacentHTML("afterbegin", `<button class="btn primary" id="mmGo">⚡ Adversaire en direct</button>`); $("#mmGo").onclick = () => chercherAdversaire(); $("#aChercher").classList.remove("primary"); $("#aChercher").textContent = "🔎 Défier un deck"; }
+};
+
+/* ---------- Revoir un combat ---------- */
+async function revoirCombat(type, id) {
+  try {
+    const m = await api(`revoir/${type}/${id}`);
+    const fin = async () => `🏁 ${m.gagnant === 0 ? m.a : m.b} remporte le combat.`;
+    if (m.mode === "duel") lancerCombat({ titre: `▶ ${m.a} contre ${m.b}`, adversaire: m.b, moi: m.deckA, lui: m.deckB, graine: m.graine, spectateur: true, fin,
+      duel: { cote: 0, resteMs: 600000, abandon: async () => {}, tours: async (t) => (m.paires[t - 1] ? [m.paires[t - 1]] : [["attaque", "attaque"]]) } });
+    else lancerCombat({ titre: `▶ ${m.a} contre ${m.b} (arène)`, adversaire: m.b, moi: m.deckA, lui: m.deckB, graine: m.graine, spectateur: true, arene: true, script: m.actions, fin });
+    setTimeout(() => $("#cbAuto")?.click(), 600);
+  } catch (e) { toast("⚠ " + e.message); }
+}

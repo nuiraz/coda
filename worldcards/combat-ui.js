@@ -131,7 +131,7 @@ function vueCombat(v) {
       </div>
       <button class="btn primary meilleur" id="dAuto">⚡ Remplir avec mes meilleures cartes</button>
       <div class="cards deck deck10" data-noclick>${[...Array(COMBAT.TAILLE_DECK).keys()].map((i) => deck[i]
-        ? `<div class="slotcarte" data-slot="${i}">${cardHTML(deck[i])}<span class="cout">Coût ${coutDe(deck[i])}</span></div>`
+        ? `<div class="slotcarte" data-slot="${i}">${cardHTML(deck[i])}<span class="cout">${i === 0 ? "▶ Départ · " : ""}Coût ${coutDe(deck[i])}</span></div>`
         : `<button class="slot" data-slot="${i}">＋<small>Choisir une carte</small></button>`).join("")}</div>
       <p class="muted" style="margin-bottom:0;font-size:13.5px">${COMBAT.TAILLE_DECK} cartes différentes, ${COMBAT.BUDGET} points de coût au maximum (commune 1, peu commune 2, rare 3, épique 4, ultra rare 5, légendaire et secrète 6), ${REGLES_DECK.maxLegendaires} légendaires ou secrètes au plus. Le premier qui perd ${COMBAT.KO_VICTOIRE} cartes perd le combat. Touchez une carte pour la changer.</p>
     </div>
@@ -150,7 +150,7 @@ function vueCombat(v) {
       <ul class="regles">
         <li><b>⚔️ Attaque</b> : dégâts selon votre attaque et la défense adverse.</li>
         <li><b>✨ Spécial</b> (une fois par carte), différent selon le type : ${Object.entries(COMBAT.SPECIAUX).map(([t, sp]) => `${EMOJI_TYPE[t]} <b>${sp.nom}</b> (${sp.desc})`).join(" · ")}.</li>
-        <li><b>🔄 Changer</b> : touchez une carte de votre banc pour la faire entrer (utilise votre tour). Idéal pour profiter des types.</li>
+        <li><b>🃏 Main et pioche</b> : votre 1re carte du deck commence. Vous avez 3 cartes en main (visibles) et le reste en pioche. Touchez une carte de votre main pour la jouer (utilise votre tour) ; la carte qui sort revient dans votre main. Après un K.O., la 1re carte de la main entre. L'adversaire ne voit que les cartes que vous avez déjà jouées.</li>
         <li><b>🛡️ Garde</b> : vous ne subissez que 40 % des dégâts ce tour-ci et regagnez 8 % de vos points de vie.</li>
         <li><b>Types</b> : ${COMBAT.CYCLE.map((t) => EMOJI_TYPE[t] + " " + TYPES[t]).join(" bat ")} qui bat ${TYPES.ville} (+12 % de dégâts). Merveilles et secrètes sont neutres.</li>
         <li><b>Talents</b> : chaque carte a un pouvoir, visible en haut à droite de son image. ${Object.values(COMBAT.TALENTS).map((t) => `${t.emoji} <b>${t.nom}</b> : ${t.desc.toLowerCase()}`).join(" · ")}</li>
@@ -262,7 +262,7 @@ function entrainement(diff) {
 /* ---------- Écran de combat ---------- */
 // duel (en direct) : { cote, tours: async (tour, action) => [[a0, a1], ...] nouvelles paires, abandon, resteMs }
 // En duel, « moi » et « lui » sont les decks A et B du serveur ; V() retourne le plateau pour que chacun se voie en bas.
-function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: estArene = false, duel = null, spectateur = false, paires: pairesInitiales = [] }) {
+function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: estArene = false, duel = null, spectateur = false, paires: pairesInitiales = [], script = null }) {
   arreterCombat();
   // Contre l'ordinateur, son deck est complété à la taille du vôtre pour que le combat reste équilibré
   if (!duel && !estArene && !spectateur && lui.length < moi.length) {
@@ -297,10 +297,14 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: est
   m.querySelector(".close").classList.add("hidden");
   const ligne = (u, cote) => {
     const c = BY_ID[u.id];
-    const banc = etat.equipes[V(cote)].map((x, i) => {
-      const peut = cote === 0 && x.pv > 0 && i !== etat.actifs[V(0)] && !etat.fini;
-      return `<${peut ? "button" : "span"} class="mini ${x.pv <= 0 ? "ko" : i === etat.actifs[V(cote)] ? "on" : ""} ${peut ? "changeable" : ""}" ${peut ? `data-changer="${i}"` : ""} title="${esc(x.nom)} · ❤️ ${x.pv}/${x.pvMax}${peut ? " — toucher pour la faire entrer" : ""}">${esc(BY_ID[x.id]?.emoji || "🃏")}<i style="width:${(x.pv / x.pvMax) * 100}%"></i></${peut ? "button" : "span"}>`;
-    }).join("");
+    // Main visible (et jouable) pour soi ; pour l'adversaire, seules les cartes déjà jouées sont révélées (brouillard)
+    const eq = etat.equipes[V(cote)], mainIdx = COMBAT.main(etat, V(cote)), nbPioche = COMBAT.pioche(etat, V(cote)).length;
+    const ko = eq.map((x, i) => [x, i]).filter(([x]) => x.pv <= 0);
+    const mini = (x, i, peut) => `<${peut ? "button" : "span"} class="mini ${x.pv <= 0 ? "ko" : ""} ${peut ? "changeable" : ""}" ${peut ? `data-changer="${i}"` : ""} title="${esc(x.nom)} · ❤️ ${x.pv}/${x.pvMax}${peut ? " — toucher pour la jouer (utilise votre tour)" : ""}">${esc(BY_ID[x.id]?.emoji || "🃏")}<i style="width:${(x.pv / x.pvMax) * 100}%"></i></${peut ? "button" : "span"}>`;
+    const voitTout = cote === 0 || spectateur;
+    const reveles = etat.reveles?.[V(cote)] || [];
+    const banc = `<span class="banc-label">Main</span>${mainIdx.map((i) => voitTout || reveles.includes(i) ? mini(eq[i], i, cote === 0 && !etat.fini && !spectateur) : `<span class="mini dos" title="Carte cachée">🂠</span>`).join("")}
+      <span class="banc-label">Pioche ${nbPioche}</span>${ko.length ? `<span class="banc-label">K.O.</span>${ko.map(([x, i]) => mini(x, i, false)).join("")}` : ""}`;
     return `<div class="banc">${banc}</div>
       <div class="combattant" data-cote="${cote}">
         <div class="cb-carte">${c ? cardHTML(c, { locked: false, shiny: u.shiny, doree: u.doree, stats: u }) : ""}</div>
@@ -410,7 +414,8 @@ function lancerCombat({ titre, adversaire, moi, lui, graine, fin, ia, arene: est
     $$("#cbActions button[data-a]").forEach((b) => b.disabled = b.dataset.a === "special" && !COMBAT.actif(etat, V(0)).special);
     if (auto) tour(choixAuto());
   }
-  const choixAuto = () => { const me = COMBAT.actif(etat, V(0)), lui = COMBAT.actif(etat, V(1)); return me.special && lui.pv / lui.pvMax > 0.4 ? "special" : "attaque"; };
+  // Rediffusion d'un combat d'arène : on rejoue exactement les actions enregistrées
+  const choixAuto = () => { if (script) return script[etat.tour] ?? "attaque"; const me = COMBAT.actif(etat, V(0)), lui = COMBAT.actif(etat, V(1)); return me.special && lui.pv / lui.pvMax > 0.4 ? "special" : "attaque"; };
   async function terminer() {
     const gagne = etat.gagnant === V(0);
     $("#cbActions").innerHTML = `<p class="muted">Calcul du résultat…</p>`;

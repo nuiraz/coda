@@ -72,6 +72,7 @@
   const BUDGET = 30;        // réglable par l'administrateur (reglages du jeu)
   const TAILLE_DECK = 10;
   const KO_VICTOIRE = 5;    // le premier joueur qui perd 5 cartes perd le combat (toutes s'il en a moins)
+  const TAILLE_MAIN = 3;    // cartes visibles et jouables ; le reste du deck forme la pioche (cachée à l'adversaire)
   const TOURS_MAX = 150;
 
   function hash(texte) {
@@ -144,8 +145,13 @@
     });
     const meteosKeys = Object.keys(METEOS);
     const meteoKey = meteosKeys[(graine >>> 4) % meteosKeys.length];
+    // Ordre de pioche : la 1re carte du deck commence, les autres sont mélangées (hasard séparé, déterministe)
+    const ordre = (eq, c) => { const r = rng((graine ^ (0x9e3779b9 * (c + 1))) >>> 0), reste = eq.map((_, i) => i).slice(1);
+      for (let i = reste.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [reste[i], reste[j]] = [reste[j], reste[i]]; } return [0, ...reste]; };
     return {
       equipes: [prep(equipeA), prep(equipeB)],
+      ordres: [ordre(equipeA, 0), ordre(equipeB, 1)],
+      reveles: [[0], [0]],
       actifs: [0, 0],
       tour: 0,
       graine: graine >>> 0,
@@ -158,6 +164,11 @@
     };
   }
   const actif = (etat, cote) => etat.equipes[cote][etat.actifs[cote]];
+  // Main : les premières cartes encore en vie de l'ordre de pioche (hors carte active) ; le reste est la pioche
+  const ordreDe = (etat, cote) => etat.ordres?.[cote] || etat.equipes[cote].map((_, i) => i);
+  const main = (etat, cote) => ordreDe(etat, cote).filter((i) => i !== etat.actifs[cote] && etat.equipes[cote][i].pv > 0).slice(0, TAILLE_MAIN);
+  const pioche = (etat, cote) => ordreDe(etat, cote).filter((i) => i !== etat.actifs[cote] && etat.equipes[cote][i].pv > 0).slice(TAILLE_MAIN);
+  const reveler = (etat, cote, i) => { if (etat.reveles && !etat.reveles[cote].includes(i)) etat.reveles[cote].push(i); };
   const vivants = (etat, cote) => etat.equipes[cote].filter((u) => u.pv > 0).length;
   const koDe = (etat, cote) => etat.equipes[cote].length - vivants(etat, cote);
   // Un camp est battu quand il a perdu KO_VICTOIRE cartes (ou toutes, pour un deck plus petit)
@@ -174,7 +185,7 @@
     }
     if (niveauIA >= 3) {
       if (AVANTAGE[lui.type] === moi.type && moi.pv / moi.pvMax > 0.3 && etat.tour - (moi.change || -9) > 2) {
-        const banc = etat.equipes[cote].map((u, i) => [u, i]).filter(([u, i]) => u.pv > 0 && i !== etat.actifs[cote] && AVANTAGE[lui.type] !== u.type);
+        const banc = main(etat, cote).map((i) => [etat.equipes[cote][i], i]).filter(([u]) => AVANTAGE[lui.type] !== u.type);
         const mieux = banc.find(([u]) => AVANTAGE[u.type] === lui.type) || banc[0];
         if (mieux && r < 0.75) return "changer:" + mieux[1];
       }
@@ -228,8 +239,11 @@
     for (const c of [0, 1]) {
       if (!actions[c].startsWith("changer:")) continue;
       const i = Number(actions[c].slice(8)), u = etat.equipes[c][i];
-      if (!u || u.pv <= 0 || i === etat.actifs[c]) { actions[c] = "attaque"; continue; }
-      etat.actifs[c] = i; u.change = etat.tour; actions[c] = "changer";
+      if (!u || u.pv <= 0 || i === etat.actifs[c] || !main(etat, c).includes(i)) { actions[c] = "attaque"; continue; }
+      // La carte qui sort revient en tête de la main
+      const ancienne = etat.actifs[c];
+      if (etat.ordres) etat.ordres[c] = [ancienne, ...etat.ordres[c].filter((x) => x !== ancienne)];
+      etat.actifs[c] = i; u.change = etat.tour; actions[c] = "changer"; reveler(etat, c, i);
       ev.push({ t: "changer", cote: c, id: u.id });
     }
     for (const c of [0, 1]) {
@@ -295,8 +309,8 @@
     // Les cartes K.O. laissent la place à la suivante
     for (const c of [0, 1]) {
       if (actif(etat, c).pv <= 0) {
-        const suivant = etat.equipes[c].findIndex((u) => u.pv > 0);
-        if (suivant >= 0) { etat.actifs[c] = suivant; ev.push({ t: "entree", cote: c, id: actif(etat, c).id }); }
+        const suivant = main(etat, c)[0] ?? -1; // la première carte de la main entre en jeu
+        if (suivant >= 0) { etat.actifs[c] = suivant; reveler(etat, c, suivant); ev.push({ t: "entree", cote: c, id: actif(etat, c).id }); }
       }
     }
     const fin = [!battu(etat, 0), !battu(etat, 1)];
@@ -341,6 +355,6 @@
     }
     return { gagnant: etat.gagnant, paires };
   }
-  return { rejouerDuel, simulerMatch, SPECIAUX, TALENTS, TALENTS_TYPE, CYCLE, talentDe, COUT, BUDGET, TAILLE_DECK, KO_VICTOIRE, PUISSANCE, PROFILS, AVANTAGE, VARIATION, NIVEAU_MAX, BONUS_SHINY, BONUS_DOREE, TOURS_MAX, METEOS,
+  return { rejouerDuel, simulerMatch, SPECIAUX, TALENTS, TALENTS_TYPE, CYCLE, talentDe, COUT, BUDGET, TAILLE_DECK, KO_VICTOIRE, TAILLE_MAIN, main, pioche, PUISSANCE, PROFILS, AVANTAGE, VARIATION, NIVEAU_MAX, BONUS_SHINY, BONUS_DOREE, TOURS_MAX, METEOS,
     hash, rng, base, niveau, tirerQualite, borne, noteQualite, stats, puissance, creer, jouer, rejouer, actif, vivants, koDe, battu, actionValide };
 });

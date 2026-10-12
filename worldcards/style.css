@@ -1993,3 +1993,6 @@ body[data-fond-streamer="vert"] { background: #00b140 !important; } body[data-fo
 .card .art { margin: 0 2.4cqw; flex: 1 1 auto; }
 .card .art .photo { width: 100%; height: 100%; object-fit: cover; }
 .card .head { padding-top: 1.2cqw; padding-bottom: 1.2cqw; }
+.banc { flex-wrap: wrap; align-items: center; }
+.banc-label { font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; opacity: .7; margin: 0 2px 0 6px; }
+.mini.dos { background: repeating-linear-gradient(135deg, rgba(255,255,255,.08) 0 6px, rgba(255,255,255,.02) 6px 12px); color: rgba(255,255,255,.5); }
