@@ -181,16 +181,24 @@ const masquerNom = (texte, c) => {
   for (const mot of [c.nom, ...c.nom.split(/[\s'’-]+/).filter((m) => m.length > 3)]) t = t.replace(new RegExp(mot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "…");
   return t;
 };
+// Image d'une devinette : drapeau pour les drapeaux, photo de la carte, sinon l'illustration Wikipédia
+function imageDevine(c) {
+  if (c.banque === "drapeau" || c.type === "pays") {
+    const code = c.code || Object.keys(NOM_PAYS).find((k) => sansAccents(NOM_PAYS[k]) === sansAccents(c.nom));
+    if (code) return `flags/${code.toLowerCase()}.svg`;
+  }
+  return (!c.banque && typeof photoDe === "function" && photoDe(c.id)) || `/api/devine/image?t=${encodeURIComponent(c.wiki || c.nom)}`;
+}
+const imgDevine = (c, cls = "dv-photo") => `<div class="${cls}"><img src="${esc(imageDevine(c))}" alt="" loading="lazy" onerror="this.parentNode.remove()"></div>`;
 function indicesDevine(c) {
-  if (c.banque) return c.indices.map((t) => `<p class="dv-texte">${esc(t)}</p>`);
+  if (c.banque) return c.indices.map((t, i) => `<p class="dv-texte">${esc(t)}</p>${i === 2 && c.banque !== "drapeau" ? imgDevine(c) : ""}`);
   const cont = CONTINENTS[c.continent], pays = c.pays && NOM_PAYS[c.pays];
-  const photo = typeof photoDe === "function" && photoDe(c.id);
   const premier = c.type === "pays"
-    ? `<div class="dv-sil">${silhouette(c.code) || "🗺️"}</div><p>Un pays d'${esc(cont?.nom || "?")}</p>`
-    : `<div class="dv-gros garder-emoji">${esc(c.emoji || "❔")}</div><p>${esc(TYPES[c.type])}${pays ? ` · ${drapeau(c.pays)} ${esc(pays)}` : ""}</p>`;
+    ? `<div class="dv-sil">${silhouette(c.code) || ""}</div><p>Un pays d'${esc(cont?.nom || "?")}</p>`
+    : `<p class="dv-texte">${esc(TYPES[c.type])}${pays ? ` · ${drapeau(c.pays)} ${esc(pays)}` : cont ? ` · ${esc(cont.nom)}` : ""}</p>`;
   const anecdote = `<p class="dv-anecdote">« ${esc(masquerNom(c.anecdote, c))} »</p>`;
   const troisieme = c.type === "pays" ? `<p>Sa capitale : <b>${esc(c.capitale || "?")}</b></p>`
-    : photo ? `<div class="dv-photo"><img src="${esc(photo)}" alt=""></div>` : `<p>Première lettre : <b>${esc(c.nom[0])}</b> · ${c.nom.length} lettres</p>`;
+    : `${imgDevine(c)}<p>Première lettre : <b>${esc(c.nom[0])}</b> · ${c.nom.length} lettres</p>`;
   return [premier, anecdote, troisieme];
 }
 function questionDevine(cat, deja) {
@@ -277,7 +285,7 @@ function vueDevine(v) {
     if (bon) { p.bonnes++; p.serie++; const pts = points + (p.serie >= 3 ? 1 : 0); p.score += pts; gain = piecesDevine(pts * 4); gagnerXP?.(2); }
     else p.serie = 0;
     majCoins(); sauver();
-    $("#dvFb").innerHTML = `<p style="font-weight:700;margin:6px 0">${bon ? `✅ Bravo ! +${points + (p.serie >= 3 ? 1 : 0)} pt${gain ? ` · +${gain} 🪙` : ""}` : `❌ C'était <b>${esc(c.nom)}</b>`}</p>${!bon || p.mode === "classique" ? `<p class="muted" style="margin:4px 0">${esc(c.anecdote || "")}</p>` : ""}
+    $("#dvFb").innerHTML = `${p.mode === "classique" ? imgDevine(c, "dv-photo dv-photo-rep") : ""}<p style="font-weight:700;margin:6px 0">${bon ? `✅ Bravo ! +${points + (p.serie >= 3 ? 1 : 0)} pt${gain ? ` · +${gain} 🪙` : ""}` : `❌ C'était <b>${esc(c.nom)}</b>`}</p>${!bon || p.mode === "classique" ? `<p class="muted" style="margin:4px 0">${esc(c.anecdote || "")}</p>` : ""}
       ${p.mode === "classique" ? `<button class="btn primary" id="dvSuite">${p.n >= QUESTIONS_DEVINE ? "Voir le résultat" : "Question suivante →"}</button>` : ""}`;
     p.q = null;
     if (p.mode === "chrono") setTimeout(() => { if (devine.partie === p && S.vue === "devine") aller("devine"); }, bon ? 450 : 1100);

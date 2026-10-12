@@ -3414,6 +3414,32 @@ route("GET", "defi-photo/image", async ({ env, ctx }) => {
     return rep;
   } catch { return erreur("Photo indisponible aujourd'hui.", 502); }
 });
+// Devinettes : image d'illustration tirée de Wikipédia (mise en cache 30 jours)
+route("GET", "devine/image", async ({ request, ctx }) => {
+  const t = String(new URL(request.url).searchParams.get("t") || "").trim().slice(0, 120);
+  if (!t) return erreur("Titre manquant.", 400);
+  const cache = caches.default, cle = new Request(`https://cache.play2f1/devine/${encodeURIComponent(t)}`);
+  const deja = await cache.match(cle); if (deja) return deja;
+  try {
+    const ua = { "user-agent": "Play2F1/1.0 (https://play2f1.com)" };
+    let src = null;
+    for (const langue of ["fr", "en"]) {
+      const r = await fetch(`https://${langue}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(t.replace(/ /g, "_"))}`, { headers: ua });
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j.type === "disambiguation") continue;
+      src = j.thumbnail?.source ? j.thumbnail.source.replace(/\/\d+px-/, "/640px-") : null;
+      if (src) break;
+    }
+    if (!src || !/^https:\/\/upload\.wikimedia\.org\//.test(src)) return erreur("Image indisponible.", 404);
+    let img = await fetch(src, { headers: ua });
+    if (!img.ok) img = await fetch(src.replace(/\/640px-/, "/320px-"), { headers: ua });
+    if (!img.ok) return erreur("Image indisponible.", 404);
+    const rep = new Response(img.body, { headers: { "content-type": img.headers.get("content-type") || "image/jpeg", "cache-control": "public, max-age=2592000" } });
+    ctx.waitUntil(cache.put(cle, rep.clone()));
+    return rep;
+  } catch { return erreur("Image indisponible.", 502); }
+});
 route("POST", "defi-photo/essai", async ({ request, env, user, ctx }) => {
   const b = await corps(request), jour = jourBruxelles(), c = await photoDuJour(env, jour), id = String(b.id || "");
   if (!POOL_PHOTO.some((x) => x.id === id)) return erreur("Choisissez un monument de la liste.");
