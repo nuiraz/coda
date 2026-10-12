@@ -106,6 +106,9 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS nations_points ( semaine TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, nation TEXT NOT NULL, points INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (semaine, user_id) )`,
   `CREATE TABLE IF NOT EXISTS souhaits ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, carte TEXT NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, carte) )`,
   `CREATE TABLE IF NOT EXISTS cartes_admin ( id TEXT PRIMARY KEY, nom TEXT NOT NULL, type TEXT NOT NULL, pays TEXT NOT NULL, emoji TEXT, rarete TEXT NOT NULL, anecdote TEXT, wiki TEXT, evenement TEXT, sortie INTEGER NOT NULL, actif INTEGER NOT NULL DEFAULT 1, annoncee INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS propositions ( id INTEGER PRIMARY KEY AUTOINCREMENT, de_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, a_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, carte_donnee TEXT NOT NULL, carte_recue TEXT NOT NULL, statut TEXT NOT NULL DEFAULT 'ouverte', cree_le INTEGER NOT NULL, maj INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS defi_photo ( jour TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, essais TEXT NOT NULL DEFAULT '[]', fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL, PRIMARY KEY (jour, user_id) )`,
+  `CREATE TABLE IF NOT EXISTS express ( jour TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, score INTEGER NOT NULL DEFAULT 0, essais INTEGER NOT NULL DEFAULT 0, gagne INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL, PRIMARY KEY (jour, user_id) )`,
   `CREATE TABLE IF NOT EXISTS activite ( user_id INTEGER NOT NULL, jour TEXT NOT NULL, PRIMARY KEY (user_id, jour) )`,
   `CREATE TABLE IF NOT EXISTS notifs_campagnes ( id INTEGER PRIMARY KEY AUTOINCREMENT, titre TEXT NOT NULL, texte TEXT NOT NULL, url TEXT NOT NULL, cible TEXT NOT NULL, total INTEGER NOT NULL DEFAULT 0, envoyes INTEGER NOT NULL DEFAULT 0, par TEXT, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS notifs_file ( campagne_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY (campagne_id, user_id) )`,
@@ -820,6 +823,7 @@ export async function planifie(env) {
   try { await cronNotifs(env); } catch (e) { console.error(e); }
   try { await cronEvenement(env); } catch (e) { console.error(e); }
   try { await annoncerCartesAdmin(env); } catch (e) { console.error(e); }
+  try { await expirerPropositions(env); } catch (e) { console.error(e); }
   try { await cloturerNations(env); } catch (e) { console.error(e); }
   const jourSync = new Date().toISOString().slice(0, 10), dejaJour = (await lireConfig(env, "sync_jour")) === jourSync;
   if (!dejaJour) await ecrireConfig(env, "sync_jour", jourSync);
@@ -1923,7 +1927,8 @@ const DUREE_ENCHERE = 24 * 3600000, TAXE_ENCHERE = 0.1, ENCHERES_MAX = 5;
 // Exemplaires d'une carte déjà mis de côté (échanges ouverts + enchères en cours)
 async function enSequestre(env, userId, carte) {
   const r = await env.DB.prepare(`SELECT (SELECT COUNT(*) FROM echanges WHERE user_id = ?1 AND statut = 'ouvert' AND carte_offerte = ?2)
-    + (SELECT COUNT(*) FROM encheres WHERE vendeur_id = ?1 AND statut = 'ouverte' AND carte = ?2) AS n`).bind(userId, carte).first();
+    + (SELECT COUNT(*) FROM encheres WHERE vendeur_id = ?1 AND statut = 'ouverte' AND carte = ?2)
+    + (SELECT COUNT(*) FROM propositions WHERE de_id = ?1 AND statut = 'ouverte' AND carte_donnee = ?2) AS n`).bind(userId, carte).first();
   return r.n;
 }
 async function cloturerEncheres(env) {
@@ -2853,7 +2858,7 @@ const CIBLES_NOTIF = {
   premium: { nom: "Joueurs Premium", sql: "SELECT DISTINCT a.user_id FROM abonnements a JOIN users u ON u.id = a.user_id WHERE u.banni = 0 AND u.premium_jusqu > ?", args: (t) => [t] },
   guildes: { nom: "Membres d'une guilde", sql: "SELECT DISTINCT a.user_id FROM abonnements a JOIN users u ON u.id = a.user_id JOIN guilde_membres m ON m.user_id = u.id WHERE u.banni = 0", args: () => [] },
 };
-const PAGES_NOTIF = ["accueil", "boosters", "ligues", "hub", "missions", "combat", "albums", "decks", "succes", "passe", "samedi", "guilde", "premium", "defi", "nations"];
+const PAGES_NOTIF = ["accueil", "boosters", "ligues", "hub", "missions", "combat", "albums", "decks", "succes", "passe", "samedi", "guilde", "premium", "defi", "nations", "marche", "express", "photo"];
 // Prépare la file d'envoi d'une campagne (les destinataires sont calculés au moment de l'envoi)
 async function preparerCampagne(env, c) {
   const t = maintenant();
@@ -3058,6 +3063,7 @@ route("POST", "defi/essai", async ({ request, env, user, ctx }) => {
     recompense = RECOMPENSES_DEFI[essais.length];
     await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, ?, 0, ?, ?)").bind(user.id, recompense, `🌍 Défi du jour n° ${numeroDefi(jour)} trouvé en ${essais.length} essai${essais.length > 1 ? "s" : ""} !`, maintenant()).run();
     enArrierePlan(ctx, pointsNations(env, user.id, 7 - essais.length));
+    enArrierePlan(ctx, prevenirAmisScore(env, user, "defi", essais.length, jour, (n) => `🌍 ${user.pseudo} a trouvé le pays mystère en ${n} essai${n > 1 ? "s" : ""}`, "./#defi", "SELECT user_id, json_array_length(essais) AS n, gagne FROM defi_jour WHERE jour = ? AND user_id IN (SELECT value FROM json_each(?))", true));
   }
   return json({ resultat: res, fini, gagne: res.juste, recompense, essais, solution: fini ? { code: cible, nom: NOMS_PAYS[cible] } : null, serie: fini ? await serieDefi(env, user.id, jour) : 0 });
 }, {});
@@ -3265,6 +3271,216 @@ async function annoncerCartesAdmin(env) {
   await env.DB.prepare(`UPDATE cartes_admin SET annoncee = 1 WHERE id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(results.map((c) => c.id))).run();
   await annoncerDiscord(env, "evenements", { titre: `🆕 ${results.length > 1 ? `${results.length} nouvelles cartes` : "Nouvelle carte"} dans les boosters !`, texte: results.map((c) => `• **${c.nom}**`).join("\n"), url: "./#boosters", couleur: 0x2fbf71 });
 }
+
+/* =====================================================================
+   Notifications entre amis : un ami fait mieux que vous (ou vous devance) au défi ou au combat express
+   ===================================================================== */
+const amisReciproques = async (env, userId) => (await env.DB.prepare("SELECT a.ami_id AS id FROM amis a WHERE a.user_id = ?1 AND EXISTS (SELECT 1 FROM amis b WHERE b.user_id = a.ami_id AND b.ami_id = ?1) LIMIT 40").bind(userId).all()).results.map((x) => x.id);
+// petitMieux : au défi, moins d'essais = mieux ; au combat express, plus de points = mieux
+async function prevenirAmisScore(env, user, type, valeur, jour, titre, url, sqlScores, petitMieux) {
+  const amis = await amisReciproques(env, user.id);
+  if (!amis.length) return;
+  const scores = Object.fromEntries((await env.DB.prepare(sqlScores).bind(jour, JSON.stringify(amis)).all()).results.map((x) => [x.user_id, x]));
+  for (const id of amis) {
+    const s = scores[id], bat = s && (petitMieux ? (!s.gagne || s.n > valeur) : s.n < valeur);
+    if (s && !bat) continue;
+    await notifierUneFois(env, id, `ami-${type}`, `${jour}:${user.id}`, { titre: titre(valeur), texte: s ? "Il vient de faire mieux que vous aujourd'hui : reprenez la tête !" : "À votre tour : saurez-vous faire mieux ?", url });
+  }
+}
+
+/* =====================================================================
+   Marché d'échange : le jeu propose des échanges équitables (vos doublons contre les cartes que vous cherchez),
+   la carte proposée est mise de côté jusqu'à la réponse (3 jours au plus).
+   ===================================================================== */
+const ORDRE_R = { "commun": 0, "peu-commun": 1, "rare": 2, "epique": 3, "ultra-rare": 4, "legendaire": 5, "secrete": 6 };
+const doublesDe = (save) => Object.keys(save.owned || {}).filter((id) => (save.owned[id] || 0) >= 2 && CATALOGUE[id] && CATALOGUE[id].type !== "secrete");
+route("GET", "marche/suggestions", async ({ env, user }) => {
+  const moi = await saveDe(env, user.id), doubles = new Set(doublesDe(moi));
+  const { results: souhaits } = await env.DB.prepare("SELECT carte FROM souhaits WHERE user_id = ?").bind(user.id).all();
+  const suggestions = [], vus = new Set();
+  for (const { carte: w } of souhaits.filter((x) => CATALOGUE[x.carte]).slice(0, 30)) {
+    // Joueurs qui ont la carte voulue en double… et qui cherchent une de mes cartes en double
+    const { results } = await env.DB.prepare(`SELECT u.id, u.pseudo, (SELECT json_group_array(carte) FROM souhaits x WHERE x.user_id = u.id) AS veut
+      FROM sauvegardes s JOIN users u ON u.id = s.user_id WHERE u.id != ? AND u.banni = 0 AND CAST(json_extract(s.data, ?) AS INTEGER) >= 2
+      ORDER BY COALESCE(u.derniere_co, 0) DESC LIMIT 15`).bind(user.id, cheminCarte(w)).all();
+    for (const j of results) {
+      const veut = JSON.parse(j.veut || "[]").filter((d) => doubles.has(d));
+      if (!veut.length) continue;
+      // L'échange le plus équitable : même rareté si possible, sinon la plus proche
+      const d = veut.sort((a, b) => Math.abs(ORDRE_R[CATALOGUE[a].rarete] - ORDRE_R[CATALOGUE[w].rarete]) - Math.abs(ORDRE_R[CATALOGUE[b].rarete] - ORDRE_R[CATALOGUE[w].rarete]))[0];
+      const cle = `${j.id}:${d}:${w}`; if (vus.has(cle)) continue; vus.add(cle);
+      suggestions.push({ pseudo: j.pseudo, donne: d, recoit: w, equitable: CATALOGUE[d].rarete === CATALOGUE[w].rarete, ecart: ORDRE_R[CATALOGUE[d].rarete] - ORDRE_R[CATALOGUE[w].rarete] });
+    }
+  }
+  suggestions.sort((a, b) => Math.abs(a.ecart) - Math.abs(b.ecart));
+  return json({ suggestions: suggestions.slice(0, 30), souhaits: souhaits.length, doubles: doubles.size });
+}, { connecte: true });
+route("GET", "marche/propositions", async ({ env, user }) => {
+  const { results } = await env.DB.prepare(`SELECT p.*, ud.pseudo AS de, ua.pseudo AS a FROM propositions p JOIN users ud ON ud.id = p.de_id JOIN users ua ON ua.id = p.a_id
+    WHERE (p.de_id = ?1 OR p.a_id = ?1) AND (p.statut = 'ouverte' OR p.maj > ?2) ORDER BY p.id DESC LIMIT 60`).bind(user.id, maintenant() - 7 * JOUR).all();
+  return json({ propositions: results.map((x) => ({ id: x.id, de: x.de, a: x.a, moi: x.de_id === user.id ? "envoyee" : "recue", donne: x.carte_donnee, recoit: x.carte_recue, statut: x.statut, cree_le: x.cree_le })) });
+}, { connecte: true });
+route("POST", "marche/proposer", async ({ request, env, user, ctx }) => {
+  const b = await corps(request), donne = String(b.donne || ""), recoit = String(b.recoit || "");
+  if (!CATALOGUE[donne] || !CATALOGUE[recoit]) return erreur("Carte inconnue.");
+  const autre = await autreJoueur(env, user, String(b.pseudo || ""));
+  const ouvertes = await env.DB.prepare("SELECT COUNT(*) AS n FROM propositions WHERE de_id = ? AND statut = 'ouverte'").bind(user.id).first();
+  if (ouvertes.n >= 10) return erreur("Vous avez déjà 10 propositions en attente.", 429);
+  const moi = await saveDe(env, user.id), lui = await saveDe(env, autre.id);
+  if (((moi.owned || {})[donne] || 0) - await enSequestre(env, user.id, donne) < 1) return erreur("Cette carte n'est plus dans votre collection (sauvegarde du compte).");
+  if (!((lui.owned || {})[recoit] > 0)) return erreur(`${autre.pseudo} n'a plus cette carte.`);
+  const r = await env.DB.prepare("INSERT INTO propositions (de_id, a_id, carte_donnee, carte_recue, cree_le, maj) VALUES (?, ?, ?, ?, ?, ?)").bind(user.id, autre.id, donne, recoit, maintenant(), maintenant()).run();
+  enArrierePlan(ctx, envoyerPush(env, autre.id, { titre: "🔄 Proposition d'échange", texte: `${user.pseudo} vous propose ${CATALOGUE[donne].nom} contre votre ${CATALOGUE[recoit].nom}.`, url: "./#marche" }));
+  return json({ ok: true, id: r.meta.last_row_id }, 201);
+}, { connecte: true });
+route("POST", "marche/propositions/(\\d+)/(accepter|refuser|annuler)", async ({ env, user, p, ctx }) => {
+  const x = await env.DB.prepare("SELECT * FROM propositions WHERE id = ? AND statut = 'ouverte'").bind(p[1]).first();
+  if (!x) return erreur("Cette proposition n'est plus d'actualité.", 404);
+  const action = p[2];
+  if ((action === "annuler" && x.de_id !== user.id) || (action !== "annuler" && x.a_id !== user.id)) return erreur("Non autorisé.", 403);
+  if (action === "accepter") {
+    const moi = await saveDe(env, user.id);
+    if (((moi.owned || {})[x.carte_recue] || 0) - await enSequestre(env, user.id, x.carte_recue) < 1) return erreur(`Vous n'avez plus « ${CATALOGUE[x.carte_recue]?.nom} » (sauvegarde du compte).`);
+  }
+  const statut = action === "accepter" ? "acceptee" : action === "refuser" ? "refusee" : "annulee";
+  const r = await env.DB.prepare("UPDATE propositions SET statut = ?, maj = ? WHERE id = ? AND statut = 'ouverte'").bind(statut, maintenant(), x.id).run();
+  if (!r.meta.changes) return erreur("Cette proposition vient de changer.", 409);
+  const pseudoDe = (await env.DB.prepare("SELECT pseudo FROM users WHERE id = ?").bind(x.de_id).first())?.pseudo;
+  if (action === "accepter") {
+    // L'auteur reçoit la carte demandée ; celui qui accepte reçoit la carte mise de côté (et donne la sienne)
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO livraisons (user_id, carte, message, cree_le) VALUES (?, ?, ?, ?)").bind(x.de_id, x.carte_recue, `Échange conclu avec ${user.pseudo}`, maintenant()),
+      env.DB.prepare("INSERT INTO livraisons (user_id, carte, message, cree_le) VALUES (?, ?, ?, ?)").bind(x.a_id, x.carte_donnee, `Échange conclu avec ${pseudoDe}`, maintenant()),
+    ]);
+    enArrierePlan(ctx, envoyerPush(env, x.de_id, { titre: "🤝 Échange accepté !", texte: `${user.pseudo} a accepté : vous recevez ${CATALOGUE[x.carte_recue]?.nom}.`, url: "./#marche" }));
+    return json({ ok: true, donne: x.carte_recue, message: `Échange conclu avec ${pseudoDe} : vous recevez ${CATALOGUE[x.carte_donnee]?.nom} !` });
+  }
+  // Refus ou annulation : la carte mise de côté revient à l'auteur
+  await env.DB.prepare("INSERT INTO livraisons (user_id, carte, message, cree_le) VALUES (?, ?, ?, ?)").bind(x.de_id, x.carte_donnee, action === "refuser" ? `Proposition refusée par ${user.pseudo} : votre carte vous est rendue` : "Proposition annulée : votre carte vous est rendue", maintenant()).run();
+  if (action === "refuser") enArrierePlan(ctx, envoyerPush(env, x.de_id, { titre: "🔄 Proposition refusée", texte: `${user.pseudo} a refusé l'échange. Votre carte vous est rendue.`, url: "./#marche" }));
+  return json({ ok: true });
+}, { connecte: true });
+async function expirerPropositions(env) {
+  const { results } = await env.DB.prepare("SELECT * FROM propositions WHERE statut = 'ouverte' AND cree_le < ? LIMIT 50").bind(maintenant() - 3 * JOUR).all();
+  for (const x of results) {
+    const r = await env.DB.prepare("UPDATE propositions SET statut = 'expiree', maj = ? WHERE id = ? AND statut = 'ouverte'").bind(maintenant(), x.id).run();
+    if (r.meta.changes) await env.DB.prepare("INSERT INTO livraisons (user_id, carte, message, cree_le) VALUES (?, ?, ?, ?)").bind(x.de_id, x.carte_donnee, "Proposition d'échange expirée : votre carte vous est rendue", maintenant()).run();
+  }
+}
+
+/* =====================================================================
+   Défi photo du jour : reconnaître un monument d'après sa photo, très zoomée au début (6 essais)
+   La photo passe par le serveur : son adresse ne trahit pas la réponse.
+   ===================================================================== */
+const POOL_PHOTO = [...MONDE.MONUMENTS_BRUTS, ...MONUMENTS2.MONUMENTS_EXTRA, ...MONUMENTS3.MONUMENTS_EXTRA2, ...MONUMENTS4.MONUMENTS_EXTRA3]
+  .map((x) => ({ id: "monu:" + x[0], nom: x[1], pays: x[2], wiki: x[8] || x[1] })).filter((x) => CATALOGUE[x.id]);
+const PHOTO_ESSAIS = 6, RECOMPENSES_PHOTO = [0, 350, 280, 220, 170, 130, 100];
+let ordrePhoto = null;
+async function photoDuJour(env, jour) {
+  if (!ordrePhoto) {
+    let sel = await lireConfig(env, "defi_sel");
+    if (!sel) { sel = [...aleatoire(8)].map((x) => x.toString(16).padStart(2, "0")).join(""); await ecrireConfig(env, "defi_sel", sel); }
+    const rng = COMBAT.rng(COMBAT.hash("photo:" + sel)), o = POOL_PHOTO.slice();
+    for (let i = o.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; }
+    ordrePhoto = o;
+  }
+  const n = numeroDefi(jour);
+  return ordrePhoto[((n - 1) % ordrePhoto.length + ordrePhoto.length) % ordrePhoto.length];
+}
+route("GET", "defi-photo", async ({ env, user }) => {
+  const jour = jourBruxelles(), c = await photoDuJour(env, jour);
+  const ligne = user ? await env.DB.prepare("SELECT essais, fini, gagne FROM defi_photo WHERE jour = ? AND user_id = ?").bind(jour, user.id).first() : null;
+  const essais = ligne ? JSON.parse(ligne.essais) : [];
+  const { results: top } = await env.DB.prepare(`SELECT u.pseudo, json_array_length(d.essais) AS n FROM defi_photo d JOIN users u ON u.id = d.user_id WHERE d.jour = ? AND d.gagne = 1 AND u.banni = 0 ORDER BY n, d.maj LIMIT 10`).bind(jour).all();
+  const indices = { pays: essais.length >= 4 || ligne?.fini ? { code: c.pays, nom: NOMS_PAYS[c.pays] } : null, continent: essais.length >= 2 || ligne?.fini ? MONDE.CONTINENTS[MONDE.PAYS_BRUTS.find((p) => p[0] === c.pays)?.[3]]?.nom || null : null };
+  return json({ jour, numero: numeroDefi(jour), essaisMax: PHOTO_ESSAIS, essais, fini: !!ligne?.fini, gagne: !!ligne?.gagne, solution: ligne?.fini ? { id: c.id, nom: c.nom } : null, indices, top, recompenses: RECOMPENSES_PHOTO,
+    noms: POOL_PHOTO.map((x) => [x.id, x.nom]) });
+});
+route("GET", "defi-photo/image", async ({ env, ctx }) => {
+  const jour = jourBruxelles(), c = await photoDuJour(env, jour);
+  const cache = caches.default, cle = new Request(`https://cache.play2f1/defi-photo/${jour}`);
+  const deja = await cache.match(cle); if (deja) return deja;
+  const perso = await env.DB.prepare("SELECT image FROM photos_perso WHERE carte = ?").bind(c.id).first();
+  if (perso?.image) return reponseImage(env, "photos/" + c.id.replace(":", "~"), perso.image);
+  try {
+    const r = await fetch(`https://fr.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(c.wiki.replace(/ /g, "_"))}`, { headers: { "user-agent": "Play2F1/1.0 (https://play2f1.com)" } });
+    const j = await r.json();
+    const src = j.originalimage?.source && j.thumbnail?.source ? j.thumbnail.source.replace(/\/\d+px-/, "/900px-") : j.thumbnail?.source;
+    if (!src) return erreur("Photo indisponible aujourd'hui.", 404);
+    const img = await fetch(src, { headers: { "user-agent": "Play2F1/1.0 (https://play2f1.com)" } });
+    if (!img.ok) return erreur("Photo indisponible aujourd'hui.", 404);
+    const rep = new Response(img.body, { headers: { "content-type": img.headers.get("content-type") || "image/jpeg", "cache-control": "public, max-age=3600" } });
+    ctx.waitUntil(cache.put(cle, rep.clone()));
+    return rep;
+  } catch { return erreur("Photo indisponible aujourd'hui.", 502); }
+});
+route("POST", "defi-photo/essai", async ({ request, env, user, ctx }) => {
+  const b = await corps(request), jour = jourBruxelles(), c = await photoDuJour(env, jour), id = String(b.id || "");
+  if (!POOL_PHOTO.some((x) => x.id === id)) return erreur("Choisissez un monument de la liste.");
+  const juste = id === c.id;
+  if (!user) {
+    const n = Math.min(PHOTO_ESSAIS, Math.max(1, Math.floor(Number(b.numero) || 1))), fini = juste || n >= PHOTO_ESSAIS;
+    return json({ juste, fini, gagne: juste, solution: fini ? { id: c.id, nom: c.nom } : null, indices: { continent: n >= 2 || fini ? MONDE.CONTINENTS[MONDE.PAYS_BRUTS.find((p) => p[0] === c.pays)?.[3]]?.nom : null, pays: n >= 4 || fini ? { code: c.pays, nom: NOMS_PAYS[c.pays] } : null } });
+  }
+  const ligne = await env.DB.prepare("SELECT essais, fini FROM defi_photo WHERE jour = ? AND user_id = ?").bind(jour, user.id).first();
+  const essais = ligne ? JSON.parse(ligne.essais) : [];
+  if (ligne?.fini) return erreur("Vous avez déjà terminé le défi photo du jour.");
+  if (essais.includes(id)) return erreur("Vous avez déjà proposé ce monument.");
+  essais.push(id);
+  const fini = juste || essais.length >= PHOTO_ESSAIS;
+  await env.DB.prepare(`INSERT INTO defi_photo (jour, user_id, essais, fini, gagne, maj) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(jour, user_id) DO UPDATE SET essais = excluded.essais, fini = excluded.fini, gagne = excluded.gagne, maj = excluded.maj WHERE defi_photo.fini = 0`).bind(jour, user.id, JSON.stringify(essais), fini ? 1 : 0, juste ? 1 : 0, maintenant()).run();
+  let recompense = 0;
+  if (juste) {
+    recompense = RECOMPENSES_PHOTO[essais.length];
+    await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, ?, 0, ?, ?)").bind(user.id, recompense, `📷 Défi photo n° ${numeroDefi(jour)} trouvé en ${essais.length} essai${essais.length > 1 ? "s" : ""} !`, maintenant()).run();
+    enArrierePlan(ctx, pointsNations(env, user.id, 7 - essais.length));
+  }
+  const n = essais.length;
+  return json({ juste, fini, gagne: juste, essais, recompense, solution: fini ? { id: c.id, nom: c.nom } : null,
+    indices: { continent: n >= 2 || fini ? MONDE.CONTINENTS[MONDE.PAYS_BRUTS.find((p) => p[0] === c.pays)?.[3]]?.nom : null, pays: n >= 4 || fini ? { code: c.pays, nom: NOMS_PAYS[c.pays] } : null } });
+});
+
+/* =====================================================================
+   Combat express du jour : votre deck contre le même deck pour tous, combat automatique, 3 essais, classement
+   ===================================================================== */
+const ESSAIS_EXPRESS = 3;
+function deckExpress(jour) {
+  const rng = COMBAT.rng(COMBAT.hash("express:" + jour));
+  const pool = Object.entries(CATALOGUE).filter(([, c]) => ["rare", "epique", "ultra-rare", "legendaire"].includes(c.rarete) && c.type !== "secrete");
+  const choisis = [], legendaires = () => choisis.filter(([, c]) => c.rarete === "legendaire").length;
+  while (choisis.length < COMBAT.TAILLE_DECK) {
+    const e = pool[Math.floor(rng() * pool.length)];
+    if (choisis.includes(e) || (e[1].rarete === "legendaire" && legendaires() >= 2)) continue;
+    choisis.push(e);
+  }
+  return choisis.map(([id, c]) => { const st = COMBAT.stats(id, c.type, c.rarete, undefined, 6, false, false); return { id, type: c.type, nom: c.nom, shiny: false, doree: false, atk: st.atk, def: st.def, pv: st.pv, niveau: st.niveau, talent: st.talent }; });
+}
+const scoreExpress = (etat, tours) => (etat.gagnant === 0 ? 1000 : 0) + COMBAT.koDe(etat, 1) * 120 - COMBAT.koDe(etat, 0) * 40 + Math.max(0, 150 - tours) * 2;
+route("GET", "express", async ({ env, user }) => {
+  const jour = jourBruxelles();
+  const moi = user ? await env.DB.prepare("SELECT score, essais, gagne FROM express WHERE jour = ? AND user_id = ?").bind(jour, user.id).first() : null;
+  const { results: top } = await env.DB.prepare(`SELECT u.pseudo, e.score, e.gagne FROM express e JOIN users u ON u.id = e.user_id WHERE e.jour = ? AND u.banni = 0 ORDER BY e.score DESC, e.maj LIMIT 10`).bind(jour).all();
+  return json({ jour, numero: numeroDefi(jour), adversaire: deckExpress(jour), essaisMax: ESSAIS_EXPRESS, moi, top });
+});
+route("POST", "express/jouer", async ({ request, env, user, ctx }) => {
+  const b = await corps(request), jour = jourBruxelles();
+  const ligne = await env.DB.prepare("SELECT score, essais FROM express WHERE jour = ? AND user_id = ?").bind(jour, user.id).first();
+  if ((ligne?.essais || 0) >= ESSAIS_EXPRESS) return erreur("Vous avez utilisé vos 3 essais du jour. Revenez demain !");
+  const deck = await construireDeck(env, user.id, (Array.isArray(b.deck) ? b.deck : []).map(String));
+  const adv = deckExpress(jour), graine = COMBAT.hash("express-graine:" + jour);
+  const { paires } = COMBAT.simulerMatch(deck, adv, graine);
+  const etat = COMBAT.rejouerDuel(deck, adv, graine, paires), score = Math.max(0, scoreExpress(etat, paires.length));
+  const meilleur = Math.max(score, ligne?.score || 0);
+  await env.DB.prepare(`INSERT INTO express (jour, user_id, score, essais, gagne, maj) VALUES (?, ?, ?, 1, ?, ?)
+    ON CONFLICT(jour, user_id) DO UPDATE SET essais = essais + 1, score = MAX(score, excluded.score), gagne = MAX(gagne, excluded.gagne), maj = CASE WHEN excluded.score > score THEN excluded.maj ELSE maj END`)
+    .bind(jour, user.id, score, etat.gagnant === 0 ? 1 : 0, maintenant()).run();
+  const rang = (await env.DB.prepare("SELECT COUNT(*) + 1 AS r FROM express WHERE jour = ? AND score > ?").bind(jour, meilleur).first()).r;
+  // Première victoire du jour : une petite récompense
+  if (etat.gagnant === 0 && !(ligne && ligne.score >= 1000)) await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, message, cree_le) VALUES (?, 150, 0, ?, ?)").bind(user.id, `⚡ Combat express n° ${numeroDefi(jour)} gagné !`, maintenant()).run();
+  if (score > (ligne?.score || 0)) enArrierePlan(ctx, prevenirAmisScore(env, user, "express", score, jour, (n) => `⚡ ${user.pseudo} a fait ${n} points au combat express`, "./#express", "SELECT user_id, score AS n, gagne FROM express WHERE jour = ? AND user_id IN (SELECT value FROM json_each(?))", false));
+  return json({ deckA: deck, deckB: adv, graine, paires, gagne: etat.gagnant === 0, score, meilleur, rang, essais: (ligne?.essais || 0) + 1, essaisMax: ESSAIS_EXPRESS, ko: [COMBAT.koDe(etat, 0), COMBAT.koDe(etat, 1)] });
+}, { connecte: true });
 
 /* =====================================================================
    Tutoriel des nouveaux joueurs : récompense unique quand les étapes sont faites

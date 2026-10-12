@@ -244,3 +244,19 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .rg-carte:hover, .rg-carte:focus-visible { background: var(--panel2); }
 .rg-carte img { width: 26px; height: 18px; object-fit: cover; border-radius: 3px; } .rg-carte span { font-size: 20px; text-align: center; }
 #modal.recherche-globale .box { padding-top: 48px; }
+/* ---------- Marché, défi photo, combat express ---------- */
+.mc { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 99px; background: var(--panel); border: 1px solid var(--border); font-size: 14px; }
+.mc img { width: 22px; height: 15px; object-fit: cover; border-radius: 2px; } .mc i { font-style: normal; } .mc small { color: var(--muted); font-size: 11.5px; }
+.ma-ligne { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
+.ma-ligne:first-of-type { border-top: 0; }
+.ma-echange { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; } .ma-fleche { font-size: 20px; color: var(--accent); }
+.ma-recues { border-color: var(--accent); }
+.ph-cadre { overflow: hidden; border-radius: 18px; aspect-ratio: 4 / 3; background: var(--panel2); }
+.ph-cadre img { width: 100%; height: 100%; object-fit: cover; transition: transform .6s cubic-bezier(.2, .8, .2, 1); display: block; }
+.ph-cadre.gagne { outline: 3px solid #2fbf71; } .ph-cadre.perdu { outline: 3px solid #e2433b; }
+.ph-indices { display: flex; flex-wrap: wrap; gap: 6px; } .ph-indices .chip.muted { opacity: .6; }
+.ph-essais { margin: 0; padding-left: 22px; display: grid; gap: 4px; } .ph-essais li.juste { font-weight: 700; }
+.ex-deck { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.ex-u { display: grid; gap: 4px; padding: 8px; border-radius: 12px; background: var(--panel2); } .ex-u small { color: var(--muted); }
+.ex-action { margin-top: 14px; text-align: center; }
+.ph-cadre { max-width: 680px; margin: 0 auto; width: 100%; } .ph-erreur { padding: 40px 16px; text-align: center; }
