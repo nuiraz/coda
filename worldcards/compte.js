@@ -962,7 +962,7 @@ async function vueAdmin(v) {
   if (!COMPTE.admin) { v.innerHTML = `<div class="panel"><p>Accès réservé à l'administrateur.</p><button class="btn" data-aller="compte">Mon compte</button></div>`; brancherLiens(v); return; }
   v.innerHTML = `<div class="sectiontitle"><h3>👑 Administration</h3><span class="muted">Connecté en tant que ${esc(COMPTE.pseudo)}</span></div>
     <div class="statgrid" id="aStats"><div class="stat"><b>…</b><span>chargement</span></div></div>
-    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["avatars", "🖼️ Photos de profil"], ["moderation", "🛡️ Modération"], ["ventes", "💰 Ventes"], ["integrations", "🔌 Intégrations"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
+    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["avatars", "🖼️ Photos de profil"], ["moderation", "🛡️ Modération"], ["ventes", "💰 Ventes"], ["visuels", "🖼️ Visuels boosters"], ["integrations", "🔌 Intégrations"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
     <div id="aCorps"></div>`;
   $$("[data-a]", v).forEach((b) => b.onclick = () => { adminEtat.onglet = b.dataset.a; aller("admin"); });
   api("admin/stats").then((s) => {
@@ -970,7 +970,7 @@ async function vueAdmin(v) {
       .map(([l, n]) => `<div class="stat"><b>${fmt(n)}</b><span>${l}</span></div>`).join("");
   }).catch((e) => { $("#aStats").innerHTML = `<p class="err">${esc(e.message)}</p>`; });
   const corps = $("#aCorps");
-  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, evenements: adminEvenements, photos: adminPhotos, avatars: adminAvatars, moderation: adminModeration, integrations: adminIntegrations, ventes: adminVentes, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
+  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, evenements: adminEvenements, photos: adminPhotos, avatars: adminAvatars, moderation: adminModeration, integrations: adminIntegrations, ventes: adminVentes, visuels: adminVisuels, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
 }
 async function adminJoueurs(el) {
   el.innerHTML = `<input class="search" id="aq" type="search" placeholder="Rechercher un joueur…" value="${esc(adminEtat.q)}" style="max-width:none;width:100%;margin-bottom:10px">

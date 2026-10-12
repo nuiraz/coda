@@ -96,6 +96,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS tdirect_inscrits ( semaine TEXT NOT NULL, user_id INTEGER NOT NULL, pseudo TEXT NOT NULL, deck TEXT NOT NULL, trophees INTEGER NOT NULL DEFAULT 1000, cree_le INTEGER NOT NULL, PRIMARY KEY (semaine, user_id) )`,
   `CREATE TABLE IF NOT EXISTS credits ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, pieces INTEGER NOT NULL DEFAULT 0, cartes INTEGER NOT NULL DEFAULT 0, boosters INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
   `CREATE INDEX IF NOT EXISTS credits_user ON credits (user_id, cree_le)`,
+  `CREATE TABLE IF NOT EXISTS visuels ( cle TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
+  `CREATE TABLE IF NOT EXISTS decouvertes ( carte TEXT PRIMARY KEY, user_id INTEGER NOT NULL, pseudo TEXT NOT NULL, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS bloques ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, bloque_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (user_id, bloque_id) )`,
   `CREATE TABLE IF NOT EXISTS combats ( id INTEGER PRIMARY KEY AUTOINCREMENT, attaquant INTEGER NOT NULL, defenseur INTEGER NOT NULL, graine INTEGER NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, cree_le INTEGER NOT NULL, fini INTEGER NOT NULL DEFAULT 0, gagne INTEGER )`,
 ];
@@ -388,6 +390,11 @@ route("PUT", "sauvegarde", async ({ request, env, user, ctx }) => {
   // Compte réinitialisé par l'admin : on refuse toute ancienne sauvegarde (appareil resté sur l'ancienne progression)
   if (user.reset_le && (Number(b.reset) || 0) < user.reset_le) return json({ erreur: "Votre compte a été réinitialisé par l'administrateur.", reinitialise: user.reset_le }, 409);
   const triche = await controleTriche(env, user, b.data);
+  if (triche.statut !== "refuse") {
+    let avant = null;
+    try { const pr = await env.DB.prepare("SELECT data FROM sauvegardes WHERE user_id = ?").bind(user.id).first(); avant = pr ? JSON.parse(pr.data)?.sauvegarde?.owned || {} : null; } catch {}
+    enArrierePlan(ctx, noterDecouvertes(env, user, b.data, avant));
+  }
   if (triche.statut !== "ok") {
     await journaliser(env, user.id, triche.statut === "refuse" ? "🚫 sauvegarde refusée (triche)" : "🚩 progression suspecte", triche.raisons.join(" · "), "anti-triche");
     enArrierePlan(ctx, (async () => {
@@ -2288,6 +2295,57 @@ route("POST", "admin/samedi", async ({ request, env }) => {
   if (b.action === "reinitialiser") { await env.DB.prepare("DELETE FROM tdirect WHERE semaine = ?").bind(sem).run(); return json({ ok: true }); }
   return erreur("Action inconnue.");
 }, { admin: true });
+
+/* =====================================================================
+   Visuels des boosters : images envoyées par l'admin (créées avec Google Flow, etc.), affichées dans la boutique
+   ===================================================================== */
+const VISUEL_RE = /^data:image\/(webp|jpeg|png);base64,([A-Za-z0-9+/=]+)$/;
+const CLE_VISUEL = /^[a-z0-9-]{2,40}$/i;
+route("GET", "visuels", async ({ env }) => {
+  const { results } = await env.DB.prepare("SELECT cle, maj FROM visuels").all();
+  return json({ visuels: Object.fromEntries(results.map((x) => [x.cle, x.maj])) }, 200, { "cache-control": "public, max-age=60" });
+});
+route("GET", "visuel/([A-Za-z0-9-]{2,40})", async ({ env, p }) => {
+  const v = await env.DB.prepare("SELECT image FROM visuels WHERE cle = ?").bind(p[1]).first();
+  const m = v && VISUEL_RE.exec(v.image);
+  if (!m) return new Response(null, { status: 404 });
+  return new Response(Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/" + m[1], "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+});
+route("POST", "admin/visuels", async ({ request, env }) => {
+  const b = await corps(request);
+  if (!CLE_VISUEL.test(String(b.cle || ""))) return erreur("Booster inconnu.");
+  const m = VISUEL_RE.exec(String(b.image || ""));
+  if (!m) return erreur("Image invalide (WebP, JPEG ou PNG).");
+  if (m[2].length > 1400000) return erreur("Image trop lourde : 1 Mo maximum après compression.");
+  await env.DB.prepare("INSERT INTO visuels (cle, image, maj) VALUES (?, ?, ?) ON CONFLICT(cle) DO UPDATE SET image = excluded.image, maj = excluded.maj").bind(b.cle, b.image, maintenant()).run();
+  return json({ ok: true, maj: maintenant() });
+}, { admin: true });
+route("DELETE", "admin/visuels/([A-Za-z0-9-]{2,40})", async ({ env, p }) => {
+  await env.DB.prepare("DELETE FROM visuels WHERE cle = ?").bind(p[1]).run();
+  return json({ ok: true });
+}, { admin: true });
+
+/* =====================================================================
+   Codex : premières découvertes mondiales (qui a trouvé chaque carte en premier)
+   ===================================================================== */
+async function noterDecouvertes(env, user, data, avant) {
+  const ids = Object.keys(data?.sauvegarde?.owned || {}).filter((id) => data.sauvegarde.owned[id] > 0 && CATALOGUE[id] && !(avant && avant[id] > 0));
+  for (let i = 0; i < Math.min(ids.length, 400); i += 50) {
+    const lot = ids.slice(i, i + 50);
+    await env.DB.batch(lot.map((id) => env.DB.prepare("INSERT OR IGNORE INTO decouvertes (carte, user_id, pseudo, cree_le) VALUES (?, ?, ?, ?)").bind(id, user.id, user.pseudo, maintenant())));
+  }
+}
+route("GET", "codex", async ({ env, user }) => {
+  const total = (await env.DB.prepare("SELECT COUNT(*) AS n FROM decouvertes").first()).n;
+  const recentes = await env.DB.prepare("SELECT carte, pseudo, cree_le FROM decouvertes ORDER BY cree_le DESC LIMIT 12").all();
+  const miennes = user ? (await env.DB.prepare("SELECT COUNT(*) AS n FROM decouvertes WHERE user_id = ?").bind(user.id).first()).n : 0;
+  const top = await env.DB.prepare("SELECT pseudo, COUNT(*) AS n FROM decouvertes GROUP BY user_id ORDER BY n DESC LIMIT 5").all();
+  return json({ total, catalogue: Object.keys(CATALOGUE).length, miennes, recentes: recentes.results, explorateurs: top.results });
+});
+route("GET", "codex/carte/([a-z]+:[A-Za-z0-9_-]{1,40})", async ({ env, p }) => {
+  const d = await env.DB.prepare("SELECT pseudo, cree_le FROM decouvertes WHERE carte = ?").bind(p[1]).first();
+  return json({ decouverte: d || null });
+});
 
 // Recherche de joueurs (pour ajouter des amis ou écrire)
 route("GET", "joueurs/recherche", async ({ request, env, user }) => {
