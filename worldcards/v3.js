@@ -274,15 +274,17 @@ ajouterPage("codex", "🧭", "Codex", vueCodex);
 for (const k of ["codex", "forge"]) { const i = DESTINATIONS.findIndex((d) => d[0] === k); if (i >= 0) { const [d] = DESTINATIONS.splice(i, 1); DESTINATIONS.splice(DESTINATIONS.findIndex((x) => x[0] === "boosters") + 1, 0, d); } }
 
 /* ---------- Admin : visuels des boosters ---------- */
-function preparerVisuel(fichier) {
+// Boosters : 900 px de haut au plus. Photos de cartes (petites à l'écran) : 600 px de large au plus, qualité un peu plus basse
+function preparerVisuel(fichier, carte = false) {
   return new Promise((ok, ko) => {
     if (!/^image\//.test(fichier.type)) return ko(new Error("Choisissez une image."));
     const img = new Image(), url = URL.createObjectURL(fichier);
     img.onload = () => {
-      const h = Math.min(900, img.height), w = Math.round(img.width * (h / img.height));
+      const r = carte ? Math.min(1, 600 / img.width, 600 / img.height) : Math.min(1, 900 / img.height);
+      const w = Math.round(img.width * r), h = Math.round(img.height * r);
       const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(img, 0, 0, w, h);
       URL.revokeObjectURL(url);
-      let q = 0.88, data = c.toDataURL("image/webp", q);
+      let q = carte ? 0.8 : 0.88, data = c.toDataURL("image/webp", q);
       if (!data.startsWith("data:image/webp")) data = c.toDataURL("image/jpeg", q);
       while (data.length > 1350000 && q > 0.4) { q -= 0.1; data = c.toDataURL(data.startsWith("data:image/webp") ? "image/webp" : "image/jpeg", q); }
       ok(data);
@@ -335,7 +337,7 @@ function majPhotosPerso(id) {
 function choisirPhotoCarte(c) {
   ouvrirModal(`<h2 style="margin-top:0">📷 Photo de « ${esc(c.nom)} »</h2>
     <div class="photo-perso-apercu">${cardHTML(c, { locked: false })}</div>
-    <p class="muted">Envoyez votre propre photo pour cette carte : elle remplace la photo Wikipédia chez tous les joueurs. Format paysage conseillé (par exemple 1200 × 800), JPEG, PNG ou WebP ; l'image est compressée automatiquement.</p>
+    <p class="muted">Envoyez votre propre photo pour cette carte : elle remplace la photo Wikipédia chez tous les joueurs. Format paysage conseillé, JPEG, PNG ou WebP ; l'image est réduite à 600 px et compressée automatiquement (environ 60 à 90 Ko).</p>
     <div class="row" style="justify-content:flex-end;gap:8px;flex-wrap:wrap">
       ${PHOTOS_PERSO[c.id] ? `<button class="btn" id="ppSuppr">Revenir à la photo d'origine</button>` : ""}
       <label class="btn primary" style="cursor:pointer">Choisir une image<input type="file" id="ppFichier" accept="image/*" hidden></label></div>
@@ -344,7 +346,7 @@ function choisirPhotoCarte(c) {
     const f = e.target.files[0]; if (!f) return;
     $("#ppEtat").textContent = "Envoi en cours…";
     try {
-      const image = await preparerVisuel(f);
+      const image = await preparerVisuel(f, true);
       const r = await api("admin/photo-perso", { methode: "POST", corps: { carte: c.id, image } });
       PHOTOS_PERSO[c.id] = r.maj; majPhotosPerso(c.id); fermerModal(); toast("📷 Photo enregistrée pour tous les joueurs.");
     } catch (err) { $("#ppEtat").textContent = "⚠ " + err.message; }

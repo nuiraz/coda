@@ -1788,3 +1788,13 @@ h1, h2, h3, .brand b, .sectiontitle h3 { font-family: var(--titre); font-weight:
 .cx-onglets button.on, :root[data-theme="light"] .cx-onglets button.on { background: var(--accent); color: #fff; box-shadow: none; }
 .cx-forms .form label.check { display: block; font-weight: 500; line-height: 1.5; }
 .cx-forms .form label.check input { margin: 0 6px 0 0; vertical-align: -2px; }
+
+/* Boosters avec visuel envoyé par l'admin : l'image seule, sans cadre, déchirure alignée sur l'image */
+.pack.a-visuel { background-color: transparent !important; background-size: 100% 100% !important; background-repeat: no-repeat !important; background-position: center !important;
+  border: 0 !important; box-shadow: none !important; outline: 0; border-radius: 14px; filter: drop-shadow(0 18px 30px rgba(0, 0, 0, .5)); aspect-ratio: 2 / 3 !important; }
+.pack.grand.a-visuel { clip-path: none; }
+.pack.grand.a-visuel .rabat { background-image: inherit !important; background-size: 100% 666.67% !important; background-position: top center !important; background-repeat: no-repeat !important; background-color: transparent !important; border-radius: 14px 14px 0 0; filter: none; }
+.pack.grand.a-visuel .rabat, .pack.grand.a-visuel .entaille { visibility: visible; }
+/* Ouverture plein écran : fond graphite de la nouvelle identité */
+#modal.plein { background: radial-gradient(circle at 50% 30%, #2a1f1c, #0b0c0e 78%); }
+#modal.plein .box { background: radial-gradient(circle at 50% 38%, #2e2522, #121315 70%); border-color: #2c2e33; }
