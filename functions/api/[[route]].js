@@ -100,6 +100,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS photos_perso ( carte TEXT PRIMARY KEY, image TEXT NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS rangs ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, couleur TEXT NOT NULL DEFAULT '#888888', description TEXT NOT NULL DEFAULT '', min_pts INTEGER NOT NULL DEFAULT 0, max_pts INTEGER, ordre INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, divisions INTEGER NOT NULL DEFAULT 1, montee TEXT NOT NULL DEFAULT '', descente TEXT NOT NULL DEFAULT '', recompense_pieces INTEGER NOT NULL DEFAULT 0, recompense_boosters INTEGER NOT NULL DEFAULT 0, logo TEXT, logo_maj INTEGER NOT NULL DEFAULT 0 )`,
   `CREATE TABLE IF NOT EXISTS offres ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', badge TEXT NOT NULL DEFAULT '', prix_cents INTEGER NOT NULL, prix_reference_cents INTEGER, reference_note TEXT NOT NULL DEFAULT '', pieces INTEGER NOT NULL DEFAULT 0, boosters TEXT NOT NULL DEFAULT '{}', une_fois INTEGER NOT NULL DEFAULT 0, actif INTEGER NOT NULL DEFAULT 1, ordre INTEGER NOT NULL DEFAULT 0, debut INTEGER, fin INTEGER, maj INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS succes_recus ( user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, cle TEXT NOT NULL, pieces INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL, PRIMARY KEY (user_id, cle) )`,
   `CREATE TABLE IF NOT EXISTS rangs_historique ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, ancien TEXT, nouveau TEXT NOT NULL, trophees INTEGER NOT NULL, cree_le INTEGER NOT NULL )`,
   `CREATE INDEX IF NOT EXISTS rangs_historique_u ON rangs_historique (user_id, id)`,
   `CREATE TABLE IF NOT EXISTS decouvertes ( carte TEXT PRIMARY KEY, user_id INTEGER NOT NULL, pseudo TEXT NOT NULL, cree_le INTEGER NOT NULL )`,
@@ -128,6 +129,8 @@ const MIGRATIONS = [
   `ALTER TABLE duels ADD COLUMN points_a INTEGER`,
   `ALTER TABLE duels ADD COLUMN points_b INTEGER`,
   `ALTER TABLE cadeaux ADD COLUMN boosters_detail TEXT`,
+  `ALTER TABLE users ADD COLUMN confidentialite TEXT`,
+  `ALTER TABLE users ADD COLUMN banniere TEXT`,
 ];
 let schemaPret = false;
 async function preparerSchema(env) {
@@ -484,13 +487,44 @@ route("GET", "classement", async ({ request, env }) => {
   return json({ joueurs: r.results.map((x) => ({ ...x, admin: !!x.admin, premium: !!x.premium })) });
 });
 
-route("GET", "profil/([A-Za-z0-9_-]{3,20})", async ({ env, p }) => {
-  const u = await env.DB.prepare(`SELECT u.id, u.pseudo, u.admin, u.cree_le, u.premium_jusqu, u.temps_jeu, u.derniere_co, s.cartes, s.secretes, s.badges, s.vitrine,
+route("GET", "profil/([A-Za-z0-9_-]{3,20})", async ({ env, p, user }) => {
+  const u = await env.DB.prepare(`SELECT u.id, u.pseudo, u.admin, u.cree_le, u.premium_jusqu, u.temps_jeu, u.derniere_co, u.titre, u.cadre, u.confidentialite, u.banniere, s.cartes, s.secretes, s.badges, s.vitrine,
       (SELECT COUNT(*) FROM posts WHERE user_id = u.id) AS messages, (SELECT trophees FROM arene WHERE user_id = u.id) AS trophees
     FROM users u LEFT JOIN sauvegardes s ON s.user_id = u.id WHERE u.pseudo = ? AND u.banni = 0`).bind(p[1]).first();
   if (!u) return erreur("Joueur introuvable.", 404);
-  return json({ pseudo: u.pseudo, admin: !!u.admin, creeLe: u.cree_le, cartes: u.cartes || 0, secretes: u.secretes || 0, badges: u.badges || 0, messages: u.messages, trophees: u.trophees || 0, premium: estPremium(u), tempsJeu: u.temps_jeu || 0, derniereCo: u.derniere_co, vitrine: JSON.parse(u.vitrine || "[]") });
+  const moi = user?.id === u.id, conf = lireConfidentialite(u.confidentialite), voit = (k) => moi || conf[k];
+  const a = await env.DB.prepare("SELECT trophees, victoires, defaites, deck FROM arene WHERE user_id = ?").bind(u.id).first();
+  const rangs = await chargerRangs(env);
+  const base = { pseudo: u.pseudo, admin: !!u.admin, creeLe: u.cree_le, cartes: u.cartes || 0, secretes: u.secretes || 0, badges: u.badges || 0, messages: u.messages, trophees: u.trophees || 0, premium: estPremium(u),
+    tempsJeu: u.temps_jeu || 0, derniereCo: u.derniere_co, vitrine: voit("collection") ? JSON.parse(u.vitrine || "[]") : [], titre: u.titre, cadre: u.cadre, banniere: u.banniere || "corail",
+    totalCartes: TOTAL_CARTES, rang: rangDe(a?.trophees ?? 1000, rangs), moi, confidentialite: moi ? conf : undefined };
+  if (voit("statistiques")) Object.assign(base, { victoires: a?.victoires || 0, defaites: a?.defaites || 0 });
+  if (voit("deck") && a?.deck) base.deck = JSON.parse(a.deck).map((x) => x.id);
+  if (voit("historique")) {
+    const [ar, du, rh] = await env.DB.batch([
+      env.DB.prepare(`SELECT c.cree_le AS t, c.gagne, c.delta, c.classe, c.attaquant, ua.pseudo AS pa, ud.pseudo AS pd FROM combats c JOIN users ua ON ua.id = c.attaquant JOIN users ud ON ud.id = c.defenseur
+        WHERE c.fini = 1 AND (c.attaquant = ?1 OR c.defenseur = ?1) ORDER BY c.id DESC LIMIT 10`).bind(u.id),
+      env.DB.prepare(`SELECT d.fini_le AS t, d.gagnant, d.classe, d.points_a, d.points_b, d.a_id, ua.pseudo AS pa, ub.pseudo AS pb FROM duels d JOIN users ua ON ua.id = d.a_id JOIN users ub ON ub.id = d.b_id
+        WHERE d.statut = 'fini' AND (d.a_id = ?1 OR d.b_id = ?1) ORDER BY d.id DESC LIMIT 10`).bind(u.id),
+      env.DB.prepare("SELECT ancien, nouveau, trophees, cree_le FROM rangs_historique WHERE user_id = ? ORDER BY id DESC LIMIT 10").bind(u.id),
+    ]);
+    base.matchs = [
+      ...ar.results.map((c) => { const att = c.attaquant === u.id; return { t: c.t, mode: "Arène", adversaire: att ? c.pd : c.pa, gagne: att ? !!c.gagne : !c.gagne, points: c.classe ? (att ? c.delta : -Math.round((c.delta || 0) / 2)) : null }; }),
+      ...du.results.map((d) => { const estA = d.a_id === u.id; return { t: d.t, mode: d.classe ? "Duel classé" : "Duel amical", adversaire: estA ? d.pb : d.pa, gagne: d.gagnant === u.id, points: d.classe ? (estA ? d.points_a : d.points_b) : null }; }),
+    ].sort((x, y) => y.t - x.t).slice(0, 12);
+    base.historiqueRangs = rh.results;
+  }
+  if (voit("succes")) base.succes = (await calculerSucces(env, u.id, rangs)).filter((x) => x.fait).map((x) => ({ cle: x.cle, nom: x.nom, icone: x.icone, desc: x.desc }));
+  return json(base);
 });
+route("PUT", "profil/reglages", async ({ request, env, user }) => {
+  const b = await corps(request);
+  const conf = lireConfidentialite(null);
+  for (const k of Object.keys(conf)) if (b.confidentialite && k in b.confidentialite) conf[k] = !!b.confidentialite[k];
+  const banniere = BANNIERES.includes(b.banniere) ? b.banniere : "corail";
+  await env.DB.prepare("UPDATE users SET confidentialite = ?, banniere = ? WHERE id = ?").bind(JSON.stringify(conf), banniere, user.id).run();
+  return json({ ok: true, confidentialite: conf, banniere });
+}, { connecte: true });
 
 // ----- Cadeaux -----
 route("GET", "cadeaux", async ({ env, user }) => {
@@ -2387,6 +2421,7 @@ const REGLAGES_DEFAUT = {
   } },
   deck: { budget: 30, maxLegendaires: 3 },
   classe: { parJour: 5, memeAdversaire: 1 },
+  succes: {},
 };
 let reglagesCache = { t: 0, v: null };
 async function reglagesJeu(env) {
@@ -2396,6 +2431,7 @@ async function reglagesJeu(env) {
     chances: { ...REGLAGES_DEFAUT.chances, ...(lu.chances || {}), packs: { ...REGLAGES_DEFAUT.chances.packs, ...(lu.chances?.packs || {}) } },
     deck: { ...REGLAGES_DEFAUT.deck, ...(lu.deck || {}) },
     classe: { ...REGLAGES_DEFAUT.classe, ...(lu.classe || {}) },
+    succes: { ...(lu.succes || {}) },
   };
   reglagesCache = { t: maintenant(), v };
   return v;
@@ -2422,6 +2458,7 @@ route("PUT", "admin/reglages", async ({ request, env, user }) => {
     chances: { pityPas: nombre(b.chances?.pityPas, 0, 50, act.chances.pityPas), bonusNouvelle: nombre(b.chances?.bonusNouvelle, 0.2, 5, act.chances.bonusNouvelle), packs },
     deck: { budget: Math.round(nombre(b.deck?.budget, 10, 60, act.deck.budget)), maxLegendaires: Math.round(nombre(b.deck?.maxLegendaires, 0, 10, act.deck.maxLegendaires)) },
     classe: { parJour: Math.round(nombre(b.classe?.parJour, 1, 50, act.classe.parJour)), memeAdversaire: Math.round(nombre(b.classe?.memeAdversaire, 0, 10, act.classe.memeAdversaire)) },
+    succes: Object.fromEntries(Object.entries(b.succes || act.succes || {}).filter(([k]) => /^[a-z0-9-]{2,30}$/.test(k)).map(([k, v]) => [k, Math.round(nombre(v, 0, 100000, 0))])),
   };
   await ecrireConfig(env, "reglages_jeu", v);
   reglagesCache = { t: 0, v: null };
@@ -2558,6 +2595,60 @@ route("PUT", "admin/offres/([a-z0-9-]{2,30})", async ({ request, env, user, p })
   await journaliser(env, user.id, `offre ${p[1]} enregistrée`, `${nom} · ${(prix / 100).toFixed(2)} €`, "admin");
   return json({ ok: true });
 }, { admin: true });
+
+
+/* =====================================================================
+   Profil public : confidentialité, bannière, succès (vérifiés et récompensés côté serveur, une seule fois)
+   ===================================================================== */
+const BANNIERES = ["corail", "ocean", "foret", "nuit", "or", "rubis", "lavande", "graphite"];
+const lireConfidentialite = (t) => { let c = {}; try { c = JSON.parse(t || "{}") || {}; } catch {} return { statistiques: c.statistiques !== false, historique: c.historique !== false, deck: c.deck !== false, collection: c.collection !== false, succes: c.succes !== false, activite: c.activite !== false }; };
+const TOTAL_CARTES = Object.values(CATALOGUE).filter((c) => c.type !== "secrete").length;
+const PAYS_PAR_CONTINENT = MONDE.PAYS_BRUTS.reduce((m, p) => ((m[p[3]] ||= []).push("pays:" + p[0]), m), {});
+// [clé, nom, description, icône, récompense en pièces, progression(d) → [valeur, objectif]]
+const SUCCES = [
+  ["premiere-carte", "Première carte", "Obtenir sa première carte", "🃏", 50, (d) => [d.cartes, 1]],
+  ["premier-booster", "Premier booster", "Ouvrir son premier booster", "🎁", 50, (d) => [d.ouverts, 1]],
+  ["collection-100", "Collectionneur", "Posséder 100 cartes différentes", "📚", 300, (d) => [d.cartes, 100]],
+  ["collection-500", "Grand collectionneur", "Posséder 500 cartes différentes", "🏛️", 1000, (d) => [d.cartes, 500]],
+  ["collection-1000", "Encyclopédiste", "Posséder 1 000 cartes différentes", "🌍", 3000, (d) => [d.cartes, 1000]],
+  ["rares-10", "Chasseur de raretés", "Posséder 10 cartes épiques ou mieux", "💎", 500, (d) => [d.epiques, 10]],
+  ["legendaire", "Légende vivante", "Obtenir une carte légendaire", "⭐", 300, (d) => [d.legendaires, 1]],
+  ["continent", "Continent complet", "Posséder tous les pays d'un continent", "🗺️", 1500, (d) => [d.continent, 100]],
+  ["shiny", "Éclat rare", "Obtenir une carte Shiny", "✨", 200, (d) => [d.shiny, 1]],
+  ["evenement", "Esprit de fête", "Obtenir une carte d'événement ou de saison", "🎉", 200, (d) => [d.evenement, 1]],
+  ["victoire", "Première victoire", "Gagner un combat classé (arène ou duel)", "⚔️", 100, (d) => [d.victoires, 1]],
+  ["serie-5", "Série de 5", "Gagner 5 combats d'arène d'affilée", "🔥", 500, (d) => [d.serie, 5]],
+  ["victoires-50", "Vétéran", "Gagner 50 combats classés", "🛡️", 1500, (d) => [d.victoires, 50]],
+  ["rang-argent", "Rang ARGENT", "Atteindre le rang ARGENT", "🥈", 300, (d) => [d.rangMax >= d.seuil("argent") ? 1 : 0, 1]],
+  ["rang-or", "Rang OR", "Atteindre le rang OR", "🥇", 800, (d) => [d.rangMax >= d.seuil("or") ? 1 : 0, 1]],
+  ["rang-diamant", "Rang DIAMANT", "Atteindre le rang DIAMANT", "💠", 2500, (d) => [d.rangMax >= d.seuil("diamant") ? 1 : 0, 1]],
+];
+async function calculerSucces(env, userId, rangs) {
+  const save = await saveDe(env, userId), owned = save.owned || {};
+  const ids = Object.keys(owned).filter((id) => owned[id] > 0 && CATALOGUE[id]);
+  const a = await env.DB.prepare("SELECT trophees, victoires FROM arene WHERE user_id = ?").bind(userId).first();
+  const derniers = (await env.DB.prepare("SELECT gagne FROM combats WHERE attaquant = ? AND fini = 1 AND classe = 1 ORDER BY id DESC LIMIT 30").bind(userId).all()).results;
+  let serie = 0, best = 0; for (const c of derniers.slice().reverse()) { serie = c.gagne ? serie + 1 : 0; best = Math.max(best, serie); }
+  const duelsGagnes = (await env.DB.prepare("SELECT COUNT(*) AS n FROM duels WHERE statut = 'fini' AND classe = 1 AND gagnant = ?").bind(userId).first()).n;
+  const hist = (await env.DB.prepare("SELECT MAX(trophees) AS m FROM rangs_historique WHERE user_id = ?").bind(userId).first())?.m || 0;
+  const continent = Math.max(0, ...Object.values(PAYS_PAR_CONTINENT).map((l) => Math.floor((l.filter((id) => owned[id] > 0).length / l.length) * 100)));
+  const d = { cartes: ids.length, ouverts: Number(save.ouverts) || 0, epiques: ids.filter((id) => ["epique", "ultra-rare", "legendaire"].includes(CATALOGUE[id].rarete)).length,
+    legendaires: ids.filter((id) => CATALOGUE[id].rarete === "legendaire").length, continent, shiny: Object.keys(save.shiny || {}).length, evenement: ids.filter((id) => /^(event|saison):/.test(id)).length,
+    victoires: (a?.victoires || 0) + duelsGagnes, serie: best, rangMax: Math.max(a?.trophees || 0, hist), seuil: (cle) => rangs.find((r) => r.cle === cle)?.min_pts ?? Infinity };
+  const recus = new Set((await env.DB.prepare("SELECT cle FROM succes_recus WHERE user_id = ?").bind(userId).all()).results.map((x) => x.cle));
+  const reg = await reglagesJeu(env);
+  return SUCCES.map(([cle, nom, desc, icone, pieces, f]) => { const [v, obj] = f(d); return { cle, nom, desc, icone, pieces: reg.succes?.[cle] ?? pieces, valeur: Math.min(v, obj), objectif: obj, fait: v >= obj, recu: recus.has(cle) }; });
+}
+route("GET", "succes", async ({ env, user }) => json({ succes: await calculerSucces(env, user.id, await chargerRangs(env)) }), { connecte: true });
+route("POST", "succes/([a-z0-9-]{2,30})/reclamer", async ({ env, user, p }) => {
+  const s = (await calculerSucces(env, user.id, await chargerRangs(env))).find((x) => x.cle === p[1]);
+  if (!s) return erreur("Succès inconnu.", 404);
+  if (!s.fait) return erreur("Ce succès n'est pas encore accompli.");
+  const r = await env.DB.prepare("INSERT OR IGNORE INTO succes_recus (user_id, cle, pieces, cree_le) VALUES (?, ?, ?, ?)").bind(user.id, s.cle, s.pieces, maintenant()).run();
+  if (!r.meta.changes) return erreur("Récompense déjà reçue.", 409);
+  await crediter(env, user.id, s.pieces, 0, 0);
+  return json({ pieces: s.pieces, nom: s.nom });
+}, { connecte: true });
 
 /* =====================================================================
    Rangs officiels 2F1 : nom, couleur, seuils, logo… tout se règle dans l'admin

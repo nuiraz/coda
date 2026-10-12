@@ -446,3 +446,177 @@ async function adminOffres(el) {
   });
   brancher();
 }
+
+/* ---------- Profil public complet (rang, stats, matchs, succès, deck favori, confidentialité) ---------- */
+const COULEURS_BANNIERE = { corail: "#ff5b35", ocean: "#1e88e5", foret: "#2e9e5b", nuit: "#3b3f8f", or: "#d4a72c", rubis: "#c62842", lavande: "#8e6bd8", graphite: "#4a4d55" };
+async function profilComplet(pseudo) {
+  ouvrirModal(`<p class="muted">Chargement du profil…</p>`);
+  let p; try { p = await api("profil/" + encodeURIComponent(pseudo)); } catch (e) { $("#modal .box").innerHTML = `<button class="close" data-close>✕</button><p class="err">${esc(e.message)}</p>`; return; }
+  const vitrine = (p.vitrine || []).map((id) => BY_ID[id]).filter(Boolean), total = (p.victoires || 0) + (p.defaites || 0);
+  const ratio = total ? Math.round(((p.victoires || 0) / total) * 100) : null, coul = COULEURS_BANNIERE[p.banniere] || COULEURS_BANNIERE.corail;
+  $("#modal .box").innerHTML = `<button class="close" data-close aria-label="Fermer">✕</button>
+    <div class="profil-banniere" style="--bn:${coul}"></div>
+    <div class="profil-tete">${avatarHTML(p.pseudo, "grand", p.cadre || null)}<div class="pt-nom"><h2>${esc(p.pseudo)}${p.admin ? " 👑" : ""}${p.premium ? " 💎" : ""}</h2>
+      ${p.titre && typeof nomTitre === "function" ? `<span class="pt-titre">${esc(nomTitre(p.titre))}</span>` : ""}
+      <span class="muted">Membre depuis le ${new Date(p.creeLe).toLocaleDateString("fr-FR")}${p.derniereCo ? ` · vu ${depuis(p.derniereCo)}` : ""}</span></div>
+      <div class="pt-rang">${rangBadge(p.rang, "grand")}<b style="color:${esc(p.rang?.couleur || "")}">${esc(p.rang?.nom || "")}</b><small>${fmt(p.rang?.trophees ?? p.trophees)} pts</small></div></div>
+    <div class="statgrid"><div class="stat"><b>${fmt(p.cartes)}</b><span>cartes (${Math.round((p.cartes / (p.totalCartes || 1)) * 100)} %)</span></div>
+      ${p.victoires !== undefined ? `<div class="stat"><b>${p.victoires}/${p.defaites}</b><span>victoires / défaites</span></div><div class="stat"><b>${ratio === null ? "—" : ratio + " %"}</b><span>ratio de victoires</span></div>` : ""}
+      <div class="stat"><b>${p.badges}</b><span>badges</span></div></div>
+    ${p.moi ? "" : `<div class="row" style="gap:8px;flex-wrap:wrap;margin:10px 0"><button class="btn primary" id="pfDuel">⚔️ Défier</button><button class="btn" id="pfAmi">➕ Ami</button><button class="btn" id="pfMp">✉️ Message</button><button class="btn" id="pfCollec">📚 Collection</button><button class="btn small" id="pfPlus">⋯</button></div>`}
+    ${p.succes?.length ? `<h3>🏅 Succès (${p.succes.length})</h3><div class="succes-mini">${p.succes.map((x) => `<span title="${esc(x.nom + " : " + x.desc)}">${x.icone}</span>`).join("")}</div>` : ""}
+    ${vitrine.length ? `<h3>⭐ Cartes favorites</h3><div class="cards">${vitrine.map((c) => cardHTML(c, { locked: false })).join("")}</div>` : ""}
+    ${p.deck?.length ? `<h3>🃏 Deck favori</h3><div class="deck-mini">${p.deck.map((id) => { const c = BY_ID[id]; return c ? `<span title="${esc(c.nom)}">${c.type === "pays" && c.code ? `<img src="flags/${esc(c.code.toLowerCase())}.svg" alt="" class="dm-drapeau">` : esc(c.emoji || "🃏")}<small>${esc(c.nom)}</small></span>` : ""; }).join("")}</div>` : ""}
+    ${p.matchs ? `<h3>📜 Derniers matchs</h3>${p.matchs.length ? `<div class="matchs">${p.matchs.map((m) => `<div class="match ${m.gagne ? "v" : "d"}"><b>${m.gagne ? "Victoire" : "Défaite"}</b><span>${esc(m.mode)} contre ${esc(m.adversaire)}</span><span class="muted">${m.points ? `${m.points > 0 ? "+" : ""}${m.points} pts · ` : ""}${depuis(m.t)}</span></div>`).join("")}</div>` : `<p class="muted">Aucun match pour l'instant.</p>`}` : ""}
+    ${p.historiqueRangs?.length ? `<h3>📈 Rangs</h3>${p.historiqueRangs.map((h) => `<div class="codex-ligne"><span>${esc(RANGS.find((r) => r.cle === h.ancien)?.nom || h.ancien || "—")} → <b>${esc(RANGS.find((r) => r.cle === h.nouveau)?.nom || h.nouveau)}</b></span><small>${fmt(h.trophees)} pts · ${depuis(h.cree_le)}</small></div>`).join("")}` : ""}
+    ${p.moi ? `<h3>⚙️ Mon profil public</h3><form class="form" id="pfReglages"><p class="muted" style="margin:0">Choisissez ce que les autres joueurs voient.</p>
+      <div class="rf-grille">${[["statistiques", "Statistiques de combat"], ["historique", "Historique des matchs"], ["deck", "Deck favori"], ["collection", "Cartes favorites"], ["succes", "Succès"], ["activite", "Activité récente"]].map(([k, n]) => `<label class="check"><input type="checkbox" name="${k}" ${p.confidentialite?.[k] ? "checked" : ""}> ${n}</label>`).join("")}</div>
+      <div class="bannieres">${Object.entries(COULEURS_BANNIERE).map(([k, c]) => `<label title="${k}"><input type="radio" name="banniere" value="${k}" ${p.banniere === k ? "checked" : ""}><span style="background:${c}"></span></label>`).join("")}</div>
+      <button class="btn primary">Enregistrer</button> <button type="button" class="btn" data-aller="style">🎨 Titres et cadres</button> <button type="button" class="btn" id="pfVitrine">⭐ Choisir mes cartes favorites</button></form>` : ""}`;
+  brancherLiens($("#modal"));
+  if (!p.moi) {
+    $("#pfDuel").onclick = () => defierEnDirect(p.pseudo);
+    $("#pfAmi").onclick = async () => { try { await api("amis", { methode: "POST", corps: { pseudo: p.pseudo } }); toast(`👫 ${esc(p.pseudo)} ajouté à vos amis !`); } catch (e) { toast("⚠ " + e.message); } };
+    $("#pfMp").onclick = () => { fermerModal(); ouvrirConversation(p.pseudo); };
+    $("#pfCollec").onclick = () => voirCollectionAmi(p.pseudo);
+    $("#pfPlus").onclick = () => _ficheJoueurV4(p.pseudo);
+  } else {
+    $("#pfReglages").onsubmit = async (e) => {
+      e.preventDefault(); const f = e.target;
+      const confidentialite = Object.fromEntries(["statistiques", "historique", "deck", "collection", "succes", "activite"].map((k) => [k, f.elements[k].checked]));
+      try { await api("profil/reglages", { methode: "PUT", corps: { confidentialite, banniere: f.elements.banniere.value } }); toast("✅ Profil enregistré."); profilComplet(p.pseudo); } catch (err) { toast("⚠ " + err.message); }
+    };
+    $("#pfVitrine").onclick = () => { fermerModal(); aller("album"); toast("Ouvrez une carte et touchez « Mettre en vitrine » pour l'ajouter à vos favorites.", 5000); };
+  }
+}
+const _ficheJoueurV4 = ficheJoueur;
+ficheJoueur = function (pseudo) { if (!pseudo) return; return profilComplet(pseudo); };
+ouvrirProfil = function (pseudo) { return profilComplet(pseudo); };
+
+/* ---------- Succès et trophées ---------- */
+async function vueSucces(v) {
+  v.innerHTML = `<header class="page-tete"><h1>Succès</h1><p>Des objectifs pour progresser : chaque succès accompli rapporte une récompense, vérifiée par le serveur et versée une seule fois.</p></header><div id="scListe" class="muted">Chargement…</div>`;
+  if (typeof connecte !== "function" || !connecte()) { $("#scListe").innerHTML = `<p>Connectez-vous pour suivre vos succès.</p><button class="btn primary" data-aller="compte">Se connecter</button>`; brancherLiens(v); return; }
+  try {
+    const { succes } = await api("succes");
+    const faits = succes.filter((x) => x.fait).length;
+    $("#scListe").innerHTML = `<p><b>${faits}/${succes.length}</b> succès accomplis</p><div class="succes-grille">${succes.map((x) => `<div class="succes ${x.fait ? "fait" : ""}">
+        <span class="sc-ic">${x.icone}</span><div class="sc-txt"><b>${esc(x.nom)}</b><small>${esc(x.desc)}</small>
+        <div class="pvbar"><i style="width:${Math.round((x.valeur / x.objectif) * 100)}%"></i></div><small class="muted">${fmt(x.valeur)} / ${fmt(x.objectif)} · récompense ${fmt(x.pieces)} 🪙</small></div>
+        ${x.fait ? x.recu ? `<span class="sc-ok">✓ Reçu</span>` : `<button class="btn primary small" data-reclamer="${esc(x.cle)}">Récupérer</button>` : ""}</div>`).join("")}</div>`;
+    $$("[data-reclamer]", v).forEach((b) => b.onclick = async () => {
+      b.disabled = true;
+      try { const r = await api(`succes/${b.dataset.reclamer}/reclamer`, { methode: "POST", corps: {} }); S.coins += r.pieces; sauver(); majCoins(); toast(`🏅 ${esc(r.nom)} : +${fmt(r.pieces)} 🪙`); vueSucces(v); }
+      catch (e) { toast("⚠ " + e.message); b.disabled = false; }
+    });
+  } catch (e) { $("#scListe").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+ajouterPage("succes", "🏅", "Succès", vueSucces);
+ICONES.succes = '<circle cx="12" cy="9" r="6"/><path d="m8.5 14-1.5 7 5-3 5 3-1.5-7"/>';
+
+/* ---------- Hub communautaire réorganisé : sections séparées ---------- */
+const SECTIONS_HUB = [
+  ["accueil", "🏠", "Accueil"], ["amis", "👫", "Amis"], ["defis", "⚔️", "Défis"], ["joueurs", "🔎", "Joueurs"], ["classements", "🏆", "Classements"],
+  ["activite", "📰", "Activité"], ["evenements", "🎉", "Événements"], ["succes", "🏅", "Succès"], ["notifications", "🔔", "Notifications"],
+  ["discussion", "💬", "Discussion"], ["messages", "✉️", "Messages"], ["echanges", "🤝", "Échanges"],
+];
+const _vueHubV4 = vueHub;
+vueHub = function (v) {
+  if (!["connecte", "anonyme"].includes(COMPTE.etat)) return _vueHubV4(v);
+  if (!SECTIONS_HUB.some(([k]) => k === hubEtat.onglet)) hubEtat.onglet = "accueil";
+  v.innerHTML = `<div class="hub2"><nav class="hub2-menu" aria-label="Sections de la communauté">${SECTIONS_HUB.map(([k, ic, n]) => `<button class="${hubEtat.onglet === k ? "on" : ""}" data-o="${k}"><span>${ic}</span>${n}</button>`).join("")}</nav>
+    <section class="hub2-corps"><h2 class="hub2-titre">${SECTIONS_HUB.find(([k]) => k === hubEtat.onglet)[1]} ${SECTIONS_HUB.find(([k]) => k === hubEtat.onglet)[2]}</h2><div id="hubCorps"></div></section></div>`;
+  $$("[data-o]", v).forEach((b) => b.onclick = () => { hubEtat.onglet = b.dataset.o; aller("hub"); });
+  const el = $("#hubCorps");
+  const router = { accueil: hubAccueil, amis: hubAmis, defis: hubDefis, joueurs: hubJoueurs, classements: hubClassements, activite: hubFil, evenements: hubEvenements,
+    succes: (e) => vueSucces(e), notifications: hubNotifications, discussion: hubDiscussion, messages: hubMessages, echanges: hubEchanges };
+  (router[hubEtat.onglet] || hubAccueil)(el);
+};
+const videHub = (ic, t, s, bouton) => `<div class="vide-hub"><span>${ic}</span><b>${t}</b><p class="muted">${s}</p>${bouton || ""}</div>`;
+async function hubAccueil(el) {
+  el.innerHTML = `<div class="hub-raccourcis">${[["defis", "⚔️", "Défier un ami"], ["classements", "🏆", "Classements"], ["evenements", "🎉", "Événements"], ["joueurs", "🔎", "Trouver des joueurs"]].map(([k, ic, n]) => `<button data-o2="${k}"><span>${ic}</span>${n}</button>`).join("")}</div>
+    <h3>📌 Annonces et actualités</h3><div id="haAnnonces" class="muted">Chargement…</div>`;
+  $$("[data-o2]", el).forEach((b) => b.onclick = () => { hubEtat.onglet = b.dataset.o2; aller("hub"); });
+  try {
+    const r = await api("posts");
+    const posts = (r.posts || []).filter((x) => x.epingle).slice(0, 5);
+    $("#haAnnonces").innerHTML = posts.length ? `<div class="posts">${posts.map((x) => `<article class="post"><header><b>${esc(x.pseudo)}</b><span class="muted">${depuis(x.cree_le)}</span></header><p class="txt">${esc(x.texte)}</p></article>`).join("")}</div>` : videHub("📭", "Pas d'annonce pour le moment", "Les annonces importantes de l'équipe apparaîtront ici.");
+  } catch { $("#haAnnonces").innerHTML = videHub("📭", "Pas d'annonce pour le moment", ""); }
+}
+async function hubDefis(el) {
+  if (!connecte()) { el.innerHTML = videHub("⚔️", "Connectez-vous pour défier vos amis", "", `<button class="btn primary" data-aller="compte">Se connecter</button>`); brancherLiens(el); return; }
+  el.innerHTML = `<div id="hdInfo" class="muted"></div><h3>Invitations reçues</h3><div id="hdInv" class="muted">Chargement…</div><h3>Défier un ami</h3><div id="hdAmis" class="muted">Chargement…</div>`;
+  try { const c = await api("classe/jour"); $("#hdInfo").innerHTML = `Combats classés restants aujourd'hui : <b>${c.restants}/${c.parJour}</b>. Un duel classé contre un ami compte comme un combat classé normal.`; } catch {}
+  try {
+    const { invitations } = await api("duels/invitations");
+    $("#hdInv").innerHTML = invitations.length ? invitations.map((i) => `<div class="codex-ligne"><span><b>${esc(i.pseudo)}</b> · ${i.classe ? "duel classé 🏆" : "duel amical 🤝"}</span><span><button class="btn small primary" data-acc="${i.id}">Accepter</button> <button class="btn small" data-ref="${i.id}">Refuser</button></span></div>`).join("") : videHub("📭", "Aucune invitation", "Quand un ami vous défie, l'invitation apparaît ici (elle expire après 5 minutes).");
+    $$("[data-acc]", el).forEach((b) => b.onclick = async () => { if (!deckPret()) return; try { await envoyerDeckArene(); await api(`duels/${b.dataset.acc}/accepter`, { methode: "POST", corps: {} }); lancerDuel(await api(`duels/${b.dataset.acc}`)); } catch (e) { toast("⚠ " + e.message); } });
+    $$("[data-ref]", el).forEach((b) => b.onclick = async () => { await api(`duels/${b.dataset.ref}/refuser`, { methode: "POST", corps: {} }).catch(() => {}); hubDefis(el); });
+  } catch (e) { $("#hdInv").textContent = e.message; }
+  try {
+    const { amis } = await api("amis");
+    const ok = amis.filter((a) => a.reciproque);
+    $("#hdAmis").innerHTML = ok.length ? ok.map((a) => `<div class="codex-ligne"><span>${a.enLigne ? "🟢" : "⚪"} <a href="#" data-joueur="${esc(a.pseudo)}">${esc(a.pseudo)}</a> <small class="muted">${fmt(a.trophees || 0)} pts</small></span><button class="btn small primary" data-def="${esc(a.pseudo)}">⚔️ Défier</button></div>`).join("")
+      : videHub("👫", "Pas encore d'amis", "Ajoutez des joueurs en ami (et qu'ils vous ajoutent aussi) pour vous défier en direct.", `<button class="btn" data-o3="joueurs">Trouver des joueurs</button>`);
+    $$("[data-def]", el).forEach((b) => b.onclick = () => defierEnDirect(b.dataset.def));
+    $$("[data-joueur]", el).forEach((a) => a.onclick = (e) => { e.preventDefault(); profilComplet(a.dataset.joueur); });
+    $$("[data-o3]", el).forEach((b) => b.onclick = () => { hubEtat.onglet = b.dataset.o3; aller("hub"); });
+  } catch (e) { $("#hdAmis").textContent = e.message; }
+}
+async function hubJoueurs(el) {
+  if (!connecte()) { el.innerHTML = videHub("🔎", "Connectez-vous pour chercher des joueurs", "", `<button class="btn primary" data-aller="compte">Se connecter</button>`); brancherLiens(el); return; }
+  el.innerHTML = `<div class="codex-recherche"><input id="hjQ" type="search" placeholder="Pseudo d'un joueur…" maxlength="20"></div><div id="hjRes" class="muted">Chargement…</div>`;
+  const chercher = async () => {
+    try {
+      const { joueurs } = await api("joueurs/recherche?q=" + encodeURIComponent($("#hjQ").value.trim()));
+      $("#hjRes").innerHTML = joueurs.length ? `<div class="joueurs-grille">${joueurs.map((j) => `<button class="joueur-carte" data-joueur="${esc(j.pseudo)}">${avatarHTML(j.pseudo)}<b>${esc(j.pseudo)}${j.premium ? " 💎" : ""}</b><small>${j.enLigne ? "🟢 en ligne" : "hors ligne"} · ${fmt(j.cartes)} cartes</small></button>`).join("")}</div>` : videHub("🔎", "Aucun joueur trouvé", "Vérifiez l'orthographe du pseudo.");
+      $$("[data-joueur]", el).forEach((b) => b.onclick = () => profilComplet(b.dataset.joueur));
+    } catch (e) { $("#hjRes").textContent = e.message; }
+  };
+  let t; $("#hjQ").oninput = () => { clearTimeout(t); t = setTimeout(chercher, 250); };
+  chercher();
+}
+async function hubClassements(el) {
+  el.innerHTML = `<div class="toolbar"><button class="chip on" data-cl="ligue">🏅 Ligues (PvP)</button><button class="chip" data-cl="semaine">🌟 Semaine</button></div><div id="hcCorps"></div>`;
+  const montrer = async (k) => {
+    $$("[data-cl]", el).forEach((b) => b.classList.toggle("on", b.dataset.cl === k));
+    const c = $("#hcCorps");
+    if (k === "semaine") return hubClassement(c);
+    c.innerHTML = `<p class="muted">Chargement…</p>`;
+    try {
+      await chargerRangs();
+      const { joueurs } = await api("arene/classement");
+      c.innerHTML = joueurs.length ? `<table class="classement"><tbody>${joueurs.map((j, i) => `<tr class="${j.pseudo === COMPTE.pseudo ? "moi" : ""}"><td>${["🥇", "🥈", "🥉"][i] || i + 1}</td><td>${rangBadge(j.rang, "petit")} <a href="#" data-joueur="${esc(j.pseudo)}">${esc(j.pseudo)}</a></td><td>${esc(j.rang?.nom || "")}</td><td>${fmt(j.trophees)} pts</td><td class="muted">${j.victoires}V ${j.defaites}D</td></tr>`).join("")}</tbody></table>` : videHub("🏆", "Classement vide", "Faites vos premiers combats classés pour y apparaître.");
+      $$("[data-joueur]", c).forEach((a) => a.onclick = (e) => { e.preventDefault(); profilComplet(a.dataset.joueur); });
+    } catch (e) { c.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  };
+  $$("[data-cl]", el).forEach((b) => b.onclick = () => montrer(b.dataset.cl));
+  montrer("ligue");
+}
+async function hubEvenements(el) {
+  el.innerHTML = `<div class="hub-raccourcis">${[["samedi", "🏟️", "Tournoi du samedi"], ["guilde", "🛡️", "Guildes et raid"], ["passe", "🎟️", "Passe de saison"], ["expedition", "🧭", "Expédition"]].filter(([k]) => DESTINATIONS.some((d) => d[0] === k) || VUES_EXTRA[k]).map(([k, ic, n]) => `<button data-aller="${k}"><span>${ic}</span>${n}</button>`).join("")}</div><h3>🏆 Tournoi de la semaine</h3><div id="heTournoi"></div>`;
+  brancherLiens(el);
+  hubTournois($("#heTournoi"));
+}
+async function hubNotifications(el) {
+  if (!connecte()) { el.innerHTML = videHub("🔔", "Connectez-vous pour voir vos notifications", "", `<button class="btn primary" data-aller="compte">Se connecter</button>`); brancherLiens(el); return; }
+  el.innerHTML = `<div id="hnListe" class="muted">Chargement…</div>`;
+  const lignes = [];
+  try { const { invitations } = await api("duels/invitations"); invitations.forEach((i) => lignes.push({ t: i.cree_le, ic: "⚔️", txt: `${i.pseudo} vous défie (${i.classe ? "classé" : "amical"})`, aller: "defis" })); } catch {}
+  try { const { succes } = await api("succes"); succes.filter((x) => x.fait && !x.recu).forEach((x) => lignes.push({ t: Date.now(), ic: "🏅", txt: `Succès accompli : ${x.nom} (+${fmt(x.pieces)} 🪙 à récupérer)`, aller: "succes" })); } catch {}
+  try { const { historique } = await api("rangs/historique/" + encodeURIComponent(COMPTE.pseudo)); historique.slice(0, 5).forEach((h) => lignes.push({ t: h.cree_le, ic: "📈", txt: `Nouveau rang : ${RANGS.find((r) => r.cle === h.nouveau)?.nom || h.nouveau} (${fmt(h.trophees)} pts)`, aller: "classements" })); } catch {}
+  lignes.sort((a, b) => b.t - a.t);
+  $("#hnListe").innerHTML = lignes.length ? lignes.map((l, i) => `<button class="notif-ligne" data-i="${i}"><span>${l.ic}</span><span>${esc(l.txt)}</span><small class="muted">${depuis(l.t)}</small></button>`).join("") : videHub("🔔", "Tout est à jour", "Invitations, récompenses et changements de rang apparaîtront ici.");
+  $$("[data-i]", el).forEach((b) => b.onclick = () => { hubEtat.onglet = lignes[b.dataset.i].aller; aller("hub"); });
+}
+// Mon compte : lien vers mon profil public
+const _vueCompteV4 = vueCompte;
+vueCompte = function (v) {
+  const r = _vueCompteV4.apply(this, arguments);
+  if (typeof connecte === "function" && connecte() && !$("#monProfilPublic", v)) {
+    v.insertAdjacentHTML("afterbegin", `<div class="panel row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><span>👤 Votre profil public : rang, statistiques, succès et confidentialité.</span><span class="row" style="gap:8px"><button class="btn primary" id="monProfilPublic">Voir mon profil</button><button class="btn" data-aller="succes">🏅 Succès</button></span></div>`);
+    $("#monProfilPublic").onclick = () => profilComplet(COMPTE.pseudo);
+    brancherLiens(v);
+  }
+  return r;
+};
