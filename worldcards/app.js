@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v27"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v28"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -800,7 +800,7 @@ function aller(vue, opts) {
 // Clic sur n'importe quelle carte : fiche détaillée
 document.addEventListener("click", (e) => {
   const el = e.target.closest(".card[data-id]");
-  if (!el || el.closest(".opening") || el.closest(".poke") || el.closest(".detail") || el.closest(".reveal") || el.closest("[data-noclick]") || el.closest(".arene") || el.closest(".vue3d")) return;
+  if (!el || !el.isConnected || el.closest(".opening") || el.closest(".poke") || el.closest(".detail") || el.closest(".reveal") || el.closest("[data-noclick]") || el.closest(".arene") || el.closest(".vue3d")) return;
   if (BY_ID[el.dataset.id]) ficheCarte(BY_ID[el.dataset.id]);
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches?.(".card[data-id]")) e.target.click(); });
@@ -1267,9 +1267,15 @@ function ouvrirBooster(type) {
       <p class="poke-indice" id="pkIndice"></p>
     </div>`, () => { verifierProgression(); aller(S.vue); });
   $("#modal").classList.add("plein");
-  let etape = "paquet", i = 0, occupe = false;
-  const scene = $("#pkScene"), indice = (t) => { $("#pkIndice").textContent = t; };
-  const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
+  let etape = "paquet", i = 0, occupe = false, rapide = false, finAttente = null;
+  const scene = $("#pkScene");
+  // La fenêtre peut être fermée à tout moment : on n'écrit plus rien dans une scène qui n'existe plus
+  const vivant = () => scene.isConnected && etape !== "resume";
+  const texte = (sel, t) => { const el = $(sel); if (el) el.textContent = t; };
+  const indice = (t) => texte("#pkIndice", t);
+  // Toucher pendant une animation l'accélère au lieu d'être ignoré
+  const attendre = (ms) => new Promise((r) => { const t = setTimeout(r, rapide ? 0 : ms); finAttente = () => { clearTimeout(t); r(); }; });
+  const accelerer = () => { rapide = true; finAttente?.(); };
 
   scene.innerHTML = `<div class="pack ${type} grand" id="pkPaquet" ${p.couleur ? `style="--pc:${p.couleur}"` : ""}><span class="rabat"></span><span class="entaille"></span><span class="big">${p.emoji}</span><b>Booster ${p.nom}</b><small>${p.cartes} cartes</small></div>`;
   indice("Glissez le doigt sur le haut du booster pour le déchirer, ou touchez-le");
@@ -1300,10 +1306,11 @@ function ouvrirBooster(type) {
   const points = () => { $("#pkPoints").innerHTML = ordre.map((_, k) => `<i class="${k < i ? "vu" : k === i && etape !== "paquet" ? "courant" : ""}"></i>`).join(""); };
 
   function montrer() {
+    if (!scene.isConnected) return;
     const x = ordre[i], c = x.c;
     const rare = RARETES[c.rarete].ordre >= 2 || x.shiny;
     etape = "carte";
-    $("#pkCompte").textContent = `Carte ${i + 1} / ${ordre.length}`;
+    texte("#pkCompte", `Carte ${i + 1} / ${ordre.length}`);
     delete scene.dataset.ambiance; points();
     scene.innerHTML = `<div class="pk-carte">
         <div class="flip grand">
@@ -1317,9 +1324,12 @@ function ouvrirBooster(type) {
     const x = ordre[i], c = x.c;
     const r = x.shiny ? 6 : RARETES[c.rarete].ordre;
     const flip = scene.querySelector(".flip");
+    if (!flip) return;
     if (r >= 2) { flip.classList.add("suspense"); await attendre(r >= 4 ? 1100 : 700); flip.classList.remove("suspense"); }
+    if (!vivant()) return;
     flip.classList.add("done");
     await attendre(450);
+    if (!vivant()) return;
     const lab = scene.querySelector(".pk-rarete");
     lab.dataset.r = x.shiny ? "shiny" : c.rarete;
     lab.textContent = x.shiny ? `✨ SHINY ! ✨` : x.nouveauHolo && r < 4 ? `🌈 ${RARETES[c.rarete].nom} Holo !` : r >= 4 ? `${RARETES[c.rarete].gems} ${RARETES[c.rarete].nom} ! ${RARETES[c.rarete].gems}` : RARETES[c.rarete].nom;
@@ -1336,21 +1346,34 @@ function ouvrirBooster(type) {
   async function suivante() {
     scene.querySelector(".pk-carte")?.classList.add("sort");
     await attendre(260);
+    if (!vivant()) return;
     i++;
     if (i < ordre.length) montrer(); else resume();
   }
   function resume() {
-    etape = "resume"; delete scene.dataset.ambiance; $("#pkPoints").innerHTML = "";
+    if (!scene.isConnected) return;
+    etape = "resume"; finAttente?.(); delete scene.dataset.ambiance; $("#pkPoints").innerHTML = "";
     $("#pkPasser").classList.add("hidden");
-    $("#pkCompte").textContent = `${p.emoji} Votre booster ${p.nom}`;
+    texte("#pkCompte", `${p.emoji} Votre booster ${p.nom}`);
     const neuves = res.filter((x) => x.neuf).length, pieces = res.reduce((t, x) => t + x.bonus, 0);
     indice(`${neuves} nouvelle${neuves > 1 ? "s" : ""} carte${neuves > 1 ? "s" : ""}${pieces ? ` · +${pieces} 🪙 de doublons` : ""}`);
     const encore = Object.keys(PACKS).find((k) => S.boosters[k] > 0);
-    scene.innerHTML = `<div class="opening">${res.map((x) => `<div class="flip done"><div class="face back"></div>
+    scene.innerHTML = `<div class="opening">${res.map((x, k) => `<div class="flip done" style="--k:${k}" data-voir="${x.c.id}"><div class="face back"></div>
         <div class="face front">${etiquette(x, true)}${cardHTML(x.c, { locked: false, shiny: x.shiny, holo: x.holo })}</div></div>`).join("")}</div>
       <div class="row" style="justify-content:center;margin-top:14px">
         ${encore ? `<button class="btn primary" id="again">Ouvrir un booster ${PACKS[encore].nom} (${S.boosters[encore]})</button>` : ""}
         <button class="btn" data-close>Terminer</button></div>`;
+    // Toucher une carte du résumé l'agrandit (toucher encore pour la remettre)
+    $$("[data-voir]", scene).forEach((el) => el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const deja = el.classList.contains("agrandie");
+      $$(".opening .agrandie", scene).forEach((x) => x.classList.remove("agrandie"));
+      if (!deja) el.classList.add("agrandie");
+    }));
+    // Évite de toucher « Terminer » ou « Ouvrir » par erreur en tapotant vite pour faire défiler les cartes
+    const boutonsResume = $$(".poke .row button", scene);
+    boutonsResume.forEach((x) => { x.disabled = true; x.classList.add("attente"); });
+    setTimeout(() => boutonsResume.forEach((x) => { x.disabled = false; x.classList.remove("attente"); }), 900);
     $("#again")?.addEventListener("click", (e) => {
       e.stopPropagation();
       const m = $("#modal"); m._onClose = null; fermerModal();
@@ -1359,18 +1382,27 @@ function ouvrirBooster(type) {
     });
   }
   async function toucher(e) {
+    e?.stopPropagation?.(); // un toucher dans le booster ne doit jamais ouvrir la fiche d'une carte
     if (e?.type === "click" && ignorerClic) return;
-    if (occupe || etape === "resume") return;
-    occupe = true;
+    if (etape === "resume" || !scene.isConnected) return;
+    if (occupe) return accelerer();
+    occupe = true; rapide = false;
     try {
-      if (etape === "paquet") { $("#pkPaquet").classList.add("dechire"); await attendre(650); montrer(); }
+      if (etape === "paquet") { $("#pkPaquet")?.classList.add("dechire"); await attendre(650); if (vivant()) montrer(); }
       else if (etape === "carte") await retourner();
       else if (etape === "retournee") await suivante();
-    } finally { occupe = false; }
+    } finally { occupe = false; rapide = false; finAttente = null; }
   }
   scene.addEventListener("click", toucher);
-  scene.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toucher(); } });
-  $("#pkPasser").onclick = () => { if (!occupe) resume(); };
+  scene.addEventListener("keydown", (e) => { if (["Enter", " ", "ArrowRight"].includes(e.key)) { e.preventDefault(); toucher(); } });
+  // Glisser la carte vers la gauche ou la droite = carte suivante (une fois retournée)
+  let xCarte = null;
+  scene.addEventListener("pointerdown", (e) => { if (etape === "retournee" || etape === "carte") xCarte = e.clientX; });
+  scene.addEventListener("pointerup", (e) => {
+    if (xCarte !== null && Math.abs(e.clientX - xCarte) > 60 && !occupe) { ignorerClic = true; setTimeout(() => { ignorerClic = false; }, 350); toucher(); }
+    xCarte = null;
+  });
+  $("#pkPasser").onclick = () => resume(); // fonctionne même pendant une animation
   scene.focus();
 }
 

@@ -224,12 +224,14 @@ vueAccueil = function (v, opts) {
   t.insertAdjacentHTML("beforeend", `<button class="tuile ${aRecup ? "chaude" : ""}" id="tuilePasse"><span class="t-ic">🎟️</span><span class="t-txt"><b>Passe de saison</b><small>${aRecup ? `${aRecup} récompense${aRecup > 1 ? "s" : ""} à récupérer` : `Palier ${palierPasse()}/30 · ${esc(themeDe(pp.mois).nom)}`}</small></span></button>
     <button class="tuile" id="tuileExp"><span class="t-ic">🧭</span><span class="t-txt"><b>Expédition</b><small>Le monde pays par pays</small></span></button>
     <button class="tuile" id="tuileGuilde"><span class="t-ic">🛡️</span><span class="t-txt"><b>Guildes</b><small>Jouez en équipe</small></span></button>
-    <button class="tuile" id="tuileEnch"><span class="t-ic">🔨</span><span class="t-txt"><b>Enchères</b><small>Vendez et achetez des cartes</small></span></button>`);
+    <button class="tuile" id="tuileEnch"><span class="t-ic">🔨</span><span class="t-txt"><b>Enchères</b><small>Vendez et achetez des cartes</small></span></button>
+    <button class="tuile" id="tuileSoutenir"><span class="t-ic">❤️</span><span class="t-txt"><b>Soutenir le jeu</b><small>Un petit don sur PayPal</small></span></button>`);
   t.insertAdjacentHTML("beforeend", `<button class="tuile" id="tuileStats"><span class="t-ic">📊</span><span class="t-txt"><b>Statistiques</b><small>Ma progression en détail</small></span></button>`);
   $("#tuileCal").onclick = ouvrirCalendrier;
   $("#tuileStats").onclick = () => aller("stats");
   $("#tuilePasse").onclick = () => aller("passe"); $("#tuileExp").onclick = () => aller("expedition");
   $("#tuileGuilde").onclick = () => aller("guilde"); $("#tuileEnch").onclick = () => aller("encheres");
+  $("#tuileSoutenir").onclick = () => aller("soutenir");
 };
 addEventListener("DOMContentLoaded", () => {
   noterHistorique(); sauver();
@@ -825,3 +827,21 @@ async function adminIntegrations(el) {
     };
   } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
 }
+
+/* =====================================================================
+   Soutenir le jeu : don libre sur PayPal, sans contrepartie
+   ===================================================================== */
+function vueSoutenir(v) {
+  v.innerHTML = `<section class="panel soutenir">
+      <div class="soutenir-coeur">❤️</div>
+      <h1>Soutenir WorldCards</h1>
+      <p>WorldCards est gratuit et sans publicité. Si le jeu vous plaît, vous pouvez soutenir la chaîne et le projet avec un <b>don libre</b> sur PayPal, du montant de votre choix.</p>
+      <p class="muted">Votre don aide à payer l'hébergement, à ajouter de nouvelles cartes et de nouveaux modes de jeu. C'est un don sans contrepartie : il ne débloque rien dans le jeu (pour les avantages, voir le Premium).</p>
+      <a class="btn primary soutenir-btn" href="${PAYPAL}" target="_blank" rel="noopener">❤️ Faire un don sur PayPal</a>
+      <p class="muted" style="font-size:13px;margin-bottom:0">Merci du fond du cœur pour votre soutien ! 🙏</p></section>`;
+}
+ajouterPage("soutenir", "❤️", "Soutenir", vueSoutenir);
+addEventListener("DOMContentLoaded", () => {
+  const liens = document.querySelector(".pied .liens");
+  if (liens) { liens.insertAdjacentHTML("beforeend", ` · <a href="#" id="piedSoutenir">❤️ Soutenir le jeu</a>`); $("#piedSoutenir").onclick = (e) => { e.preventDefault(); aller("soutenir"); }; }
+});

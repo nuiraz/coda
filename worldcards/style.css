@@ -1390,3 +1390,30 @@ h1 { font-weight: 800; }
 .exp-ic { font-size: 34px; }
 [data-payer].secours { background: transparent; color: var(--accent); border: 1px solid var(--border); box-shadow: none; font-size: 13px; }
 .integ code { font-size: 12px; }
+
+/* ===== Ouverture des boosters : corrections et finitions ===== */
+/* Le reflet du paquet ne déborde plus sur les côtés (le rabat peut toujours se soulever) */
+.pack.grand { clip-path: inset(-40px -4px -4px -4px round 18px); }
+/* L'aura annonçant une carte rare réapparaît sur le dos de la carte */
+.pk-carte .flip.grand > .face.back.glow-rare { box-shadow: 0 0 22px 4px var(--rare), 0 22px 40px rgba(0,0,0,.45); }
+.pk-carte .flip.grand > .face.back.glow-epique { box-shadow: 0 0 28px 6px var(--epique), 0 22px 40px rgba(0,0,0,.45); }
+.pk-carte .flip.grand > .face.back.glow-ultra-rare { box-shadow: 0 0 34px 8px var(--ultra-rare), 0 22px 40px rgba(0,0,0,.45); }
+.pk-carte .flip.grand > .face.back.glow-legendaire { box-shadow: 0 0 40px 10px var(--legendaire), 0 22px 40px rgba(0,0,0,.45); animation: aura-pulse 1.1s ease-in-out infinite alternate; }
+.pk-carte .flip.grand > .face.back.glow-shiny { box-shadow: 0 0 34px 8px #ff6ad5, 0 0 60px 14px #6effc6, 0 22px 40px rgba(0,0,0,.45); animation: aura-pulse .9s ease-in-out infinite alternate; }
+@keyframes aura-pulse { to { filter: brightness(1.25); } }
+/* Retournement plus fluide, sans clignotement sur iPhone */
+.pk-carte .flip.grand { transition: transform .5s cubic-bezier(.3, 1.4, .5, 1); will-change: transform; }
+.pk-carte .flip.grand > .face { -webkit-backface-visibility: hidden; backface-visibility: hidden; }
+/* Résumé : les cartes arrivent l'une après l'autre ; toucher une carte l'agrandit */
+.poke .opening .flip { animation: arrive-resume .45s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--k, 0) * 90ms); cursor: zoom-in; transition: transform .25s; }
+@keyframes arrive-resume { from { transform: rotateY(180deg) translateY(40px) scale(.5); } to { transform: rotateY(180deg); } } /* pas d'opacité : elle casserait la 3D et montrerait le dos */
+.poke .opening .flip.agrandie { position: relative; z-index: 5; animation: none; transform: rotateY(180deg) scale(1.9); cursor: zoom-out; }
+@media (max-width: 640px) { .poke .opening .flip.agrandie { transform: rotateY(180deg) scale(1.6); } }
+.poke-scene { touch-action: manipulation; }
+.poke .row button.attente { opacity: .5; transition: opacity .3s; }
+/* ===== Soutenir ===== */
+.soutenir { max-width: 560px; margin: 0 auto; text-align: center; }
+.soutenir h1 { font-family: var(--titre); margin: 6px 0 10px; }
+.soutenir-coeur { font-size: 64px; animation: battement 1.2s ease-in-out infinite; }
+@keyframes battement { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.18); } 30% { transform: scale(1); } 45% { transform: scale(1.12); } }
+.soutenir-btn { font-size: 18px; padding: 14px 26px; margin: 8px 0 14px; background: linear-gradient(135deg, #ff4f7b, #e0458b); border-color: transparent; }
