@@ -120,6 +120,7 @@ const TRAITS = {
   batterie: '<rect x="2.5" y="7" width="17" height="10" rx="2"/><path d="M22 11v2M6 10v4M9.5 10v4"/>',
   journal: '<path d="M4 5h13v15H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v9a2 2 0 0 1-2 2M8 9h5M8 13h5M8 16h3"/>',
   ruban: '<circle cx="12" cy="8" r="5"/><path d="m9 12.5-2 8.5 5-2.5 5 2.5-2-8.5"/>',
+  ballon: '<circle cx="12" cy="12" r="9"/><path d="m12 7.5 4.3 3.1-1.6 5h-5.4l-1.6-5z"/><path d="M12 7.5V3M16.3 10.6l4.3-1.4M14.7 15.6l2.6 3.7M9.3 15.6l-2.6 3.7M7.7 10.6 3.4 9.2"/>',
   point: '<circle cx="12" cy="12" r="3.2"/>',
 };
 
@@ -216,6 +217,7 @@ lier("oeil", "👁 👁️ 👀");
 lier("robot", "🤖");
 lier("prise", "🔌");
 lier("puzzle", "🧩");
+lier("ballon", "⚽ 🏀 🏈 🏉 🎾 🏐 ⚾");
 lier("menu", "☰");
 lier("sac_dos", "🎒");
 lier("batterie", "🔋");

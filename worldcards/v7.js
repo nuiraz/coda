@@ -159,7 +159,20 @@ vueAccueil = function (v) {
 const CATS_DEVINE = [
   ["tout", "🎲", "Tout mélangé"], ["pays", "🏳️", "Pays"], ["ville", "🏙️", "Villes"], ["monument", "🏛️", "Monuments"],
   ["nature", "🏔️", "Nature"], ["animal", "🐾", "Animaux"], ["plat", "🍜", "Plats"], ["culture", "🎭", "Culture"],
+  ["drapeau", "🚩", "Drapeaux"], ["sport", "⚽", "Sport"], ["invention", "💡", "Inventions"], ["personnage", "👤", "Personnages"],
 ];
+// Banque de devinettes écrites (indépendantes des cartes), chargée à la demande :
+// { cat: [[réponse, [3 leurres], [3 indices du plus dur au plus facile], explication], …] }
+let BANQUE_DEVINE = null;
+function chargerBanqueDevine() {
+  if (BANQUE_DEVINE || chargerBanqueDevine.p) return chargerBanqueDevine.p;
+  chargerBanqueDevine.p = fetch(`data/devinettes.json?v=${VERSION_JEU}`).then((r) => r.json()).then((d) => { BANQUE_DEVINE = d; }).catch(() => { BANQUE_DEVINE = {}; });
+  return chargerBanqueDevine.p;
+}
+const banqueDevine = (cat) => {
+  const B = BANQUE_DEVINE || {};
+  return (cat === "tout" ? Object.keys(B) : [cat]).flatMap((k) => (B[k] || []).map((e, i) => ({ id: `dv:${k}:${i}`, nom: e[0], leurres: e[1], indices: e[2], anecdote: e[3], banque: k })));
+};
 const PIECES_DEVINE_JOUR = 400, QUESTIONS_DEVINE = 10, DUREE_CHRONO = 60;
 const devine = { cat: "tout", mode: "classique", partie: null };
 const poolDevine = (cat) => CARDS.filter((c) => !c.saisonnier && !["secrete", "merveille"].includes(c.type) && (cat === "tout" || c.type === cat) && (c.anecdote || c.type === "pays"));
@@ -169,6 +182,7 @@ const masquerNom = (texte, c) => {
   return t;
 };
 function indicesDevine(c) {
+  if (c.banque) return c.indices.map((t) => `<p class="dv-texte">${esc(t)}</p>`);
   const cont = CONTINENTS[c.continent], pays = c.pays && NOM_PAYS[c.pays];
   const photo = typeof photoDe === "function" && photoDe(c.id);
   const premier = c.type === "pays"
@@ -180,7 +194,14 @@ function indicesDevine(c) {
   return [premier, anecdote, troisieme];
 }
 function questionDevine(cat, deja) {
-  const pool = poolDevine(cat);
+  // 3 questions sur 4 viennent de la banque de devinettes écrites, le reste des cartes
+  const banque = banqueDevine(cat), cartes = poolDevine(cat);
+  const banqueLibre = banque.filter((x) => !deja.has(x.id));
+  if (banque.length && (!cartes.length || (banqueLibre.length && Math.random() < 0.75))) {
+    const c = pick(banqueLibre.length ? banqueLibre : banque);
+    return { c, choix: [c, ...c.leurres.map((n) => ({ id: "f:" + n, nom: n }))].sort(() => Math.random() - 0.5) };
+  }
+  const pool = cartes;
   const libres = pool.filter((c) => !deja.has(c.id)), c = pick(libres.length ? libres : pool);
   // Les mauvaises réponses : même type, de préférence du même continent (plus difficile)
   const memeType = pool.filter((x) => x.type === c.type && x.id !== c.id && x.nom !== c.nom);
@@ -196,12 +217,13 @@ function piecesDevine(n) {
   S.devineJour.pieces += g; S.coins += g; return g;
 }
 function vueDevine(v) {
+  if (!BANQUE_DEVINE) { v.innerHTML = `<p class="muted" style="text-align:center;padding:40px">Chargement des devinettes…</p>`; chargerBanqueDevine().then(() => { if (S.vue === "devine") aller("devine"); }); return; }
   const p = devine.partie;
   if (!p) {
     const rec = S.devineRecords || {};
-    v.innerHTML = `<header class="page-tete"><h1>🧠 Devinettes</h1><p>Devinez la carte grâce aux indices : silhouette ou dessin, anecdote, puis photo. Moins vous utilisez d'indices, plus vous marquez de points.</p></header>
+    v.innerHTML = `<header class="page-tete"><h1>🧠 Devinettes</h1><p>Pays, villes, drapeaux, plats, animaux, inventions, personnages… Les indices se dévoilent un par un : moins vous en utilisez, plus vous marquez de points.</p></header>
       <section class="panel dv-choix"><h3 style="margin-top:0">1. Choisissez une catégorie</h3>
-        <div class="dv-cats">${CATS_DEVINE.map(([k, ic, n]) => `<button class="dv-cat ${devine.cat === k ? "on" : ""}" data-cat="${k}"><span>${ic}</span><b>${n}</b><small>${poolDevine(k).length} cartes${rec[`classique:${k}`] ? ` · record ${rec[`classique:${k}`]}` : ""}</small></button>`).join("")}</div>
+        <div class="dv-cats">${CATS_DEVINE.map(([k, ic, n]) => `<button class="dv-cat ${devine.cat === k ? "on" : ""}" data-cat="${k}"><span>${ic}</span><b>${n}</b><small>${banqueDevine(k).length + poolDevine(k).length} devinettes${rec[`classique:${k}`] ? ` · record ${rec[`classique:${k}`]}` : ""}</small></button>`).join("")}</div>
         <h3>2. Choisissez le mode</h3>
         <div class="dv-modes"><button class="dv-mode ${devine.mode === "classique" ? "on" : ""}" data-mode="classique"><b>🎯 Classique</b><small>${QUESTIONS_DEVINE} questions, jusqu'à 3 indices chacune</small></button>
           <button class="dv-mode ${devine.mode === "chrono" ? "on" : ""}" data-mode="chrono"><b>⏱️ Contre la montre</b><small>${DUREE_CHRONO} secondes, un maximum de bonnes réponses</small></button></div>

@@ -289,3 +289,4 @@ svg.ico-e { width: 1.15em; height: 1.15em; vertical-align: -0.2em; display: inli
 .pastille-e { display: inline-block; width: .75em; height: .75em; border-radius: 50%; vertical-align: -.05em; }
 .t-ic svg.ico-e, .page-tete h1 svg.ico-e, .sectiontitle h3 svg.ico-e, .mp-emoji svg.ico-e { color: var(--accent); }
 .mp-emoji svg.ico-e { width: 22px; height: 22px; }
+.dv-texte { font-size: 16px; line-height: 1.45; margin: 4px 0 0; font-weight: 500; }
