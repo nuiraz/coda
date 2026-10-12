@@ -376,7 +376,7 @@ function contenuPack(o) {
 async function blocPacks(el) {
   let r; try { r = await api("offres"); } catch { el.remove(); return; }
   if (!r.offres.length) { el.remove(); return; }
-  el.innerHTML = `<div class="sectiontitle"><h3>🛍️ Packs</h3><span class="muted">Paiement sécurisé par Stripe · prix TTC · contenu livré immédiatement</span></div>
+  el.innerHTML = `<div class="sectiontitle"><h3>🛍️ Packs</h3><span class="muted">Paiement par carte ou PayPal · prix TTC · contenu livré sur votre compte</span></div>
     <div class="packs-offres">${r.offres.map((o) => `<article class="offre ${o.badge ? "mise-en-avant" : ""}">
       ${o.badge ? `<span class="offre-badge">${esc(o.badge)}</span>` : ""}<h4>${esc(o.nom)}</h4><p class="muted">${esc(o.description)}</p>
       <ul>${contenuPack(o).map((l) => `<li>${l}</li>`).join("")}</ul>
@@ -384,7 +384,7 @@ async function blocPacks(el) {
       <div class="offre-prix">${o.prixReference ? `<s title="${esc(o.referenceNote)}">${prixEuros(o.prixReference)}</s>` : ""}<b>${prixEuros(o.prix)}</b></div>
       ${o.prixReference ? `<p class="offre-note">Prix de référence : ${esc(o.referenceNote)}</p>` : ""}
       ${o.uneFois ? `<p class="offre-note">Limité à un achat par compte.</p>` : ""}${o.fin ? `<p class="offre-note">Jusqu'au ${new Date(o.fin).toLocaleDateString("fr-FR")}.</p>` : ""}
-      <button class="btn primary" data-offre="${esc(o.cle)}" ${o.dejaAchete || !r.stripe ? "disabled" : ""}>${o.dejaAchete ? "Déjà acheté" : r.stripe ? "Acheter" : "Bientôt disponible"}</button>
+      <button class="btn primary" data-offre="${esc(o.cle)}" ${o.dejaAchete ? "disabled" : ""}>${o.dejaAchete ? "Déjà acheté" : "Acheter"}</button>
       <button class="lien-chances" data-chances="${esc(o.cle)}">Probabilités des boosters</button></article>`).join("")}</div>`;
   $$("[data-chances]", el).forEach((b) => b.onclick = () => {
     const o = r.offres.find((x) => x.cle === b.dataset.chances);
@@ -397,15 +397,59 @@ async function blocPacks(el) {
     ouvrirModal(`<h2 style="margin-top:0">${esc(o.nom)} · ${prixEuros(o.prix)}</h2><ul>${contenuPack(o).map((l) => `<li>${l}</li>`).join("")}</ul>
       <p class="muted" style="font-size:13px">Contenu numérique (monnaie et boosters virtuels, sans valeur réelle ni revente possible), livré sur votre compte dès le paiement confirmé. Prix TTC. Voir les <a href="#" data-legal="cgv">conditions de vente</a>.</p>
       <label class="check"><input type="checkbox" id="ofRenonce"> Je demande la livraison immédiate et je reconnais perdre mon droit de rétractation de 14 jours une fois le contenu livré.</label>
-      <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-close>Annuler</button><button class="btn primary" id="ofPayer" disabled>Payer ${prixEuros(o.prix)} avec Stripe</button></div>`);
+      <div class="of-paiements" id="ofPaiements">
+        ${r.stripe ? `<button class="btn primary" id="ofPayer" disabled>💳 Payer ${prixEuros(o.prix)} par carte</button>` : ""}
+        <div id="ofPaypalAuto" class="hidden"></div>
+        <div id="ofPaypalManuel" class="of-manuel">
+          <a class="btn premium" id="ofPaypalLien" href="${PAYPAL}/${o.prix.toFixed(2)}EUR" target="_blank" rel="noopener" aria-disabled="true">🅿️ Payer ${prixEuros(o.prix)} avec PayPal</a>
+          <p class="muted" style="font-size:13px;margin:6px 0">Indiquez votre pseudo <b>${esc(S.compte || "")}</b> et « ${esc(o.nom)} » dans la note PayPal, puis prévenez-nous : le pack est livré après vérification, en général sous 24 h.</p>
+          <div class="row"><input id="ofNote" placeholder="Nom ou e-mail du compte PayPal (facultatif)" maxlength="120" style="flex:1;min-width:180px"><button class="btn" id="ofDemande" disabled>✅ J'ai payé avec PayPal</button></div>
+        </div>
+      </div>
+      <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-close>Annuler</button></div>`);
     brancherLiens($("#modal"));
-    $("#ofRenonce").onchange = (e) => { $("#ofPayer").disabled = !e.target.checked; };
-    $("#ofPayer").onclick = async () => {
+    const accepte = () => $("#ofRenonce")?.checked;
+    $("#ofRenonce").onchange = () => {
+      if ($("#ofPayer")) $("#ofPayer").disabled = !accepte();
+      $("#ofDemande").disabled = !accepte();
+      $("#ofPaypalLien").setAttribute("aria-disabled", String(!accepte()));
+    };
+    $("#ofPaypalLien").onclick = (e) => { if (!accepte()) { e.preventDefault(); toast("Cochez d'abord la case de livraison immédiate."); } };
+    if ($("#ofPayer")) $("#ofPayer").onclick = async () => {
       $("#ofPayer").disabled = true;
       try { location.href = (await api("stripe/pack", { methode: "POST", corps: { cle: o.cle, renonciation: true } })).url; }
       catch (e) { toast("⚠ " + e.message); $("#ofPayer").disabled = false; }
     };
+    $("#ofDemande").onclick = async () => {
+      $("#ofDemande").disabled = true;
+      try {
+        await api("pack/demande", { methode: "POST", corps: { cle: o.cle, renonciation: true, note: $("#ofNote").value } });
+        ouvrirModal(`<div class="reveal"><div style="font-size:52px">🛍️</div><h2>Demande envoyée !</h2><p>L'administrateur vérifie votre paiement PayPal et vous livre le ${esc(o.nom)}, en général sous 24 h. Vous recevrez une notification.</p><button class="btn primary" data-close>OK</button></div>`);
+      } catch (e) { toast("⚠ " + e.message); $("#ofDemande").disabled = false; }
+    };
+    paypalPack(o, accepte);
   });
+}
+// Boutons PayPal automatiques (si l'administrateur a configuré PayPal) ; sinon le lien PayPal manuel reste affiché
+async function paypalPack(o, accepte) {
+  let config; try { config = await api("premium/config"); } catch { return; }
+  if (!config.paypalClientId) return;
+  if (!window.paypal) await new Promise((ok, ko) => { const s = document.createElement("script"); s.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(config.paypalClientId)}&currency=EUR&intent=capture`; s.onload = ok; s.onerror = ko; document.head.appendChild(s); }).catch(() => null);
+  const zone = $("#ofPaypalAuto");
+  if (!window.paypal || !zone) return;
+  zone.classList.remove("hidden"); $("#ofPaypalManuel")?.classList.add("hidden");
+  window.paypal.Buttons({
+    style: { layout: "horizontal", tagline: false, height: 42 },
+    onClick: (_, actions) => { if (accepte()) return actions.resolve(); toast("Cochez d'abord la case de livraison immédiate."); return actions.reject(); },
+    createOrder: async () => (await api("paypal/pack/commande", { methode: "POST", corps: { cle: o.cle, renonciation: true } })).id,
+    onApprove: async (data) => {
+      try {
+        await api("paypal/pack/valider", { methode: "POST", corps: { commande: data.orderID } });
+        ouvrirModal(`<div class="reveal"><div style="font-size:56px">🛍️</div><h2>Merci ! ${esc(o.nom)} est livré.</h2><p>Vos pièces et boosters arrivent dans le jeu.</p><button class="btn primary" data-close>Ouvrir mes boosters</button></div>`, () => { if (typeof verifierCadeaux === "function") verifierCadeaux(); aller("boosters"); });
+      } catch (e) { toast("⚠ " + e.message, 6000); }
+    },
+    onError: () => toast("⚠ Le paiement PayPal n'a pas abouti."),
+  }).render(zone);
 }
 const _vueBoostersV4 = vueBoosters;
 vueBoosters = function (v) {
@@ -417,7 +461,7 @@ vueBoosters = function (v) {
   return r;
 };
 async function adminOffres(el) {
-  el.innerHTML = `<p class="muted">Les packs payants de la boutique (payés par Stripe, livrés automatiquement). <b>Prix barré</b> : n'indiquez un prix de référence que s'il s'agit d'un prix réellement pratiqué avant la réduction (règle européenne : le prix le plus bas des 30 jours précédents) ; sinon laissez vide. La « valeur en jeu » affichée aux joueurs est calculée automatiquement à partir du prix des boosters en pièces.</p><div id="aoListe">Chargement…</div>
+  el.innerHTML = `<p class="muted">Les packs payants de la boutique (payés par carte avec Stripe ou par PayPal). Pour livrer un pack payé par PayPal manuel, ou en offrir un, allez dans l’onglet « 🎁 Cadeaux &amp; packs ». <b>Prix barré</b> : n'indiquez un prix de référence que s'il s'agit d'un prix réellement pratiqué avant la réduction (règle européenne : le prix le plus bas des 30 jours précédents) ; sinon laissez vide. La « valeur en jeu » affichée aux joueurs est calculée automatiquement à partir du prix des boosters en pièces.</p><div id="aoListe">Chargement…</div>
     <button class="btn" id="aoNouveau" style="margin-top:12px">＋ Nouvelle offre</button>`;
   const { offres } = await api("admin/offres");
   const dateLocale = (ms) => (ms ? new Date(ms - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "");

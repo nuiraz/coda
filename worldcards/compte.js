@@ -965,7 +965,7 @@ async function vueAdmin(v) {
   if (!COMPTE.admin) { v.innerHTML = `<div class="panel"><p>Accès réservé à l'administrateur.</p><button class="btn" data-aller="compte">Mon compte</button></div>`; brancherLiens(v); return; }
   v.innerHTML = `<div class="sectiontitle"><h3>👑 Administration</h3><span class="muted">Connecté en tant que ${esc(COMPTE.pseudo)}</span></div>
     <div class="statgrid" id="aStats"><div class="stat"><b>…</b><span>chargement</span></div></div>
-    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["avatars", "🖼️ Photos de profil"], ["moderation", "🛡️ Modération"], ["ventes", "💰 Ventes"], ["visuels", "🖼️ Visuels boosters"], ["offres", "🛍️ Packs & offres"], ["createurs", "🎙️ Créateurs & dédicaces"], ["combats", "📊 Combats"], ["ligues", "🏅 Ligues et rangs"], ["reglages", "🎲 Chances & règles"], ["images", "💾 Images & stockage"], ["integrations", "🔌 Intégrations"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux"], ["notifs", "🔔 Notifications"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
+    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["avatars", "🖼️ Photos de profil"], ["moderation", "🛡️ Modération"], ["ventes", "💰 Ventes"], ["visuels", "🖼️ Visuels boosters"], ["offres", "🛍️ Packs & offres"], ["createurs", "🎙️ Créateurs & dédicaces"], ["combats", "📊 Combats"], ["ligues", "🏅 Ligues et rangs"], ["reglages", "🎲 Chances & règles"], ["images", "💾 Images & stockage"], ["integrations", "🔌 Intégrations"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux & packs"], ["notifs", "🔔 Notifications"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
     <div id="aCorps"></div>`;
   $$("[data-a]", v).forEach((b) => b.onclick = () => { adminEtat.onglet = b.dataset.a; aller("admin"); });
   api("admin/stats").then((s) => {
@@ -1259,8 +1259,44 @@ function adminCadeaux(el) {
     <label>Message<input id="gMsg" maxlength="200" placeholder="Ex. : Merci de jouer à Play2F1 !"></label>
     <p class="muted" style="margin:0;font-size:13px">Les boosters offerts sont des boosters Classiques. Les joueurs qui ont activé les notifications sont prévenus.</p>
     <button class="btn primary">🎁 Envoyer</button><p class="err" id="gErr"></p>
-    <p class="muted" style="margin:0;font-size:13px">Le joueur reçoit le cadeau à sa prochaine visite, une seule fois.</p></form>`;
+    <p class="muted" style="margin:0;font-size:13px">Le joueur reçoit le cadeau à sa prochaine visite, une seule fois.</p></form>
+    <h3>🛍️ Demandes de packs payés par PayPal</h3><div id="gDemandes"><p class="muted">Chargement…</p></div>
+    <form class="panel form" id="fPack" style="max-width:520px;margin-top:14px">
+    <h3 style="margin:0">Donner un pack</h3>
+    <label>Joueur<input id="gpPseudo" required value="${esc(adminEtat.pseudoCadeau || "")}" placeholder="Pseudo du joueur"></label>
+    <label>Pack<select id="gpPack"><option>Chargement…</option></select></label>
+    <label class="check"><input type="checkbox" id="gpPaye"> Le joueur a payé (PayPal) : compter la vente</label>
+    <label>Message (facultatif)<input id="gpMsg" maxlength="140" placeholder="Par défaut : « Cadeau de l'équipe » ou « Merci pour votre achat »"></label>
+    <button class="btn primary">🛍️ Donner le pack</button><p class="err" id="gpErr"></p>
+    <p class="muted" style="margin:0;font-size:13px">Le joueur reçoit les pièces, les boosters (et l'objet cosmétique s'il y en a un) à sa prochaine visite, avec une notification.</p></form>`;
   adminEtat.pseudoCadeau = "";
+  const donnerPack = async (cle, pseudo, corps) => {
+    const r = await api(`admin/offres/${encodeURIComponent(cle)}/donner`, { methode: "POST", corps: { pseudo, ...corps } });
+    toast(`🛍️ Pack livré à ${esc(r.pseudo)} !`); aller("admin");
+  };
+  (async () => {
+    try {
+      const [{ offres }, { demandes }] = await Promise.all([api("admin/offres"), api("admin/premium")]);
+      const nomOffre = (cle) => offres.find((o) => o.cle === cle);
+      $("#gpPack").innerHTML = offres.map((o) => `<option value="${esc(o.cle)}">${esc(o.nom)} · ${o.prix.toFixed(2).replace(".", ",")} €${o.actif ? "" : " (désactivée)"}</option>`).join("");
+      const packs = demandes.filter((d) => d.formule.startsWith("pack:"));
+      $("#gDemandes").innerHTML = packs.length ? `<div class="posts">${packs.map((d) => { const o = nomOffre(d.formule.slice(5)); return `<article class="post" data-d="${d.id}" data-p="${esc(d.pseudo)}" data-c="${esc(d.formule.slice(5))}">
+          <header><b>${esc(d.pseudo)}</b><span class="muted">${depuis(d.cree_le)} · ${esc(o?.nom || d.formule)} · ${o ? o.prix.toFixed(2).replace(".", ",") + " €" : ""}</span></header>
+          ${d.note ? `<p class="txt">PayPal : ${esc(d.note)}</p>` : ""}
+          <footer><button class="btn small primary" data-ok>✅ Paiement reçu : livrer le pack</button><button class="btn small" data-non>Refuser</button></footer></article>`; }).join("")}</div>
+          <p class="muted" style="font-size:13px">Vérifiez d'abord dans votre compte PayPal le montant et le pseudo indiqué dans la note.</p>`
+        : `<p class="muted">Aucune demande en attente.</p>`;
+      $$("#gDemandes [data-d]").forEach((a) => {
+        a.querySelector("[data-ok]").onclick = () => donnerPack(a.dataset.c, a.dataset.p, { demande: Number(a.dataset.d) }).catch((e) => toast("⚠ " + e.message));
+        a.querySelector("[data-non]").onclick = async () => { await api(`admin/premium/demandes/${a.dataset.d}`, { methode: "DELETE" }).catch((e) => toast("⚠ " + e.message)); aller("admin"); };
+      });
+    } catch (e) { $("#gDemandes").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  })();
+  $("#fPack").onsubmit = async (e) => {
+    e.preventDefault(); $("#gpErr").textContent = "";
+    try { await donnerPack($("#gpPack").value, $("#gpPseudo").value.trim(), { paye: $("#gpPaye").checked, message: $("#gpMsg").value }); }
+    catch (err) { $("#gpErr").textContent = err.message; }
+  };
   $("#fCadeau").onsubmit = async (e) => {
     e.preventDefault(); $("#gErr").textContent = "";
     try {
@@ -1365,7 +1401,9 @@ async function adminPremium(el) {
   };
   $("#fPrem").onsubmit = (e) => { e.preventDefault(); activer($("#prPseudo").value.trim(), $("#prFormule").value); };
   try {
-    const { demandes, premiums } = await api("admin/premium");
+    const { demandes: toutes, premiums } = await api("admin/premium");
+    const demandes = toutes.filter((d) => !d.formule.startsWith("pack:"));
+    if (toutes.length > demandes.length) $("#prDemandes").insertAdjacentHTML("beforebegin", `<p class="muted">🛍️ ${toutes.length - demandes.length} demande(s) de pack PayPal : voir l'onglet « 🎁 Cadeaux ».</p>`);
     $("#prDemandes").innerHTML = demandes.length ? `<div class="posts">${demandes.map((d) => `<article class="post" data-d="${d.id}" data-p="${esc(d.pseudo)}" data-f="${d.formule}">
         <header><b>${esc(d.pseudo)}</b><span class="muted">${depuis(d.cree_le)} · ${libelleFormule(d.formule)}</span></header>
         ${d.note ? `<p class="txt">PayPal : ${esc(d.note)}</p>` : ""}
@@ -1476,7 +1514,7 @@ const PAGES_LEGALES = {
   cgv: ["Conditions générales de vente", `
     <h3>1. Vendeur</h3><p>${EDITEUR}${ADRESSE ? `, ${ADRESSE}` : ""}. Contact : ${CONTACT}.${SIRET ? ` ${SIRET}.` : ""}</p>
     <h3>2. Offre</h3><p>Le Premium est un abonnement à des avantages numériques dans ${NOM_SITE} : 2 boosters Classiques supplémentaires par jour, accès aux boosters Prestige (dont un offert par semaine), chances de cartes Shiny doublées, 20 questions de quiz par jour au lieu de 10, 20 combats d'arène par jour au lieu de 10 et un badge 💎. Trois formules : <b>abonnement mensuel à 3,99 €</b> et <b>abonnement annuel à 29,99 €</b>, renouvelés automatiquement à chaque échéance jusqu'à résiliation, et <b>Premium à vie pour 89,99 €</b> (paiement unique, pendant toute la durée d'exploitation du jeu). Les abonnements payés par carte se résilient à tout moment depuis la page Premium (« Gérer mon abonnement ») : le Premium reste actif jusqu'à la fin de la période payée. Un paiement PayPal manuel reste possible ; il couvre alors 31 jours ou 365 jours sans renouvellement. Prix toutes taxes comprises${TVA_NON_APPLICABLE ? " ; TVA non applicable, régime de franchise des petites entreprises (art. 56bis du Code TVA belge)" : ""}.</p><p><b>Passe de saison</b> : abonnement de <b>7,99 € par mois</b> qui débloque la piste Premium du passe du mois en cours (récompenses numériques : objets de personnalisation exclusifs, cartes, boosters, pièces), renouvelé automatiquement chaque mois pour le passe suivant, résiliable à tout moment. Les récompenses déjà récupérées restent acquises. Il est distinct de l'abonnement Premium.</p><p><b>Dons</b> : les dons faits via le bouton « Soutenir » sont libres, volontaires et sans contrepartie ; ils ne donnent accès à aucun avantage dans le jeu et ne sont pas remboursables.</p>
-    <h3>2 bis. Packs</h3><p>Les packs sont des lots de contenu numérique pour ${NOM_SITE} (pièces et boosters virtuels) vendus à l'unité, au prix TTC affiché dans la boutique, et livrés automatiquement sur le compte du joueur dès la confirmation du paiement. Leur contenu exact et les probabilités de rareté des boosters sont indiqués avant l'achat. Les pièces et boosters n'ont aucune valeur monétaire, ne sont ni échangeables contre de l'argent ni remboursables en dehors des cas prévus par la loi. Certaines offres sont limitées à un achat par compte ou dans le temps, comme indiqué sur l'offre. Un prix barré n'est affiché que s'il correspond au prix le plus bas réellement pratiqué au cours des 30 jours précédant la réduction.</p>
+    <h3>2 bis. Packs</h3><p>Les packs sont des lots de contenu numérique pour ${NOM_SITE} (pièces et boosters virtuels) vendus à l'unité, au prix TTC affiché dans la boutique, et livrés sur le compte du joueur dès la confirmation du paiement : automatiquement pour un paiement par carte (Stripe) ou par PayPal intégré ; pour un paiement PayPal manuel (paypal.me, pseudo indiqué dans la note), après vérification par l'administrateur, en général sous 24 heures et au plus tard sous 7 jours, faute de quoi le joueur est remboursé sur simple demande. Leur contenu exact et les probabilités de rareté des boosters sont indiqués avant l'achat. Les pièces et boosters n'ont aucune valeur monétaire, ne sont ni échangeables contre de l'argent ni remboursables en dehors des cas prévus par la loi. Certaines offres sont limitées à un achat par compte ou dans le temps, comme indiqué sur l'offre. Un prix barré n'est affiché que s'il correspond au prix le plus bas réellement pratiqué au cours des 30 jours précédant la réduction.</p>
     <h3>3. Commande et paiement</h3><p>Le paiement par carte bancaire est traité de façon sécurisée par Stripe : le Premium ou le passe est activé automatiquement dès la confirmation du paiement, et chaque renouvellement est prélevé à l'échéance. Le paiement peut aussi se faire par PayPal (paypal.me/noozoaa), en indiquant son pseudo dans la note : le Premium est alors activé manuellement après vérification, en général sous 24 heures et au plus tard sous 7 jours ; sans activation dans ce délai, le joueur est remboursé sur simple demande. Le Premium est lié au compte du joueur.</p>
     <h3>4. Droit de rétractation</h3><p>Le Premium est un contenu numérique fourni sur un support immatériel. Conformément à l'article VI.53, 13°, du Code de droit économique (et à l'article 16, m, de la directive 2011/83/UE), en demandant son activation (ou la livraison immédiate d'un pack), le joueur accepte que l'exécution commence immédiatement et renonce à son droit de rétractation une fois le Premium activé. Avant activation, il peut annuler sa commande et être remboursé intégralement.</p>
     <h3>5. Durée et fin</h3><p>Les avantages s'appliquent pendant la durée achetée. En cas de suspension du compte pour manquement grave aux conditions d'utilisation, le Premium prend fin sans remboursement. En cas d'arrêt définitif du jeu, les joueurs Premium en cours (formules mensuelle et annuelle) sont remboursés au prorata de la durée restante.</p>

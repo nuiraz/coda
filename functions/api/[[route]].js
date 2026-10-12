@@ -2622,17 +2622,92 @@ async function livrerPack(env, ctx, s, userId) {
     .bind(s.id, userId, "pack:" + cle, ((s.amount_total || 0) / 100).toFixed(2), maintenant()).run();
   if (s.customer) await env.DB.prepare("UPDATE users SET stripe_client = ? WHERE id = ?").bind(typeof s.customer === "string" ? s.customer : s.customer.id, userId).run();
   if (!neuf.meta.changes) return;
+  await enregistrerVenteCreateur(env, s, userId);
+  await donnerContenuPack(env, ctx, userId, contenu, `${s.metadata?.nom || "Pack"} : merci pour votre achat !`, s.metadata?.nom);
+  const u = await env.DB.prepare("SELECT pseudo FROM users WHERE id = ?").bind(userId).first();
+  enArrierePlan(ctx, prevenirAdmins(env, { titre: "💰 Pack vendu", texte: `${u?.pseudo} : ${s.metadata?.nom || cle} (${((s.amount_total || 0) / 100).toFixed(2)} €)`, url: "./#admin" }));
+}
+const contenuOffre = (o) => ({ p: o.pieces, b: o.boosters, c: o.cosmetique || undefined });
+// Dépose le contenu d'un pack (pièces, boosters, cosmétique) dans les cadeaux du joueur
+async function donnerContenuPack(env, ctx, userId, contenu, message, nom) {
   const detail = {};
   for (const [k, n] of Object.entries(contenu.b || {})) if (TYPES_BOOSTERS_PACK.includes(k) && Number(n) > 0) detail[k] = Math.min(500, Math.round(Number(n)));
   const monde = detail.monde || 0; delete detail.monde;
   if (contenu.c && /^(dos|cadre|effet|titre):[a-z0-9-]{2,30}$/.test(contenu.c)) await env.DB.prepare("INSERT OR IGNORE INTO cosmetiques_achats (user_id, cle, cree_le) VALUES (?, ?, ?)").bind(userId, contenu.c, maintenant()).run();
-  await enregistrerVenteCreateur(env, s, userId);
   await env.DB.prepare("INSERT INTO cadeaux (user_id, pieces, boosters, boosters_detail, message, cree_le) VALUES (?, ?, ?, ?, ?, ?)")
-    .bind(userId, Math.min(1000000, Math.round(Number(contenu.p) || 0)), monde, JSON.stringify(detail), `${s.metadata?.nom || "Pack"} : merci pour votre achat !`, maintenant()).run();
-  const u = await env.DB.prepare("SELECT pseudo FROM users WHERE id = ?").bind(userId).first();
-  enArrierePlan(ctx, prevenirAdmins(env, { titre: "💰 Pack vendu", texte: `${u?.pseudo} : ${s.metadata?.nom || cle} (${((s.amount_total || 0) / 100).toFixed(2)} €)`, url: "./#admin" }));
-  enArrierePlan(ctx, envoyerPush(env, userId, { titre: "🛍️ Pack livré !", texte: `${s.metadata?.nom || "Votre pack"} vous attend dans le jeu.`, url: "./#boosters" }));
+    .bind(userId, Math.min(1000000, Math.round(Number(contenu.p) || 0)), monde, JSON.stringify(detail), message, maintenant()).run();
+  enArrierePlan(ctx, envoyerPush(env, userId, { titre: "🛍️ Pack livré !", texte: `${nom || "Votre pack"} vous attend dans le jeu.`, url: "./#boosters" }));
 }
+// Vérifications communes avant un achat de pack
+async function verifierAchatPack(env, user, b) {
+  const o = (await chargerOffres(env)).find((x) => x.cle === String(b.cle || ""));
+  if (!o || !offreDisponible(o)) throw new ErreurApi("Cette offre n'est plus disponible.", 404);
+  if (b.renonciation !== true) throw new ErreurApi("Vous devez demander la livraison immédiate du contenu numérique pour continuer.", 400);
+  if (o.une_fois && await env.DB.prepare("SELECT 1 FROM paiements WHERE user_id = ? AND formule = ? AND statut = 'paye'").bind(user.id, "pack:" + o.cle).first()) throw new ErreurApi("Cette offre est limitée à un achat par compte.", 400);
+  if (o.cosmetique && await env.DB.prepare("SELECT 1 FROM cosmetiques_achats WHERE user_id = ? AND cle = ?").bind(user.id, o.cosmetique).first()) throw new ErreurApi("Vous possédez déjà cet objet.", 400);
+  return o;
+}
+// Paiement PayPal automatique d'un pack (si PAYPAL_CLIENT_ID et PAYPAL_SECRET sont configurés)
+route("POST", "paypal/pack/commande", async ({ request, env, user }) => {
+  if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_SECRET) return erreur("Paiement automatique non configuré.", 503);
+  const o = await verifierAchatPack(env, user, await corps(request));
+  const montant = (o.prix_cents / 100).toFixed(2);
+  const r = await fetch(urlPaypal(env) + "/v2/checkout/orders", { method: "POST", headers: { Authorization: "Bearer " + await jetonPaypal(env), "Content-Type": "application/json" },
+    body: JSON.stringify({ intent: "CAPTURE", purchase_units: [{ amount: { currency_code: "EUR", value: montant }, description: `Play2F1 — ${o.nom} (contenu numérique)`.slice(0, 127), custom_id: `${user.id}:pack:${o.cle}` }] }) });
+  const j = await r.json();
+  if (!r.ok || !j.id) return erreur("Impossible de créer la commande PayPal.", 502);
+  await env.DB.prepare("INSERT INTO paiements (commande, user_id, formule, montant, statut, cree_le) VALUES (?, ?, ?, ?, 'cree', ?)").bind(j.id, user.id, "pack:" + o.cle, montant, maintenant()).run();
+  return json({ id: j.id });
+}, { connecte: true });
+route("POST", "paypal/pack/valider", async ({ request, env, user, ctx }) => {
+  const b = await corps(request);
+  const p = await env.DB.prepare("SELECT * FROM paiements WHERE commande = ? AND user_id = ? AND formule LIKE 'pack:%'").bind(String(b.commande || ""), user.id).first();
+  if (!p) return erreur("Commande inconnue.", 404);
+  if (p.statut === "paye") return erreur("Ce paiement a déjà été utilisé.", 409);
+  const r = await fetch(`${urlPaypal(env)}/v2/checkout/orders/${encodeURIComponent(p.commande)}/capture`, { method: "POST", headers: { Authorization: "Bearer " + await jetonPaypal(env), "Content-Type": "application/json" } });
+  const j = await r.json();
+  const capture = j.purchase_units?.[0]?.payments?.captures?.[0];
+  if (j.status !== "COMPLETED" || capture?.status !== "COMPLETED" || capture.amount?.value !== p.montant || capture.amount?.currency_code !== "EUR" || capture.custom_id !== `${user.id}:${p.formule}`)
+    return erreur("Le paiement n'a pas pu être confirmé. Aucun montant n'a été validé.", 402);
+  const fait = await env.DB.prepare("UPDATE paiements SET statut = 'paye' WHERE commande = ? AND statut != 'paye'").bind(p.commande).run();
+  if (!fait.meta.changes) return erreur("Ce paiement a déjà été utilisé.", 409);
+  const cle = p.formule.slice(5), o = (await chargerOffres(env)).find((x) => x.cle === cle);
+  if (!o) return erreur("Offre introuvable : contactez l'administrateur, votre paiement est bien enregistré.", 404);
+  await enregistrerVenteCreateur(env, { id: p.commande, amount_total: Math.round(Number(p.montant) * 100), metadata: { createur: user.code_createur || "" } }, user.id);
+  await donnerContenuPack(env, ctx, user.id, contenuOffre(o), `${o.nom} : merci pour votre achat !`, o.nom);
+  enArrierePlan(ctx, prevenirAdmins(env, { titre: "💰 Pack vendu (PayPal)", texte: `${user.pseudo} : ${o.nom} (${p.montant} €)`, url: "./#admin" }));
+  return json({ ok: true });
+}, { connecte: true });
+// Paiement PayPal manuel (paypal.me) : le joueur prévient, l'administrateur vérifie puis livre le pack
+route("POST", "pack/demande", async ({ request, env, user, ctx }) => {
+  const b = await corps(request);
+  const o = await verifierAchatPack(env, user, b);
+  const attente = await env.DB.prepare("SELECT COUNT(*) AS n FROM demandes_premium WHERE user_id = ? AND traitee = 0").bind(user.id).first();
+  if (attente.n >= 3) return erreur("Vous avez déjà des demandes en attente : l'administrateur va les traiter.", 429);
+  await env.DB.prepare("INSERT INTO demandes_premium (user_id, formule, note, cree_le) VALUES (?, ?, ?, ?)").bind(user.id, "pack:" + o.cle, String(b.note || "").trim().slice(0, 120), maintenant()).run();
+  enArrierePlan(ctx, prevenirAdmins(env, { titre: "🛍️ Nouvelle demande de pack (PayPal)", texte: `${user.pseudo} : ${o.nom} (${(o.prix_cents / 100).toFixed(2)} €)`, url: "./#admin" }));
+  return json({ ok: true }, 201);
+}, { connecte: true });
+// L'administrateur donne un pack : après un paiement PayPal reçu (demande) ou en cadeau
+route("POST", "admin/offres/([a-z0-9-]{2,30})/donner", async ({ request, env, user, ctx, p }) => {
+  const b = await corps(request);
+  const o = (await chargerOffres(env)).find((x) => x.cle === p[1]);
+  if (!o) return erreur("Offre introuvable.", 404);
+  const u = await env.DB.prepare("SELECT id, pseudo FROM users WHERE pseudo = ?").bind(String(b.pseudo || "").trim()).first();
+  if (!u) return erreur("Joueur introuvable.", 404);
+  const demande = Number(b.demande) || 0, paye = !!demande || b.paye === true;
+  if (demande) {
+    const r = await env.DB.prepare("UPDATE demandes_premium SET traitee = 1 WHERE id = ? AND user_id = ? AND traitee = 0").bind(demande, u.id).run();
+    if (!r.meta.changes) return erreur("Cette demande a déjà été traitée.", 409);
+  }
+  // Un paiement reçu est enregistré (ventes, offre limitée à un achat) ; un cadeau ne l'est pas
+  if (paye) await env.DB.prepare("INSERT INTO paiements (commande, user_id, formule, montant, statut, cree_le) VALUES (?, ?, ?, ?, 'paye', ?)")
+    .bind(`paypal-manuel-${demande || "admin"}-${u.id}-${maintenant()}`, u.id, "pack:" + o.cle, (o.prix_cents / 100).toFixed(2), maintenant()).run();
+  const message = String(b.message || "").trim().slice(0, 140) || (paye ? `${o.nom} : merci pour votre achat !` : `🎁 Cadeau de l'équipe Play2F1 : ${o.nom} !`);
+  await donnerContenuPack(env, ctx, u.id, contenuOffre(o), message, o.nom);
+  await journaliser(env, user.id, paye ? "pack livré (PayPal)" : "pack offert", `${o.nom} → ${u.pseudo}`, "admin");
+  return json({ ok: true, pseudo: u.pseudo });
+}, { admin: true });
 route("GET", "admin/offres", async ({ env }) => json({ offres: (await chargerOffres(env)).map((o) => ({ ...offrePublique(o, false), actif: !!o.actif, ordre: o.ordre })) }), { admin: true });
 route("PUT", "admin/offres/([a-z0-9-]{2,30})", async ({ request, env, user, p }) => {
   const b = await corps(request);

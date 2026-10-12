@@ -2062,3 +2062,8 @@ body[data-fond-streamer="vert"] { background: #00b140 !important; } body[data-fo
 /* Pendant l'ouverture, la carte reste droite (elle ne suit plus la souris) */
 .pk-carte .card.tilt { transform: none !important; }
 .pk-carte .card.tilt .in::before { content: none; }
+/* Achat d'un pack : carte bancaire, PayPal intégré ou PayPal manuel */
+.of-paiements { display: grid; gap: 10px; margin-top: 12px; }
+.of-paiements > .btn, .of-manuel > .btn { display: flex; width: 100%; box-sizing: border-box; justify-content: center; text-align: center; }
+.of-manuel { padding: 12px; border-radius: 12px; background: var(--panel2); }
+.of-manuel a[aria-disabled="true"] { opacity: .55; }
