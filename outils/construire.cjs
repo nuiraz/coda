@@ -12,7 +12,7 @@ const { code } = esbuild.transformSync(source, { minify: true, target: "es2020",
 fs.writeFileSync(path.join(racine, "jeu.min.js"), code);
 const empreinte = crypto.createHash("sha256").update(code).digest("hex").slice(0, 10);
 // Feuilles de style : style.css puis eclat.css, réunies et minifiées dans site.min.css
-const css = ["style.css", "eclat.css"].map((f) => fs.readFileSync(path.join(racine, f), "utf8")).join("\n");
+const css = ["style.css", "eclat.css", "pop.css"].map((f) => fs.readFileSync(path.join(racine, f), "utf8")).join("\n");
 const cssMin = esbuild.transformSync(css, { loader: "css", minify: true, target: ["chrome100", "safari15", "firefox100"], charset: "utf8", logLevel: "error" }).code;
 fs.writeFileSync(path.join(racine, "site.min.css"), cssMin);
 const empreinteCss = crypto.createHash("sha256").update(cssMin).digest("hex").slice(0, 10);
