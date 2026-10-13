@@ -797,26 +797,36 @@ function basculerStreamer(actif) {
   if (actif) { document.body.insertAdjacentHTML("beforeend", `<aside id="overlayStreamer" class="overlay-streamer" aria-label="Mode streamer"></aside>`); majOverlayStreamer(); aller("boosters"); document.documentElement.requestFullscreen?.().catch(() => {}); }
   else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
 }
-// Chaque booster ouvert alimente le compteur et l'historique ; une carte exceptionnelle est mise en valeur à l'écran
+// Chaque booster ouvert alimente le compteur et l'historique ; une carte exceptionnelle est mise en valeur à l'écran.
+// Rien n'est montré avant la fin de l'ouverture : les spectateurs découvrent les cartes en même temps que le streamer.
+let streamerEnAttente = null;
+function revelerStreamer() {
+  const res = streamerEnAttente; streamerEnAttente = null;
+  if (!res || !modeStreamer) return;
+  streamer.ouvertures++;
+  for (const x of res) {
+    const ordre = RARETES[x.c.rarete]?.ordre ?? 0;
+    if (ordre >= 3 || x.shiny) streamer.meilleures.push({ id: x.c.id, n: x.c.nom, r: x.c.rarete, e: x.c.emoji, s: !!x.shiny, o: ordre + (x.shiny ? 0.5 : 0), t: Date.now() });
+  }
+  streamer.meilleures.sort((a, b) => b.o - a.o || b.t - a.t); streamer.meilleures = streamer.meilleures.slice(0, 20);
+  sauverStreamer(); majOverlayStreamer();
+  const top = res.slice().sort((a, b) => (RARETES[b.c.rarete]?.ordre ?? 0) - (RARETES[a.c.rarete]?.ordre ?? 0))[0];
+  if (top && (RARETES[top.c.rarete]?.ordre ?? 0) >= 4) setTimeout(() => {
+    $(".streamer-alerte")?.remove();
+    document.body.insertAdjacentHTML("beforeend", `<div class="streamer-alerte r-${top.c.rarete}"><span>${esc(RARETES[top.c.rarete].nom.toUpperCase())} !</span><b>${esc(top.c.nom)}</b></div>`);
+    setTimeout(() => $(".streamer-alerte")?.remove(), 4200);
+  }, 400);
+}
+document.addEventListener("booster-revele", revelerStreamer);
 const _deballerV4 = deballer;
 deballer = function (type) {
   const res = _deballerV4.apply(this, arguments);
-  if (modeStreamer) {
-    streamer.ouvertures++;
-    for (const x of res) {
-      const ordre = RARETES[x.c.rarete]?.ordre ?? 0;
-      if (ordre >= 3 || x.shiny) streamer.meilleures.push({ id: x.c.id, n: x.c.nom, r: x.c.rarete, e: x.c.emoji, s: !!x.shiny, o: ordre + (x.shiny ? 0.5 : 0), t: Date.now() });
-    }
-    streamer.meilleures.sort((a, b) => b.o - a.o || b.t - a.t); streamer.meilleures = streamer.meilleures.slice(0, 20);
-    sauverStreamer(); majOverlayStreamer();
-    const top = res.slice().sort((a, b) => (RARETES[b.c.rarete]?.ordre ?? 0) - (RARETES[a.c.rarete]?.ordre ?? 0))[0];
-    if (top && (RARETES[top.c.rarete]?.ordre ?? 0) >= 4) setTimeout(() => {
-      document.body.insertAdjacentHTML("beforeend", `<div class="streamer-alerte r-${top.c.rarete}"><span>${esc(RARETES[top.c.rarete].nom.toUpperCase())} !</span><b>${esc(top.c.nom)}</b></div>`);
-      setTimeout(() => $(".streamer-alerte")?.remove(), 4200);
-    }, 2600);
-  }
+  if (modeStreamer) { if (streamerEnAttente) revelerStreamer(); streamerEnAttente = res; }
   return res;
 };
+// Ouverture fermée avant la fin : on compte quand même le booster
+const _fermerModalV4 = fermerModal;
+fermerModal = function () { const r = _fermerModalV4.apply(this, arguments); if (streamerEnAttente) revelerStreamer(); return r; };
 async function vueStreamer(v) {
   v.innerHTML = `<header class="page-tete"><h1>Mode streamer</h1><p>Un affichage plein écran pensé pour Twitch, YouTube ou TikTok Live : compteur d'ouvertures, historique des meilleures cartes, alerte à l'écran pour les ultra rares et légendaires. Appuyez sur <kbd>Espace</kbd> pour ouvrir et faire défiler les cartes.</p></header>
     <section class="panel form"><label class="check"><input type="checkbox" id="stMasquer" ${streamer.masquer ? "checked" : ""}> Masquer mes informations personnelles (pseudo, pièces, compte, notifications)</label>

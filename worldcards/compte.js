@@ -67,7 +67,7 @@ async function api(chemin, { methode = "GET", corps, keepalive = false } = {}) {
 const connecte = () => COMPTE.etat === "connecte";
 // Photo de profil posée par-dessus la lettre du pseudo (GIF transparent côté serveur s'il n'y en a pas)
 const AVATAR_V = {};
-const avImg = (pseudo) => pseudo ? `<img src="/api/avatar/${encodeURIComponent(pseudo)}${AVATAR_V[pseudo] ? "?v=" + AVATAR_V[pseudo] : ""}" alt="" loading="lazy" onerror="this.remove()">` : "";
+const avImg = (pseudo) => pseudo && pseudo !== "?" ? `<img src="/api/avatar/${encodeURIComponent(pseudo)}${AVATAR_V[pseudo] ? "?v=" + AVATAR_V[pseudo] : ""}" alt="" loading="lazy" onerror="this.remove()">` : "";
 
 /* =====================================================================
 /* =====================================================================

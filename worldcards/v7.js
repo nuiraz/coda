@@ -66,7 +66,7 @@ async function vuePhoto(v) {
     const zoom = d.fini ? 1 : ZOOMS_PHOTO[d.essais.length];
     el.innerHTML = `<div class="df-grille"><section class="panel df-jeu">
         <div class="df-num">Défi photo n° ${d.numero}</div>
-        <div class="ph-cadre ${d.fini ? (d.gagne ? "gagne" : "perdu") : ""}"><img src="/api/defi-photo/image?j=${d.jour}" alt="Monument mystère" style="transform:scale(${zoom});transform-origin:${fx}% ${fy}%" onerror="this.replaceWith(Object.assign(document.createElement('p'), { className: 'muted ph-erreur', textContent: 'La photo du jour ne se charge pas. Réessayez dans un instant.' }))"></div>
+        <div class="ph-cadre ${d.fini ? (d.gagne ? "gagne" : "perdu") : ""}"><img src="${PHOTO_SECOURS?.j === d.jour ? PHOTO_SECOURS.u : `/api/defi-photo/image?j=${d.jour}`}" data-j="${d.jour}" alt="Monument mystère" style="transform:scale(${zoom});transform-origin:${fx}% ${fy}%" onerror="secoursPhotoDuJour(this)"></div>
         <div class="ph-indices">${d.indices?.continent ? `<span class="chip">🌍 ${esc(d.indices.continent)}</span>` : `<span class="chip muted">🌍 Continent au 2e essai</span>`}${d.indices?.pays ? `<span class="chip">${drapeau(d.indices.pays.code)} ${esc(d.indices.pays.nom)}</span>` : `<span class="chip muted">🏳️ Pays au 4e essai</span>`}</div>
         <ol class="ph-essais">${d.essais.map((id) => `<li class="${d.solution?.id === id ? "juste" : ""}">${d.solution?.id === id ? "✅" : "❌"} ${esc(noms[id] || id)}</li>`).join("")}</ol>
         ${d.fini ? `<div class="df-fin"><h3>${d.gagne ? `🎉 Trouvé en ${d.essais.length} essai${d.essais.length > 1 ? "s" : ""} !` : "😢 Perdu pour aujourd'hui"}</h3><p>C'était <b>${esc(d.solution.nom)}</b>${BY_ID[d.solution.id] ? ` <button class="lien-chances" id="phFiche">voir la carte</button>` : ""}.</p>${d.recompense ? `<p class="sc-ok">+${d.recompense} 🪙</p>` : ""}
@@ -195,6 +195,31 @@ const masquerNom = (texte, c) => {
   return t;
 };
 // Image d'une devinette : drapeau pour les drapeaux, photo de la carte, sinon l'illustration Wikipédia
+/* Images Wikipédia : si le serveur ne peut pas les fournir, le navigateur les cherche lui-même
+   (même méthode que les photos des cartes). */
+const IMAGES_WIKI = {};
+function imageWiki(titre, taille = 640) {
+  const cherche = (p) => requeteWiki({ prop: "pageimages", piprop: "thumbnail", pithumbsize: String(taille), ...p }).then((j) => j.query?.pages?.find((x) => x.thumbnail)?.thumbnail?.source || null);
+  return (IMAGES_WIKI[titre + "|" + taille] ||= cherche({ redirects: "1", titles: titre })
+    .then((u) => u || cherche({ generator: "search", gsrsearch: titre, gsrlimit: "1" })).catch(() => null));
+}
+function secoursImage(img) {
+  const titre = img.dataset.wiki;
+  if (!titre || img.dataset.secours) { (img.closest(".dv-photo, .de-apercu-img") || img).remove(); return; }
+  img.dataset.secours = "1";
+  imageWiki(titre).then((u) => { if (u) img.src = u; else (img.closest(".dv-photo, .de-apercu-img") || img).remove(); });
+}
+let PHOTO_SECOURS = null;
+async function secoursPhotoDuJour(img) {
+  const raté = () => img.replaceWith(Object.assign(document.createElement("p"), { className: "muted ph-erreur", textContent: "La photo du jour ne se charge pas. Réessayez dans un instant." }));
+  if (img.dataset.secours) return raté();
+  img.dataset.secours = "1";
+  try {
+    const { t } = await api("defi-photo/source");
+    const u = await imageWiki(new TextDecoder().decode(Uint8Array.from(atob(t), (c) => c.charCodeAt(0))), 900);
+    if (u) { PHOTO_SECOURS = { j: img.dataset.j, u }; img.src = u; } else raté();
+  } catch { raté(); }
+}
 function imageDevine(c) {
   if (c.banque === "drapeau" || c.type === "pays") {
     const cle = (n) => sansAccents(n).replace(/[^a-z]/g, ""), code = c.code || Object.keys(NOM_PAYS).find((k) => cle(NOM_PAYS[k]) === cle(c.nom));
@@ -204,7 +229,7 @@ function imageDevine(c) {
   if (c.sansImage) return "";
   return (!c.banque && typeof photoDe === "function" && photoDe(c.id)) || `/api/devine/image?t=${encodeURIComponent(c.wiki || c.nom)}`;
 }
-const imgDevine = (c, cls = "dv-photo") => { const u = imageDevine(c); return u ? `<div class="${cls}"><img src="${esc(u)}" alt="" loading="lazy" onerror="this.parentNode.remove()"></div>` : ""; };
+const imgDevine = (c, cls = "dv-photo") => { const u = imageDevine(c); return u ? `<div class="${cls}"><img src="${esc(u)}" alt="" loading="lazy" ${u.startsWith("/api/devine/image") ? `data-wiki="${esc(c.wiki || c.nom)}" ` : ""}onerror="secoursImage(this)"></div>` : ""; };
 function indicesDevine(c) {
   if (c.banque) return c.indices.map((t, i) => `<p class="dv-texte">${esc(t)}</p>${i === 2 && (c.banque !== "drapeau" || c.img) ? imgDevine(c) : ""}`);
   const cont = CONTINENTS[c.continent], pays = c.pays && NOM_PAYS[c.pays];
@@ -363,7 +388,7 @@ function vueDevineAdmin(v) {
         <button class="btn primary" id="daNouv">+ Nouvelle devinette</button></div>
       <p class="muted" style="font-size:13px">${liste.length} devinette${liste.length > 1 ? "s" : ""}</p>
       <div class="da-liste">${liste.map((c) => { const u = imageDevine(c); return `<button class="da-ligne ${c.masque ? "masquee" : ""}" data-da="${esc(c.id)}">
-        <span class="da-img">${u ? `<img src="${esc(u)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</span>
+        <span class="da-img">${u ? `<img src="${esc(u)}" alt="" loading="lazy" ${u.startsWith("/api/devine/image") ? `data-wiki="${esc(c.wiki || c.nom)}" ` : ""}onerror="secoursImage(this)">` : ""}</span>
         <span class="da-txt"><b>${esc(c.nom)}</b><small class="muted">${esc(c.indices[0])}</small></span>
         <span class="da-tags">${c.creee ? `<i class="da-tag">créée</i>` : c.modifiee ? `<i class="da-tag">modifiée</i>` : ""}${c.img ? `<i class="da-tag">image perso</i>` : ""}${c.masque ? `<i class="da-tag">masquée</i>` : ""}</span></button>`; }).join("")}</div>
     </section>`;
@@ -374,7 +399,7 @@ function vueDevineAdmin(v) {
 }
 function editerDevinette(c) {
   let image = null; // null = inchangée, "" = retirée, data:… = nouvelle
-  const apercu = () => { const u = image ? image : image === "" ? (c.sansImage ? "" : `/api/devine/image?t=${encodeURIComponent($("#deWiki")?.value || c.nom)}`) : imageDevine({ ...c, wiki: $("#deWiki")?.value ?? c.wiki, sansImage: $("#deSans")?.checked ?? c.sansImage }); return u ? `<img src="${esc(u)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('p'),{className:'muted',textContent:'Aucune image trouvée'}))">` : `<p class="muted">Pas d'image</p>`; };
+  const apercu = () => { const u = image ? image : image === "" ? (c.sansImage ? "" : `/api/devine/image?t=${encodeURIComponent($("#deWiki")?.value || c.nom)}`) : imageDevine({ ...c, wiki: $("#deWiki")?.value ?? c.wiki, sansImage: $("#deSans")?.checked ?? c.sansImage }); return u ? `<span class="de-apercu-img"><img src="${esc(u)}" alt="" ${u.startsWith("/api/devine/image") ? `data-wiki="${esc($("#deWiki")?.value || c.wiki || c.nom)}" ` : ""}onerror="secoursImage(this)"></span>` : `<p class="muted">Pas d'image</p>`; };
   ouvrirModal(`<h2 style="margin-top:0">${c.nouvelle ? "Nouvelle devinette" : "Modifier la devinette"}</h2>
     <div class="de-form">
       <label>Catégorie<select id="deCat" ${c.nouvelle ? "" : "disabled"}>${CATS_BANQUE.map((k) => `<option value="${k}" ${c.banque === k ? "selected" : ""}>${CATS_DEVINE.find((x) => x[0] === k)[2]}</option>`).join("")}</select></label>

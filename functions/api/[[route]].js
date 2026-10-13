@@ -3611,6 +3611,11 @@ route("GET", "admin/economie", async ({ env }) => {
   const { results: sources } = await env.DB.prepare(`SELECT substr(message, 1, 40) AS source, COUNT(*) AS n, SUM(pieces) AS pieces FROM cadeaux WHERE cree_le > ? AND pieces > 0 GROUP BY substr(message, 1, 12) ORDER BY pieces DESC LIMIT 12`).bind(maintenant() - 7 * JOUR).all();
   return json({ jours, riches, tranches, sources });
 }, { admin: true });
+// Secours : si la photo ne passe pas par le serveur, le navigateur la cherche lui-même sur Wikipédia
+route("GET", "defi-photo/source", async ({ env }) => {
+  const c = await photoDuJour(env, jourBruxelles());
+  return json({ t: btoa(String.fromCharCode(...new TextEncoder().encode(c.wiki))) }, 200, { "cache-control": "no-store" });
+});
 route("POST", "defi-photo/essai", async ({ request, env, user, ctx }) => {
   const b = await corps(request), jour = jourBruxelles(), c = await photoDuJour(env, jour), id = String(b.id || "");
   if (!POOL_PHOTO.some((x) => x.id === id)) return erreur("Choisissez un monument de la liste.");
