@@ -475,10 +475,61 @@ html:not(.metal-ok) .card:not(.locked) .in { background: linear-gradient(160deg,
 .cl-lien > span:nth-child(2) { flex: 1; display: flex; flex-direction: column; }
 .cl-lien-ic { width: 44px; height: 44px; border-radius: 12px; background: var(--cobalt); color: #fff; display: grid; place-items: center; border: 2px solid var(--ligne); flex: none; }
 .cl-lien-ic .ico { width: 24px; height: 24px; }
+/* Carte posée dans la pochette : taille fixée par la pochette (évite les tailles folles sur Safari) */
+.cl-pochette .card { position: absolute !important; inset: 5% !important; width: auto !important; height: auto !important; aspect-ratio: auto !important; margin: 0 !important; }
+/* Petites cartes : on garde le visuel, le nom et les chiffres */
+@container (max-width: 125px) {
+  .cl-pochette .card .sub, .cl-pochette .card .rc-label, .cl-pochette .card .rc-tuile, .cl-pochette .card .rc-badge { display: none !important; }
+  .cl-pochette .card .head.rc-tete { justify-content: flex-end !important; font-size: 8cqw !important; }
+  .cl-pochette .card .name { font-size: 12cqw !important; }
+  .cl-pochette .card .rc-pied { display: none !important; }
+  .cl-pochette .card .rc-identite { margin-bottom: 3cqw; }
+  .cl-pochette .card .rc-valeur .rc-ic { display: none; }
+  .cl-pochette .card .rc-pied { margin-top: 2cqw !important; }
+}
+.cl-points { display: flex; justify-content: center; gap: 6px; margin: 10px 0 2px; }
+.cl-points i { width: 7px; height: 7px; border-radius: 50%; background: rgba(21, 27, 51, .2); transition: width .2s, background .2s; }
+.cl-points i.on { width: 20px; border-radius: 99px; background: var(--cobalt); }
+.cl-feuilles { touch-action: pan-y; will-change: transform; }
+.cl-feuilles.glisse-av { animation: clGlisseAv .18s ease-in forwards; }
+.cl-feuilles.glisse-ar { animation: clGlisseAr .18s ease-in forwards; }
+.cl-feuilles.entre-av { animation: clEntreAv .24s ease-out; }
+.cl-feuilles.entre-ar { animation: clEntreAr .24s ease-out; }
+@keyframes clGlisseAv { to { transform: translateX(-110%); opacity: .2; } }
+@keyframes clGlisseAr { to { transform: translateX(110%); opacity: .2; } }
+@keyframes clEntreAv { from { transform: translateX(60%); opacity: .2; } to { transform: none; opacity: 1; } }
+@keyframes clEntreAr { from { transform: translateX(-60%); opacity: .2; } to { transform: none; opacity: 1; } }
 @media (max-width: 899px) {
-  .cl-classeur { padding: 12px 10px 12px 14px; border-radius: 20px; }
-  .cl-page { padding: 10px 10px 26px; }
-  .cl-pochettes { gap: 7px; }
+  /* Le classeur prend toute la largeur de l'écran : cartes plus grandes */
+  .cl-tete { display: none !important; }
+  .cl-barre { margin-top: 4px; }
+  .cl-barre { gap: 8px; margin-bottom: 10px; }
+  .cl-barre .toolbar { flex-wrap: nowrap !important; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 2px 16px 6px; }
+  .cl-barre .toolbar::-webkit-scrollbar { display: none; }
+  .cl-barre .toolbar .chip { flex: none; }
+  .cl-barre .row { flex-direction: column; align-items: stretch !important; gap: 6px !important; }
+  .cl-barre select { width: 100%; }
+  .cl-barre .check { font-size: 13px; }
+  .cl-classeur { margin: 0 -8px; padding: 8px 6px 8px 14px; border-radius: 16px; overflow: hidden; }
+  .cl-classeur::before { inset: 4px; border-radius: 12px; }
+  .cl-feuilles { perspective: none; }
+  .cl-classeur.simple .cl-page { margin-left: 8px; }
+  .cl-page { padding: 6px 6px 20px; border-radius: 10px; }
+  .cl-pochettes { gap: 5px; }
+  .cl-pochette { border-radius: 7px; padding: 0; }
+  .cl-pochette .card { inset: 3.5% !important; }
+  .cl-anneaux-gauche { left: -2px; width: 18px; }
+  .cl-anneaux i { width: 16px; height: 9px; }
+  .cl-numero { bottom: 4px; font-size: 11px; }
+  .cl-nb { right: -2px; top: -4px; font-size: 10.5px; padding: 1px 5px; }
+  /* Barre de pages compacte, collée au-dessus de la barre d'onglets */
+  .cl-nav { flex-wrap: nowrap; gap: 8px; margin: 10px auto 4px; width: fit-content; padding: 6px; border-radius: 99px;
+    background: var(--carte, #fff); border: 2px solid var(--ligne); box-shadow: 0 4px 0 var(--ligne); }
+  .cl-nav .btn { min-width: 46px; height: 42px; padding: 0 14px; font-size: 22px; line-height: 1; border-radius: 99px; }
+  .cl-txt { display: none; }
+  .cl-pagination { min-width: 90px; font-size: 14px; }
+  .cl-pagination small { display: none; }
+  .cl-curseur { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .cl-feuilles .cl-page { animation: none !important; } }
 

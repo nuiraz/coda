@@ -44,7 +44,7 @@ function vueClasseur(v) {
   if (double) classeur.page -= classeur.page % 2;
   const types = [...new Set(CARDS.filter((c) => (S.owned[c.id] || 0) > 0).map((c) => c.type))];
   const pseudo = typeof COMPTE !== "undefined" && COMPTE.pseudo;
-  v.innerHTML = `<header class="page-tete"><h1>Mon classeur</h1><p>Toutes vos cartes rangées dans leurs pochettes, les plus rares devant. Tournez les pages avec les flèches ou en glissant le doigt.</p></header>
+  v.innerHTML = `<header class="page-tete cl-tete"><h1>Mon classeur</h1><p>Toutes vos cartes rangées dans leurs pochettes, les plus rares devant. Tournez les pages avec les flèches ou en glissant le doigt.</p></header>
     <div class="cl-barre">
       <div class="toolbar">${[["tout", "Toutes"], ...types.map((k) => [k, TYPES[k] || k])].map(([k, n]) => `<button class="chip ${classeur.cat === k ? "on" : ""}" data-clcat="${k}">${esc(n)}</button>`).join("")}</div>
       <div class="row" style="gap:8px;flex-wrap:wrap">
@@ -60,19 +60,22 @@ function vueClasseur(v) {
       </div>
     </div>
     <div class="cl-nav">
-      <button class="btn" id="clPrec" ${classeur.page === 0 ? "disabled" : ""} aria-label="Page précédente">‹ Précédente</button>
+      <button class="btn" id="clPrec" ${classeur.page === 0 ? "disabled" : ""} aria-label="Page précédente">‹<span class="cl-txt"> Précédente</span></button>
       <span class="cl-pagination"><b>${double && classeur.page + 1 < nbPages ? `Pages ${classeur.page + 1}–${classeur.page + 2}` : `Page ${classeur.page + 1}`}</b> sur ${nbPages}<small class="muted">${fmt(possedees)} cartes · ${fmt(cartes.length)} affichées</small></span>
-      <button class="btn" id="clSuiv" ${classeur.page + pas >= nbPages ? "disabled" : ""} aria-label="Page suivante">Suivante ›</button>
+      <button class="btn" id="clSuiv" ${classeur.page + pas >= nbPages ? "disabled" : ""} aria-label="Page suivante"><span class="cl-txt">Suivante </span>›</button>
     </div>
+    ${!double && nbPages > 1 && nbPages <= 12 ? `<div class="cl-points" aria-hidden="true">${Array.from({ length: nbPages }, (_, i) => `<i class="${i === classeur.page ? "on" : ""}"></i>`).join("")}</div>` : ""}
     ${nbPages > 2 ? `<input type="range" class="cl-curseur" id="clCurseur" min="1" max="${nbPages}" value="${classeur.page + 1}" aria-label="Aller à la page">` : ""}
     <p class="muted" style="text-align:center;font-size:13px">${pseudo ? `Classeur de ${esc(pseudo)} · ` : ""}Touchez une carte pour voir sa fiche.</p>`;
   brancherLiens?.(v);
   const tourner = (sens) => {
     const cible = classeur.page + sens * pas;
-    if (cible < 0 || cible >= nbPages) return;
     const f = $("#clFeuilles", v);
-    f.classList.add(sens > 0 ? "tourne-av" : "tourne-ar");
-    setTimeout(() => { classeur.page = cible; vueClasseur(v); const nf = $("#clFeuilles", v); nf?.classList.add(sens > 0 ? "arrive-av" : "arrive-ar"); $("#clClasseur", v)?.focus({ preventScroll: true }); }, 230);
+    if (cible < 0 || cible >= nbPages) { if (f) { f.style.transition = "transform .2s"; f.style.transform = ""; } return; }
+    // Sur mobile, la page glisse (pas de rotation 3D : Safari l'agrandit énormément)
+    const classe = double ? (sens > 0 ? "tourne-av" : "tourne-ar") : (sens > 0 ? "glisse-av" : "glisse-ar");
+    f.style.transition = ""; f.style.transform = ""; f.classList.add(classe);
+    setTimeout(() => { classeur.page = cible; vueClasseur(v); const nf = $("#clFeuilles", v); nf?.classList.add(double ? (sens > 0 ? "arrive-av" : "arrive-ar") : (sens > 0 ? "entre-av" : "entre-ar")); $("#clClasseur", v)?.focus({ preventScroll: true }); }, double ? 230 : 180);
   };
   $("#clPrec", v).onclick = () => tourner(-1);
   $("#clSuiv", v).onclick = () => tourner(1);
@@ -82,13 +85,20 @@ function vueClasseur(v) {
   $$("[data-clcat]", v).forEach((b) => b.onclick = () => { classeur.cat = b.dataset.clcat; classeur.page = 0; vueClasseur(v); });
   const zone = $("#clClasseur", v);
   zone.addEventListener("keydown", (e) => { if (e.key === "ArrowRight") tourner(1); if (e.key === "ArrowLeft") tourner(-1); });
-  // Glisser le doigt pour tourner la page
-  let x0 = null, y0 = 0;
-  zone.addEventListener("touchstart", (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
-  zone.addEventListener("touchend", (e) => {
+  // Glisser le doigt : la page suit le doigt, puis se tourne
+  let x0 = null, y0 = 0, dx = 0, horizontal = null;
+  const feuilles = $("#clFeuilles", v);
+  zone.addEventListener("touchstart", (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; dx = 0; horizontal = null; feuilles.style.transition = "none"; }, { passive: true });
+  zone.addEventListener("touchmove", (e) => {
     if (x0 === null) return;
-    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
-    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) tourner(dx < 0 ? 1 : -1);
+    dx = e.touches[0].clientX - x0; const dy = e.touches[0].clientY - y0;
+    if (horizontal === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) horizontal = Math.abs(dx) > Math.abs(dy);
+    if (horizontal) { e.preventDefault(); const bord = (dx > 0 && classeur.page === 0) || (dx < 0 && classeur.page + pas >= nbPages); feuilles.style.transform = `translateX(${bord ? dx * 0.25 : dx}px)`; }
+  }, { passive: false });
+  zone.addEventListener("touchend", () => {
+    if (x0 === null) return; x0 = null;
+    if (horizontal && Math.abs(dx) > 50) tourner(dx < 0 ? 1 : -1);
+    else { feuilles.style.transition = "transform .2s"; feuilles.style.transform = ""; }
   }, { passive: true });
 }
 ajouterPage("classeur", "📒", "Mon classeur", vueClasseur);
