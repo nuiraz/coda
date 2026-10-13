@@ -325,3 +325,6 @@ input:focus, select:focus, textarea:focus { outline: 3px solid var(--jaune); out
 .avis-admin.negatif { border-left: 8px solid #d9534f !important; }
 .avis-admin textarea { width: 100%; box-sizing: border-box; margin-top: 4px; font-size: 15px; padding: 8px 10px; }
 @media (max-width: 767px) { .avis-tete { grid-template-columns: 1fr; } .avis-moyenne > b { font-size: 44px; } }
+.avis-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.avis-repondre { margin-top: 10px; display: grid; gap: 8px; }
+.avis-repondre textarea { width: 100%; box-sizing: border-box; font-size: 15px; padding: 8px 10px; }

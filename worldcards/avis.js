@@ -109,10 +109,14 @@ async function chargerAvis(bloc) {
   rendreAvis(bloc);
 }
 function carteAvis(a) {
-  return `<article class="avis-carte">
+  const admin = typeof COMPTE !== "undefined" && COMPTE.admin;
+  return `<article class="avis-carte" data-avis="${a.id}">
     <header><b>${esc(a.pseudo)}</b>${etoilesLecture(a.note, 17)}<small class="muted">${new Date(a.maj).toLocaleDateString("fr-FR")}</small></header>
     ${a.texte ? `<p>${esc(a.texte)}</p>` : ""}
-    ${a.reponse ? `<div class="avis-reponse"><b>Réponse de Play2F1</b><p>${esc(a.reponse)}</p></div>` : ""}</article>`;
+    ${a.reponse ? `<div class="avis-reponse"><b>Réponse de Play2F1</b><p>${esc(a.reponse)}</p></div>` : ""}
+    ${admin ? `<div class="avis-actions"><button class="btn small" data-av-rep>${a.reponse ? "Modifier ma réponse" : "Répondre"}</button><button class="btn small" data-av-suppr>Supprimer</button></div>
+      <div class="avis-repondre hidden"><textarea rows="2" maxlength="600" placeholder="Votre réponse publique…">${esc(a.reponse || "")}</textarea>
+        <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn primary small" data-av-envoyer>Publier la réponse</button>${a.reponse ? `<button class="btn small" data-av-retirer>Retirer la réponse</button>` : ""}<button class="btn small" data-av-annuler>Annuler</button></div></div>` : ""}</article>`;
 }
 function rendreAvis(bloc) {
   const d = avisDonnees, co = typeof connecte === "function" && connecte();
@@ -136,6 +140,7 @@ function rendreAvis(bloc) {
     ${d.suite ? `<button class="btn" id="avisPlus" style="margin-top:14px">Voir plus d'avis</button>` : ""}
   </div>`;
   brancherLiens?.(bloc);
+  brancherAdminAvis(bloc);
   if (!co) return;
   const note = creerPeekRating({ valeur: d.moi?.note || 0 });
   $("#avisNote", bloc).appendChild(note.el);
@@ -152,8 +157,28 @@ function rendreAvis(bloc) {
   let page = 0;
   $("#avisPlus", bloc)?.addEventListener("click", async (e) => {
     page++;
-    try { const r = await api(`avis?page=${page}`); $("#avisListe", bloc).insertAdjacentHTML("beforeend", r.liste.map(carteAvis).join("")); if (!r.suite) e.target.remove(); } catch {}
+    try { const r = await api(`avis?page=${page}`); $("#avisListe", bloc).insertAdjacentHTML("beforeend", r.liste.map(carteAvis).join("")); brancherAdminAvis(bloc); if (!r.suite) e.target.remove(); } catch {}
   });
+}
+// L'admin répond ou supprime directement sous chaque avis
+function brancherAdminAvis(bloc) {
+  if (typeof COMPTE === "undefined" || !COMPTE.admin) return;
+  for (const art of $$(".avis-carte[data-avis]:not([data-branche])", bloc)) {
+    art.dataset.branche = "1";
+    const id = art.dataset.avis, zone = $(".avis-repondre", art);
+    const envoyer = async (texte) => {
+      try { await api(`admin/avis/${id}/reponse`, { methode: "POST", corps: { texte } }); toast(texte ? "Réponse publiée : le joueur est prévenu." : "Réponse retirée."); chargerAvis(bloc); }
+      catch (e) { toast("⚠ " + e.message); }
+    };
+    $("[data-av-rep]", art).onclick = () => { zone.classList.remove("hidden"); $("textarea", zone).focus(); };
+    $("[data-av-annuler]", art).onclick = () => zone.classList.add("hidden");
+    $("[data-av-envoyer]", art).onclick = () => { const t = $("textarea", zone).value.trim(); if (!t) return toast("Écrivez une réponse."); envoyer(t); };
+    $("[data-av-retirer]", art)?.addEventListener("click", () => envoyer(""));
+    $("[data-av-suppr]", art).onclick = async () => {
+      if (!confirm("Supprimer définitivement cet avis ?")) return;
+      try { await api(`admin/avis/${id}`, { methode: "DELETE" }); toast("Avis supprimé."); chargerAvis(bloc); } catch (e) { toast("⚠ " + e.message); }
+    };
+  }
 }
 function installerAvis() {
   if ($("#avis")) return;
