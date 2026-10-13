@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v76"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v77"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -489,7 +489,7 @@ function cardHTML(c, opts = {}) {
     ${opts.compte && n > 1 ? `<span class="badge-count">×${n}</span>` : ""}${opts.compte && S.nouveaux[c.id] ? `<span class="badge-new">NEW</span>` : ""}
     <div class="in">
     <div class="art" style="--g:${degrade(col)}">${art}</div><span class="rc-voile" aria-hidden="true"></span>
-    <div class="head rc-tete"><span class="rc-badge">${icCarte(ICONE_TYPE[c.type] || "point")}${TYPES[c.type]}${c.saisonnier ? ` · ${c.saisonnier === "halloween" ? "Halloween" : "Noël"}` : ""}</span>
+    <div class="head rc-tete"><span class="rc-badge">${icCarte(ICONE_TYPE[c.type] || "point")}${TYPES[c.type]}${c.saisonnier && c.saisonnier !== "hors-booster" ? ` · ${c.saisonnier === "halloween" ? "Halloween" : typeof EVENEMENTS_SAISONNIERS === "object" && EVENEMENTS_SAISONNIERS[c.saisonnier]?.nom || "Événement"}` : ""}</span>
       <span class="rc-statut" title="${RARETES[r].nom}${doree ? " · Version Dorée" : shiny ? " · Shiny" : holo ? " · Holo" : ""}"><i class="rc-point"></i>${doree ? "Dorée" : shiny ? "Shiny" : holo ? "Holo" : RARETES[r].nom}</span></div>
     <div class="rc-identite"><div class="name">${esc(c.nom)}</div><div class="sub">${esc(String(sousTitre(c)).replace(/[\p{Extended_Pictographic}\uFE0F]+\s*/gu, ""))}</div></div>
     <div class="rc-pied"><div class="cstats" title="Attaque · Défense · Points de vie"><span class="rc-label">N° ${String(c.num).padStart(3, "0")} · Coût ${coutDe(c)}${st.niveau > 1 ? ` · Niv. ${st.niveau}` : ""}</span>
@@ -1535,7 +1535,7 @@ const filtres = { type: "tout", cont: "tout", possedees: false, shiny: false, tr
 const sansAccents = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 function vueAlbum(v) {
   const f = filtres;
-  const chips = [["tout", "Tout"], ["pays", "Pays"], ["ville", "Villes"], ["monument", "Monuments"], ["nature", "Nature"], ["animal", "Animaux"], ["plat", "Gastronomie"], ["culture", "Culture"], ["merveille", "Merveilles"], ["secrete", "Secrètes"]].filter(([k]) => k === "tout" || of("monde", k).length);
+  const chips = [["tout", "Tout"], ["pays", "Pays"], ["ville", "Villes"], ["monument", "Monuments"], ["nature", "Nature"], ["animal", "Animaux"], ["plat", "Gastronomie"], ["culture", "Culture"], ["merveille", "Merveilles"], ["secrete", "Secrètes"], ...(typeof CATEGORIES_PERSO === "object" ? Object.entries(CATEGORIES_PERSO).filter(([, c]) => c.perso).map(([k, c]) => [k, c.nom]) : [])].map(([k, n]) => [k, typeof CATEGORIES_PERSO === "object" && CATEGORIES_PERSO[k] && !CATEGORIES_PERSO[k].perso ? CATEGORIES_PERSO[k].nom : n]).filter(([k]) => k === "tout" || of("monde", k).length);
   v.innerHTML = `<div class="toolbar">
       ${chips.map(([k, l]) => `<button class="chip ${f.type === k ? "on" : ""}" data-k="${k}">${l}</button>`).join("")}
       <input class="search" id="q" type="search" placeholder="Rechercher…" value="${esc(f.q)}">

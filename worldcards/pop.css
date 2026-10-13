@@ -405,3 +405,20 @@ html:not(.metal-ok) .card:not(.locked) .in { background: linear-gradient(160deg,
 .card:not(.locked) .art > img.flag { filter: brightness(.92) !important; inset: 0 !important; width: 100% !important; height: 100% !important; object-fit: cover; }
 .card.a-metal .metal-plaque { opacity: .7 !important; }
 .rc-voile { background: linear-gradient(180deg, rgba(10, 10, 14, .55) 0%, rgba(10, 10, 14, 0) 20%, rgba(10, 10, 14, 0) 48%, rgba(10, 10, 14, .7) 76%, rgba(10, 10, 14, .9) 100%) !important; }
+
+/* ---------- Admin : catégories et cartes créées ---------- */
+.cat-liste { display: grid; gap: 10px; }
+.cat-ligne { display: flex; align-items: center; gap: 12px; padding: 10px 14px !important; margin: 0; flex-wrap: wrap; }
+.cat-pastille { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--panel2); border: 2px solid var(--ligne); color: var(--text); flex: none; }
+.cat-pastille[style] { color: #fff; }
+.cat-pastille .ico-cat, .cat-ic .ico-cat { width: 24px; height: 24px; }
+.cat-txt { flex: 1; min-width: 160px; display: flex; flex-direction: column; }
+.cat-icones { display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 6px; max-height: 200px; overflow: auto; padding: 4px; border: 2px solid var(--ligne); border-radius: 12px; }
+.cat-ic { all: unset; cursor: pointer; display: grid; place-items: center; height: 40px; border-radius: 10px; color: var(--text); }
+.cat-ic:hover { background: var(--panel2); }
+.cat-ic.on { background: var(--cobalt); color: #fff; }
+.ca-form-grille { display: grid; grid-template-columns: 1fr 200px; gap: 16px; align-items: start; }
+.ca-form-image { display: grid; gap: 8px; justify-items: start; }
+.ca-image-apercu { width: 100%; aspect-ratio: 170 / 250; border-radius: 14px; border: 2px dashed var(--ligne); display: grid; place-items: center; overflow: hidden; background: var(--panel2); text-align: center; padding: 6px; box-sizing: border-box; }
+.ca-image-apercu img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
+@media (max-width: 640px) { .ca-form-grille { grid-template-columns: 1fr; } .ca-image-apercu { max-width: 200px; } }

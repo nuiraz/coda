@@ -110,6 +110,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS devine_defis ( code TEXT PRIMARY KEY, createur INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, cat TEXT NOT NULL, ids TEXT NOT NULL, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS devine_defis_scores ( code TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, score INTEGER NOT NULL, bonnes INTEGER NOT NULL, maj INTEGER NOT NULL, PRIMARY KEY (code, user_id) )`,
   `CREATE TABLE IF NOT EXISTS economie_jour ( jour TEXT PRIMARY KEY, joueurs INTEGER NOT NULL, actifs INTEGER NOT NULL, total INTEGER NOT NULL, moyenne INTEGER NOT NULL, distribues INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS categories_admin ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, icone TEXT NOT NULL DEFAULT 'etincelle', couleur TEXT, base TEXT NOT NULL DEFAULT 'culture', ordre INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS avis ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE, note INTEGER NOT NULL, texte TEXT NOT NULL DEFAULT '', reponse TEXT, reponse_le INTEGER, cree_le INTEGER NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS devinettes_admin ( id TEXT PRIMARY KEY, cat TEXT NOT NULL, donnees TEXT, image TEXT, wiki TEXT, sans_image INTEGER NOT NULL DEFAULT 0, masque INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS cartes_admin ( id TEXT PRIMARY KEY, nom TEXT NOT NULL, type TEXT NOT NULL, pays TEXT NOT NULL, emoji TEXT, rarete TEXT NOT NULL, anecdote TEXT, wiki TEXT, evenement TEXT, sortie INTEGER NOT NULL, actif INTEGER NOT NULL DEFAULT 1, annoncee INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
@@ -3224,12 +3225,26 @@ route("PUT", "admin/apps", async ({ request, env }) => {
    (normaux ou d'un événement) à leur sortie, et sont annoncées sur Discord.
    ===================================================================== */
 const TYPES_CARTE_ADMIN = ["monument", "nature", "animal", "plat", "culture", "ville"];
+const TYPES_DE_BASE = ["pays", "ville", "monument", "nature", "animal", "plat", "culture", "merveille", "secrete"];
+const CATEGORIE_RE = /^[a-z][a-z0-9-]{1,23}$/;
+let categoriesPerso = {}; // cle → { nom, icone, couleur, base }
+// Une catégorie créée par l'admin combat comme le type « de base » choisi (stats, attaque spéciale, talents, avantage)
+function enregistrerCategoriesCombat(cats) {
+  for (const [cle, c] of Object.entries(cats)) {
+    if (TYPES_DE_BASE.includes(cle) || !COMBAT.PROFILS[c.base]) continue;
+    COMBAT.PROFILS[cle] = COMBAT.PROFILS[c.base]; COMBAT.SPECIAUX[cle] = COMBAT.SPECIAUX[c.base];
+    COMBAT.TALENTS_TYPE[cle] = COMBAT.TALENTS_TYPE[c.base]; if (COMBAT.AVANTAGE[c.base]) COMBAT.AVANTAGE[cle] = COMBAT.AVANTAGE[c.base];
+  }
+}
 const RARETES_ADMIN = ["commun", "peu-commun", "rare", "epique", "ultra-rare", "legendaire"];
 let cartesAdminCache = { t: 0 };
 async function chargerCartesAdmin(env) {
   if (maintenant() - cartesAdminCache.t < 60000) return;
   cartesAdminCache.t = maintenant();
   try {
+    const { results: cats } = await env.DB.prepare("SELECT * FROM categories_admin").all();
+    categoriesPerso = Object.fromEntries(cats.map((c) => [c.cle, { nom: c.nom, icone: c.icone, couleur: c.couleur || "", base: c.base, ordre: c.ordre }]));
+    enregistrerCategoriesCombat(categoriesPerso);
     const { results } = await env.DB.prepare("SELECT id, nom, type, rarete FROM cartes_admin WHERE sortie <= ?").bind(maintenant()).all();
     for (const c of results) CATALOGUE[c.id] = { type: c.type, rarete: c.rarete, nom: c.nom };
   } catch {}
@@ -3248,18 +3263,14 @@ route("PUT", "admin/cartes/([a-z0-9-]{2,40})", async ({ request, env, user, p })
   const b = await corps(request), id = "adm:" + p[1];
   const nom = String(b.nom || "").trim().slice(0, 60);
   if (nom.length < 2) return erreur("Indiquez le nom de la carte.");
-  if (!TYPES_CARTE_ADMIN.includes(b.type)) return erreur("Type de carte invalide.");
+  cartesAdminCache.t = 0; await chargerCartesAdmin(env);
+  if (!TYPES_CARTE_ADMIN.includes(b.type) && !(categoriesPerso[b.type] && !TYPES_DE_BASE.includes(b.type))) return erreur("Catégorie de carte invalide.");
   if (!RARETES_ADMIN.includes(b.rarete)) return erreur("Rareté invalide.");
   const pays = String(b.pays || "").toUpperCase();
   if (!NOMS_PAYS[pays]) return erreur("Choisissez le pays de la carte.");
   const sortie = Number(b.sortie) || maintenant();
   const evenement = b.evenement && EVENEMENTS.includes(b.evenement) ? b.evenement : null;
   const existe = await env.DB.prepare("SELECT sortie FROM cartes_admin WHERE id = ?").bind(id).first();
-  // Une carte déjà sortie garde son type et sa rareté (les joueurs l'ont peut-être déjà)
-  if (existe && existe.sortie <= maintenant()) {
-    const c = await env.DB.prepare("SELECT type, rarete FROM cartes_admin WHERE id = ?").bind(id).first();
-    if (c.type !== b.type || c.rarete !== b.rarete) return erreur("Cette carte est déjà sortie : son type et sa rareté ne peuvent plus changer.");
-  }
   await env.DB.prepare(`INSERT INTO cartes_admin (id, nom, type, pays, emoji, rarete, anecdote, wiki, evenement, sortie, actif, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET nom = excluded.nom, type = excluded.type, pays = excluded.pays, emoji = excluded.emoji, rarete = excluded.rarete, anecdote = excluded.anecdote,
       wiki = excluded.wiki, evenement = excluded.evenement, sortie = excluded.sortie, actif = excluded.actif`)
@@ -3268,9 +3279,44 @@ route("PUT", "admin/cartes/([a-z0-9-]{2,40})", async ({ request, env, user, p })
   await journaliser(env, user.id, existe ? "carte modifiée" : "carte créée", `${nom} (${id}) · sortie ${new Date(sortie).toISOString()}`, "admin");
   return json({ ok: true, id });
 }, { admin: true });
-route("DELETE", "admin/cartes/([a-z0-9-]{2,40})", async ({ env, p }) => {
-  const r = await env.DB.prepare("DELETE FROM cartes_admin WHERE id = ? AND sortie > ?").bind("adm:" + p[1], maintenant()).run();
-  if (!r.meta.changes) return erreur("Une carte déjà sortie ne peut pas être supprimée (des joueurs l'ont peut-être) : retirez-la plutôt des boosters.");
+route("DELETE", "admin/cartes/([a-z0-9-]{2,40})", async ({ env, user, p }) => {
+  const id = "adm:" + p[1];
+  const r = await env.DB.prepare("DELETE FROM cartes_admin WHERE id = ?").bind(id).run();
+  if (!r.meta.changes) return erreur("Carte introuvable.", 404);
+  await env.DB.prepare("DELETE FROM photos_perso WHERE carte = ?").bind(id).run();
+  await env.IMAGES?.delete("photos/" + id.replace(":", "~")).catch(() => {});
+  delete CATALOGUE[id]; cartesAdminCache.t = 0;
+  await journaliser(env, user.id, "carte supprimée", id, "admin");
+  return json({ ok: true });
+}, { admin: true });
+
+/* ---------- Catégories : renommer celles du jeu, en créer de nouvelles ---------- */
+route("GET", "categories", async ({ env }) => {
+  const { results } = await env.DB.prepare("SELECT cle, nom, icone, couleur, base, ordre FROM categories_admin ORDER BY ordre, cree_le").all();
+  return json({ categories: results }, 200, { "cache-control": "public, max-age=60" });
+});
+route("PUT", "admin/categories/([a-z][a-z0-9-]{1,23})", async ({ request, env, user, p }) => {
+  const b = await corps(request), cle = p[1];
+  const nom = String(b.nom || "").trim().slice(0, 30);
+  if (nom.length < 2) return erreur("Donnez un nom à la catégorie.");
+  const base = TYPES_DE_BASE.includes(cle) ? cle : String(b.base || "culture");
+  if (!COMBAT.PROFILS[base]) return erreur("Choisissez comment cette catégorie combat.");
+  const couleur = /^#[0-9a-f]{6}$/i.test(String(b.couleur || "")) ? b.couleur : null;
+  const icone = String(b.icone || "etincelle").replace(/[^a-z_]/g, "").slice(0, 24) || "etincelle";
+  await env.DB.prepare(`INSERT INTO categories_admin (cle, nom, icone, couleur, base, ordre, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(cle) DO UPDATE SET nom = excluded.nom, icone = excluded.icone, couleur = excluded.couleur, base = excluded.base, ordre = excluded.ordre`)
+    .bind(cle, nom, icone, couleur, base, Math.round(Number(b.ordre) || 0), maintenant()).run();
+  cartesAdminCache.t = 0;
+  await journaliser(env, user.id, "catégorie enregistrée", `${nom} (${cle})`, "admin");
+  return json({ ok: true });
+}, { admin: true });
+route("DELETE", "admin/categories/([a-z][a-z0-9-]{1,23})", async ({ env, p }) => {
+  if (!TYPES_DE_BASE.includes(p[1])) {
+    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM cartes_admin WHERE type = ?").bind(p[1]).first();
+    if (n.n) return erreur(`${n.n} carte${n.n > 1 ? "s utilisent" : " utilise"} encore cette catégorie : changez-les de catégorie ou supprimez-les d'abord.`);
+  }
+  await env.DB.prepare("DELETE FROM categories_admin WHERE cle = ?").bind(p[1]).run(); // pour une catégorie du jeu : retour au nom d'origine
+  cartesAdminCache.t = 0;
   return json({ ok: true });
 }, { admin: true });
 async function annoncerCartesAdmin(env) {
