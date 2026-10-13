@@ -334,9 +334,74 @@ input:focus, select:focus, textarea:focus { outline: 3px solid var(--jaune); out
 .card .metal-plaque { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; border-radius: inherit; }
 .card.a-metal .in::before { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14), inset 0 1px 0 rgba(255, 255, 255, .22) !important; }
 .card.a-metal .head, .card.a-metal .sub { text-shadow: 0 1px 2px rgba(0, 0, 0, .6); }
-.card.a-metal .art { background: rgba(255, 255, 255, .04) !important; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .16), inset 0 1px 0 rgba(255, 255, 255, .22) !important; }
-.card.a-metal .art svg.sil { opacity: 1; } .card.a-metal .art svg.sil path { fill: rgba(255, 255, 255, .16); }
 .card.a-metal { background: linear-gradient(150deg, #5d5c66, #2b2a31 40%, #77767f 62%, #222128) !important; }
 .card.a-metal[data-r="epique"] { background: linear-gradient(150deg, #8d6bd8, #2b2240 45%, #a58bea 65%, #241c36) !important; }
 .card.a-metal[data-r="ultra-rare"], .card.a-metal[data-r="legendaire"] { background: linear-gradient(150deg, #f1cf6b, #4a3812 45%, #ffe08a 65%, #3a2b0c) !important; }
 .card.a-metal[data-r="rare"] { background: linear-gradient(150deg, #6fa8ff, #1c2b4d 45%, #8fbcff 65%, #17223d) !important; }
+
+/* =====================================================================
+   Cartes façon ReflectiveCard : l'image derrière toute la carte en métal,
+   badge et statut en haut, grand nom en bas, les chiffres en pied de carte.
+   ===================================================================== */
+.card:not(.locked) { padding: 1.4% !important; border-radius: 7.5cqw !important; }
+.card:not(.locked) .in { border-radius: 6.6cqw !important; display: flex; flex-direction: column; padding: 6cqw 6.5cqw 6cqw; box-sizing: border-box; color: #f4f4f5; }
+.card:not(.locked) .in::before { z-index: 0 !important; }
+/* L'image (photo ou drapeau) occupe toute la carte, sous le métal */
+.card:not(.locked) .art { position: absolute !important; inset: 0 !important; margin: 0 !important; border-radius: inherit !important; z-index: -2 !important; display: block !important;
+  background: var(--g, #333) !important; box-shadow: none !important; overflow: hidden; }
+.card:not(.locked) .art > img.photo, .card:not(.locked) .art > img.flag { position: absolute; inset: -8%; width: 116%; height: 116%; max-width: none; object-fit: cover; border-radius: 0; box-shadow: none;
+  filter: grayscale(.55) blur(1.6cqw) brightness(.78) contrast(1.05); transform: none; }
+.card:not(.locked) .art > img.flag { filter: grayscale(.35) blur(1.4cqw) brightness(.72); }
+.card:not(.locked) .art > img.photo ~ .rc-ic-fond, .card:not(.locked) .art > img.photo ~ img.flag { display: none; }
+.card:not(.locked) .art .rc-ic-fond { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255, 255, 255, .14); }
+.card:not(.locked) .art .rc-ic-fond .rc-ic { width: 62%; height: 62%; }
+.card:not(.locked) .art svg.sil, .card:not(.locked) .art .emoji, .card:not(.locked) .art .niv, .card:not(.locked) .art .talent { display: none !important; }
+/* Le métal se pose par-dessus en reflet : sombre là où il n'y a pas de lumière, il laisse voir l'image */
+.card.a-metal .metal-plaque { mix-blend-mode: screen; opacity: .95; }
+.card.a-metal .in { background: #121116 !important; }
+.rc-voile { position: absolute; inset: 0; z-index: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(180deg, rgba(10, 10, 14, .38) 0%, rgba(10, 10, 14, 0) 22%, rgba(10, 10, 14, 0) 45%, rgba(10, 10, 14, .62) 78%, rgba(10, 10, 14, .82) 100%); }
+/* En-tête : badge à gauche, statut à droite */
+.card:not(.locked) .head.rc-tete { position: relative; z-index: 3; display: flex !important; align-items: center; justify-content: space-between; gap: 2cqw; padding: 0 !important; min-height: 0 !important;
+  font-size: 6.4cqw; line-height: 1.2; color: #f4f4f5 !important; text-shadow: 0 1px 3px rgba(0, 0, 0, .5); font-family: var(--texte); font-weight: 700; }
+.rc-badge { display: inline-flex; align-items: center; gap: 1.6cqw; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rc-badge .rc-ic { width: 7.4cqw; height: 7.4cqw; flex: none; }
+.rc-statut { display: inline-flex; align-items: center; gap: 2cqw; color: rgba(244, 244, 245, .72); white-space: nowrap; font-weight: 600; }
+.rc-point { width: 2.6cqw; height: 2.6cqw; border-radius: 50%; background: #a1a1aa; box-shadow: 0 0 2cqw currentColor; flex: none; }
+.card[data-r="peu-commun"] .rc-point { background: #22c55e; } .card[data-r="rare"] .rc-point { background: #3b82f6; }
+.card[data-r="epique"] .rc-point { background: #a855f7; } .card[data-r="ultra-rare"] .rc-point { background: #f97316; }
+.card[data-r="legendaire"] .rc-point { background: #facc15; } .card[data-r="secrete"] .rc-point { background: #ec4899; }
+.card.holo .rc-statut, .card.shiny .rc-statut, .card.doree .rc-statut { color: #fff; }
+/* Nom et sous-titre, en bas */
+.rc-identite { position: relative; z-index: 3; margin-top: auto; }
+.card:not(.locked) .name { all: unset; display: block; font-family: var(--texte); font-weight: 600; font-size: 10.5cqw; line-height: 1.12; letter-spacing: -.02em; color: #f4f4f5;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, .55); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.card:not(.locked) .sub { all: unset; display: block; margin-top: 1.2cqw; font-size: 6.2cqw; color: rgba(244, 244, 245, .66); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Pied : les chiffres, et la tuile à droite */
+.rc-pied { position: relative; z-index: 3; display: flex; align-items: flex-end; justify-content: space-between; gap: 3cqw; margin-top: 5cqw; }
+.card:not(.locked) .cstats { all: unset; display: flex; flex-direction: column; gap: 1.2cqw; min-width: 0; }
+.rc-label { font-size: 5.4cqw; color: rgba(244, 244, 245, .62); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rc-valeur { display: flex; gap: 3.2cqw; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 6.6cqw; font-variant-numeric: tabular-nums; color: #f4f4f5; letter-spacing: .02em; white-space: nowrap; }
+.rc-valeur > span { all: unset; display: inline-flex; align-items: center; gap: .8cqw; }
+.rc-valeur .rc-ic { width: 5.6cqw; height: 5.6cqw; opacity: .8; }
+.rc-valeur .s-atk .rc-ic { color: #fca5a5; } .rc-valeur .s-def .rc-ic { color: #93c5fd; } .rc-valeur .s-pv .rc-ic { color: #86efac; }
+.rc-tuile { flex: none; display: grid; place-items: center; width: 14cqw; height: 14cqw; border-radius: 4cqw; color: rgba(244, 244, 245, .7);
+  background: linear-gradient(180deg, #3a3644 0%, #27242f 100%); box-shadow: 0 1.2cqw 3cqw -1cqw rgba(0, 0, 0, .7), inset 0 0 0 1px rgba(255, 255, 255, .07), inset 0 1px 0 rgba(255, 255, 255, .12); }
+.rc-tuile .rc-ic { width: 7.4cqw; height: 7.4cqw; }
+.card:not(.locked) .cout-carte, .card:not(.locked) .type-carte, .card:not(.locked) .gems { display: none !important; }
+.card .badge-count, .card .badge-new { z-index: 9; }
+/* Sans WebGL : un métal graphite en dégradé */
+html:not(.metal-ok) .card:not(.locked) .in { background: linear-gradient(160deg, #3a3940 0%, #1d1c22 45%, #2c2b31 70%, #18171c 100%) !important; }
+.card .dedicace { z-index: 4; display: inline-flex; align-items: center; gap: 1cqw; }
+.card .dedicace .rc-ic { width: 6cqw; height: 6cqw; }
+.card:not(.locked) .cstats span, .card:not(.locked) .cstats .s-atk, .card:not(.locked) .cstats .s-def, .card:not(.locked) .cstats .s-pv {
+  background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important; border-radius: 0 !important; min-width: 0 !important; text-shadow: 0 1px 3px rgba(0, 0, 0, .55); }
+.card:not(.locked) .cstats .rc-valeur { display: flex !important; }
+.card:not(.locked) .cstats .s-atk, .card:not(.locked) .cstats .s-def, .card:not(.locked) .cstats .s-pv { display: inline-flex !important; align-items: center; gap: .8cqw; color: #f4f4f5 !important; font-size: inherit !important; font-weight: 500 !important; }
+.card:not(.locked) .cstats { align-items: flex-start !important; justify-content: flex-end !important; text-align: left !important; width: auto !important; margin: 0 !important; }
+.card:not(.locked) .rc-label { display: block !important; text-align: left !important; }
+/* Images nettes : on doit bien reconnaître le drapeau ou la photo */
+.card:not(.locked) .art > img.photo { filter: saturate(1.05) brightness(.9) !important; inset: 0 !important; width: 100% !important; height: 100% !important; }
+.card:not(.locked) .art > img.flag { filter: brightness(.92) !important; inset: 0 !important; width: 100% !important; height: 100% !important; object-fit: cover; }
+.card.a-metal .metal-plaque { opacity: .7 !important; }
+.rc-voile { background: linear-gradient(180deg, rgba(10, 10, 14, .55) 0%, rgba(10, 10, 14, 0) 20%, rgba(10, 10, 14, 0) 48%, rgba(10, 10, 14, .7) 76%, rgba(10, 10, 14, .9) 100%) !important; }

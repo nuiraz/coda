@@ -1,7 +1,7 @@
 "use strict";
 // Service worker de Play2F1 : le jeu fonctionne hors ligne et se charge instantanément.
 // Changez VERSION à chaque mise en ligne pour forcer la mise à jour du cache.
-const VERSION = "wc-2026-10-13-75";
+const VERSION = "wc-2026-10-13-76";
 const COEUR = ["./", "index.html", "site.min.css", "jeu.min.js", "fonts/bricolage-v1.woff2", "fonts/nunito-v1.woff2", "manifest.webmanifest", "apple-touch-icon.png", "icons/apple-touch-icon.png", "icons/apple-180.png", "icons/favicon-32.png", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png", "icons/icon.svg", "icons/logo-2f1.png", "icons/logo-site.png"];
 
 self.addEventListener("install", (e) => {

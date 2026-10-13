@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v75"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v76"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -460,6 +460,9 @@ async function creditPhoto(c, el) {
   } catch {}
 }
 
+// Icônes au trait des cartes (pas d'emoji)
+const ICONE_TYPE = { pays: "drapeau", ville: "ville", monument: "monument", nature: "montagne", animal: "patte", plat: "plat", culture: "masque", merveille: "etincelle", secrete: "cle" };
+const icCarte = (k) => `<svg class="rc-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${(typeof TRAITS === "object" && TRAITS[k]) || '<circle cx="12" cy="12" r="3"/>'}</svg>`;
 function cardHTML(c, opts = {}) {
   const locked = opts.locked ?? !has(c.id);
   const r = c.rarete;
@@ -473,9 +476,8 @@ function cardHTML(c, opts = {}) {
       <div class="name">${secret ? "???" : esc(c.nom)}</div><div class="sub">${secret ? "Terminez une collection" : "Non découverte"}</div></div></div>`;
   }
   let art = "";
-  if (c.type === "pays") art = silhouette(c.code) + `<img class="flag" src="flags/${c.code.toLowerCase()}.svg" alt="Drapeau : ${esc(c.nom)}" loading="lazy">`;
-  else if (c.pays) art = silhouette(c.pays) + `<span class="emoji">${c.emoji}</span>`;
-  else art = `<span class="emoji">${esc(c.emoji || "🃏")}</span>`;
+  if (c.type === "pays") art = `<img class="flag" src="flags/${c.code.toLowerCase()}.svg" alt="Drapeau : ${esc(c.nom)}" loading="lazy">`;
+  else art = `<span class="rc-ic-fond">${icCarte(ICONE_TYPE[c.type] || "point")}</span>`;
   art = photoHTML(c, false) + art;
   const n = S.owned[c.id] || 0;
   const doree = opts.doree ?? !!S.doree?.[c.id];
@@ -485,11 +487,14 @@ function cardHTML(c, opts = {}) {
   const tal = COMBAT.TALENTS[st.talent || COMBAT.talentDe(c.id, c.type)];
   return `<div class="card${doree ? " doree" : ""}${shiny ? " shiny" : ""}${holo ? " holo" : ""}${c.animee ? " animee" : ""}" data-id="${esc(c.id)}" data-r="${r}" data-t="${c.type}" style="--g:${degrade(col)};--c:${col}" ${c.saisonnier ? `data-saisonnier="${c.saisonnier}"` : ""} tabindex="0" role="button" aria-label="${esc(c.nom)}">
     ${opts.compte && n > 1 ? `<span class="badge-count">×${n}</span>` : ""}${opts.compte && S.nouveaux[c.id] ? `<span class="badge-new">NEW</span>` : ""}
-    <div class="in"><div class="head"><span>${TYPES[c.type]}${c.continent && c.type === "pays" ? " · " + CONTINENTS[c.continent].nom : ""}${c.saisonnier ? ` · ${c.saisonnier === "halloween" ? "🎃" : "🎄"}` : ""}</span><span class="gems" title="${RARETES[r].nom}${doree ? " · Version Dorée" : shiny ? " · Shiny" : holo ? " · Holo" : ""}">${doree ? "👑 " : shiny ? "✨ " : holo ? "🌈 " : ""}${RARETES[r].gems}</span></div>
-    <div class="art" style="--g:${degrade(col)}">${art}${st.niveau > 1 ? `<span class="niv">Niv. ${st.niveau}</span>` : ""}${tal ? `<span class="talent" title="Talent : ${tal.nom} — ${esc(tal.desc)}">${tal.emoji}</span>` : ""}</div>
-    <div class="name">${esc(c.nom)}</div><div class="sub">${esc(sousTitre(c))}</div>
-    <span class="cout-carte" title="Coût en deck">${coutDe(c)}</span><span class="type-carte" title="${TYPES[c.type]}">${EMOJI_TYPE[c.type] || ""}</span>
-    <div class="cstats" title="Attaque · Défense · Points de vie"><span class="s-atk">⚔️${st.atk}</span><span class="s-def">🛡️${st.def}</span><span class="s-pv">❤️${st.pv}</span></div></div></div>`;
+    <div class="in">
+    <div class="art" style="--g:${degrade(col)}">${art}</div><span class="rc-voile" aria-hidden="true"></span>
+    <div class="head rc-tete"><span class="rc-badge">${icCarte(ICONE_TYPE[c.type] || "point")}${TYPES[c.type]}${c.saisonnier ? ` · ${c.saisonnier === "halloween" ? "Halloween" : "Noël"}` : ""}</span>
+      <span class="rc-statut" title="${RARETES[r].nom}${doree ? " · Version Dorée" : shiny ? " · Shiny" : holo ? " · Holo" : ""}"><i class="rc-point"></i>${doree ? "Dorée" : shiny ? "Shiny" : holo ? "Holo" : RARETES[r].nom}</span></div>
+    <div class="rc-identite"><div class="name">${esc(c.nom)}</div><div class="sub">${esc(String(sousTitre(c)).replace(/[\p{Extended_Pictographic}\uFE0F]+\s*/gu, ""))}</div></div>
+    <div class="rc-pied"><div class="cstats" title="Attaque · Défense · Points de vie"><span class="rc-label">N° ${String(c.num).padStart(3, "0")} · Coût ${coutDe(c)}${st.niveau > 1 ? ` · Niv. ${st.niveau}` : ""}</span>
+      <span class="rc-valeur"><span class="s-atk">${icCarte("epees")}${st.atk}</span><span class="s-def">${icCarte("bouclier")}${st.def}</span><span class="s-pv">${icCarte("coeur")}${st.pv}</span></span></div>
+      <span class="rc-tuile"${tal ? ` title="Talent : ${tal.nom} — ${esc(tal.desc)}"` : ""}>${icCarte(tal ? "eclair" : ICONE_TYPE[c.type] || "point")}</span></div></div></div>`;
 }
 
 /* =====================================================================

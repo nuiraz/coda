@@ -1117,7 +1117,7 @@ cardHTML = function (c, opts = {}) {
   const h = _cardHTMLV4.apply(this, arguments);
   const sig = c && S.dedicaces?.[c.id];
   if (!sig || !(opts.locked === false || has(c.id))) return h;
-  return h.replace('<div class="in">', `<div class="in"><span class="dedicace" title="Carte dédicacée">✍️ ${esc(sig)}</span>`);
+  return h.replace('<div class="in">', `<div class="in"><span class="dedicace" title="Carte dédicacée">${typeof icCarte === "function" ? icCarte("crayon") : ""} ${esc(sig)}</span>`);
 };
 
 /* ---------- Code créateur (Mon compte) ---------- */
