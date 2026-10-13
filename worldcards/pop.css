@@ -422,3 +422,62 @@ html:not(.metal-ok) .card:not(.locked) .in { background: linear-gradient(160deg,
 .ca-image-apercu { width: 100%; aspect-ratio: 170 / 250; border-radius: 14px; border: 2px dashed var(--ligne); display: grid; place-items: center; overflow: hidden; background: var(--panel2); text-align: center; padding: 6px; box-sizing: border-box; }
 .ca-image-apercu img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
 @media (max-width: 640px) { .ca-form-grille { grid-template-columns: 1fr; } .ca-image-apercu { max-width: 200px; } }
+
+/* =====================================================================
+   Classeur façon Pokémon
+   ===================================================================== */
+.cl-barre { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.cl-classeur { position: relative; margin: 0 auto; max-width: 1180px; padding: 18px; border-radius: 26px; outline: none;
+  background: radial-gradient(120% 90% at 30% 10%, #2f4fbf 0%, #1b2f7a 45%, #121f52 100%); border: 2px solid var(--ligne); box-shadow: var(--ombre-g), inset 0 0 0 6px rgba(255, 255, 255, .06), inset 0 0 0 8px rgba(0, 0, 0, .25); }
+.cl-classeur::before { content: ""; position: absolute; inset: 9px; border-radius: 20px; border: 2px dashed rgba(255, 255, 255, .22); pointer-events: none; } /* surpiqûre */
+.cl-feuilles { position: relative; display: flex; gap: 0; align-items: stretch; perspective: 1800px; }
+.cl-page { flex: 1; position: relative; min-width: 0; padding: 16px 16px 30px; border-radius: 14px; background: linear-gradient(180deg, #eef1f6, #dfe4ec); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12), 0 6px 18px rgba(0, 0, 0, .35); transform-origin: left center; }
+:root[data-theme="dark"] .cl-page { background: linear-gradient(180deg, #2a2f45, #20253a); }
+.cl-classeur.double .cl-page:first-child { border-radius: 14px 4px 4px 14px; transform-origin: right center; }
+.cl-classeur.double .cl-page:last-of-type { border-radius: 4px 14px 14px 4px; }
+.cl-classeur.simple .cl-page { margin-left: 26px; }
+.cl-pochettes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.cl-pochette { position: relative; aspect-ratio: 170 / 250; border-radius: 10px; padding: 5%; box-sizing: border-box;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .55), rgba(255, 255, 255, .25)); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .14), inset 0 2px 0 rgba(255, 255, 255, .7); }
+:root[data-theme="dark"] .cl-pochette { background: linear-gradient(180deg, rgba(255, 255, 255, .1), rgba(255, 255, 255, .04)); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12); }
+.cl-pochette .card { width: 100%; height: 100%; }
+/* Reflet du plastique par-dessus la carte */
+.cl-pochette::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 10;
+  background: linear-gradient(115deg, rgba(255, 255, 255, .28) 0%, rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0) 62%, rgba(255, 255, 255, .14) 80%, rgba(255, 255, 255, 0) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .35); }
+.cl-pochette::before { content: ""; position: absolute; left: 6%; right: 6%; top: 3.5%; height: 1.5px; background: rgba(0, 0, 0, .18); z-index: 11; border-radius: 2px; } /* ouverture de la pochette */
+.cl-pochette.vide::after { background: linear-gradient(115deg, rgba(255, 255, 255, .35), rgba(255, 255, 255, .05) 40%); }
+.cl-pochette.manque { display: grid; place-items: center; }
+.cl-manque { display: grid; justify-items: center; gap: 6px; color: rgba(0, 0, 0, .28); text-align: center; }
+:root[data-theme="dark"] .cl-manque { color: rgba(255, 255, 255, .25); }
+.cl-manque .rc-ic { width: 36%; height: auto; aspect-ratio: 1; }
+.cl-manque small { font-weight: 800; font-size: 12px; }
+.cl-nb { position: absolute; right: -4px; top: -6px; z-index: 12; background: var(--cobalt); color: #fff; font-weight: 900; font-size: 12px; padding: 2px 7px; border-radius: 99px; border: 2px solid var(--ligne); }
+.cl-numero { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-weight: 900; font-size: 12px; color: rgba(0, 0, 0, .35); }
+:root[data-theme="dark"] .cl-numero { color: rgba(255, 255, 255, .35); }
+/* Anneaux métalliques */
+.cl-anneaux { flex: none; width: 34px; display: flex; flex-direction: column; justify-content: space-around; align-items: center; z-index: 3; }
+.cl-anneaux i { width: 30px; height: 14px; border-radius: 99px; background: linear-gradient(180deg, #f4f6fa, #9aa3b2 45%, #e9edf3 60%, #6d7686); box-shadow: 0 2px 4px rgba(0, 0, 0, .45), inset 0 1px 0 #fff; }
+.cl-anneaux-gauche { position: absolute; left: -6px; top: 0; bottom: 0; }
+.cl-vide-tout { display: grid; place-items: center; min-height: 260px; text-align: center; color: #151b33; }
+/* Page qui se tourne */
+.cl-feuilles.tourne-av .cl-page:last-of-type, .cl-classeur.simple .cl-feuilles.tourne-av .cl-page { animation: clTourneAv .23s ease-in forwards; transform-origin: left center; }
+.cl-feuilles.tourne-ar .cl-page:first-child { animation: clTourneAr .23s ease-in forwards; transform-origin: right center; }
+.cl-feuilles.arrive-av .cl-page:first-child, .cl-classeur.simple .cl-feuilles.arrive-av .cl-page { animation: clArrive .28s ease-out; }
+.cl-feuilles.arrive-ar .cl-page:last-of-type { animation: clArrive .28s ease-out; }
+@keyframes clTourneAv { to { transform: rotateY(-75deg); opacity: .3; } }
+@keyframes clTourneAr { to { transform: rotateY(75deg); opacity: .3; } }
+@keyframes clArrive { from { opacity: .4; transform: scale(.98); } to { opacity: 1; transform: none; } }
+.cl-nav { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 18px 0 8px; flex-wrap: wrap; }
+.cl-pagination { display: flex; flex-direction: column; align-items: center; min-width: 150px; }
+.cl-curseur { display: block; width: min(420px, 100%); margin: 6px auto 10px; accent-color: var(--cobalt); }
+.cl-lien { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer; font: inherit; color: inherit; margin-bottom: 16px; padding: 12px 16px !important; }
+.cl-lien > span:nth-child(2) { flex: 1; display: flex; flex-direction: column; }
+.cl-lien-ic { width: 44px; height: 44px; border-radius: 12px; background: var(--cobalt); color: #fff; display: grid; place-items: center; border: 2px solid var(--ligne); flex: none; }
+.cl-lien-ic .ico { width: 24px; height: 24px; }
+@media (max-width: 899px) {
+  .cl-classeur { padding: 12px 10px 12px 14px; border-radius: 20px; }
+  .cl-page { padding: 10px 10px 26px; }
+  .cl-pochettes { gap: 7px; }
+}
+@media (prefers-reduced-motion: reduce) { .cl-feuilles .cl-page { animation: none !important; } }

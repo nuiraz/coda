@@ -26,6 +26,14 @@ export default {
     if (url.pathname === "/.well-known/assetlinks.json") return onRequest({ request: new Request(new URL("/api/apps/assetlinks", url), request), env, ctx });
     const invit = /^\/r\/([A-Za-z0-9_-]{3,20})\/?$/.exec(url.pathname);
     if (invit) return pageInvitation(invit[1]);
+    // Chaque page du jeu a sa propre adresse (/classeur, /boutique, /devine…) : on sert le jeu, qui ouvre la bonne page
+    const page = /^\/([a-z][a-z0-9-]{1,30})(\/?)$/.exec(url.pathname);
+    if (page && request.method === "GET") {
+      if (page[2]) return Response.redirect(new URL("/" + page[1] + url.search, url), 301);
+      const r = await env.ASSETS.fetch(request);
+      if (r.status !== 404) return r;
+      return env.ASSETS.fetch(new Request(new URL("/", url), request));
+    }
     return env.ASSETS.fetch(request);
   },
   // Toutes les 15 minutes : rappels « booster gratuit prêt » et ménage de la base

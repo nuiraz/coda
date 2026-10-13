@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v77"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v78"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -821,6 +821,11 @@ function ouvrirMenuPlus() {
   $$("[data-mp]").forEach((b) => b.onclick = () => { fermerModal(); aller(b.dataset.mp); });
   $$("[data-mp-act]").forEach((b) => b.onclick = () => actionMenu(b.dataset.mpAct));
 }
+let navigationRetour = false, premiereNavigation = true;
+addEventListener("popstate", () => {
+  const v = location.pathname.slice(1) || "accueil";
+  navigationRetour = true; aller(v);
+});
 function aller(vue, opts) {
   if (typeof arreterCombat === "function") arreterCombat();
   if (vue === "tournoi" || vue === "tournois") {
@@ -832,6 +837,12 @@ function aller(vue, opts) {
     vue = "hub";
   }
   S.vue = vue; renderNav(); vue = S.vue; sauver(); // renderNav remplace une vue inconnue par l'accueil
+  // Chaque page a sa propre adresse : /classeur, /boutique… (le bouton Retour du téléphone fonctionne)
+  const chemin = vue === "accueil" ? "/" : "/" + vue;
+  if (location.pathname !== chemin || premiereNavigation) {
+    try { if (premiereNavigation || navigationRetour) history.replaceState({ vue }, "", chemin + location.search + (premiereNavigation ? location.hash : "")); else history.pushState({ vue }, "", chemin + location.search); } catch {}
+  }
+  navigationRetour = false; premiereNavigation = false;
   // Zone neuve à chaque navigation : une page encore en chargement (async) ne peut plus écraser la nouvelle
   const ancienne = $("#view"), v = ancienne.cloneNode(false); ancienne.replaceWith(v);
   ({ accueil: vueAccueil, boosters: vueBoosters, album: vueAlbum, atlas: vueAtlas, badges: vueBadges, quiz: vueQuiz, combat: vueCombat,
@@ -1876,6 +1887,8 @@ async function demarrer() {
   appliquerTheme(); majCoins(); majNiveau();
   const pv = $("#versionJeu"); if (pv) pv.textContent = `${VERSION_JEU} · ${fmt(CARDS.length)} cartes`;
   // Raccourcis de l'app installée et des notifications (ex. ./#boosters, ./#combat)
+  const page = location.pathname.slice(1).replace(/\/$/, "");
+  if (page && /^[a-z][a-z0-9-]{1,30}$/.test(page)) { S.vue = page; navigationRetour = true; }
   const ancre = location.hash.slice(1);
   if (["accueil", "boosters", "album", "quiz", "badges", "combat", "hub", "compte", "premium", ...Object.keys(typeof VUES_EXTRA === "object" ? VUES_EXTRA : {})].includes(ancre)) { S.vue = ancre; history.replaceState(null, "", location.pathname); }
   aller(S.vue);
