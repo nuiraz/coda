@@ -626,3 +626,8 @@ html:not(.metal-ok) .card:not(.locked) .in { background: linear-gradient(160deg,
 .card.shiny .art { filter: none; }
 .card.holo.a-metal .metal-plaque, .card.shiny.a-metal .metal-plaque, .card.doree.a-metal .metal-plaque { opacity: .38 !important; }
 .card.holo .art img, .card.shiny .art img { filter: contrast(1.05) saturate(1.08); }
+
+/* ---------- Pays : le paysage en fond, le drapeau en petit autocollant ---------- */
+.card:not(.locked)[data-t="pays"] .art > img.photo ~ img.flag { display: block !important; position: absolute !important; inset: auto 6% auto auto !important; top: 13% !important;
+  width: 24% !important; height: auto !important; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 1.6cqw; z-index: 2; filter: none !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .7), 0 1.5cqw 4cqw rgba(0, 0, 0, .45); }

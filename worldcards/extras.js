@@ -248,6 +248,7 @@ async function chargerCorrectionsPhotos() {
     let change = false;
     for (const { carte, titre, maj } of corrections) {
       if (!BY_ID[carte]) continue;
+      PAYSAGES_EXCLUS.add(carte); // photo choisie par l'admin : prioritaire sur le paysage automatique
       if (PHOTOS_WIKI[carte] !== titre || (PHOTOS[carte]?.maj || 0) < maj) { PHOTOS_WIKI[carte] = titre; delete PHOTOS[carte]; RECHERCHE_PHOTO[carte] = titre; change = true; }
     }
     if (change) { chargerPhotos().then(() => { for (const { carte, maj } of corrections) if (PHOTOS[carte]) PHOTOS[carte].maj = maj; memoriserPhotos(); }); }

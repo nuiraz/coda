@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v81"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v82"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -382,7 +382,14 @@ let PHOTOS = (() => {
   try { const j = JSON.parse(localStorage.getItem(PHOTOS_KEY)); if (j && Date.now() - j.t < 30 * 864e5) return j.data || {}; } catch {}
   return {};
 })();
-const photoDe = (id) => (S.photos !== false ? PHOTOS[id]?.src : null);
+// Paysages (Wikidata) : remplacent la photo de l'article pour les pays, les villes et les images ratées (cartes, drapeaux, montages)
+const PAYSAGES_KEY = "worldcards:paysages:v1", PAYSAGES_EXCLUS = new Set();
+let PAYSAGES = (() => {
+  try { const j = JSON.parse(localStorage.getItem(PAYSAGES_KEY)); if (j && Date.now() - j.t < 30 * 864e5) return j.data || {}; } catch {}
+  return {};
+})();
+const photoInfo = (id) => (!PAYSAGES_EXCLUS.has(id) && PAYSAGES[id]) || PHOTOS[id];
+const photoDe = (id) => (S.photos !== false ? photoInfo(id)?.src : null);
 function photoHTML(c, locked) {
   const src = photoDe(c.id);
   if (!src || (locked && c.type === "secrete")) return "";
@@ -445,7 +452,7 @@ function chargerPhotos() {
   })().finally(() => { chargementPhotos = null; }));
 }
 async function creditPhoto(c, el) {
-  const p = PHOTOS[c.id];
+  const p = photoInfo(c.id);
   if (!p || S.photos === false) return;
   el.innerHTML = `<a href="https://fr.wikipedia.org/wiki/${encodeURIComponent(p.titre.replace(/ /g, "_"))}" target="_blank" rel="noopener">📖 Lire l'article Wikipédia</a>`;
   if (!p.file) return;
@@ -943,7 +950,7 @@ function ficheCarte(c) {
           ${owned && lieu ? `<button class="btn" id="voirAtlas">🗺️ Voir sur l'atlas</button>` : ""}
         </div>
         ${!owned && !secretVerrou && prix && S.coins < prix ? `<p class="muted" style="font-size:13px">Il vous manque ${fmt(prix - S.coins)} 🪙. Gagnez-en au quiz et en combat !</p>` : ""}
-        ${!secretVerrou && PHOTOS[c.id] && S.photos !== false ? `<p class="credit" id="credit"></p>` : ""}
+        ${!secretVerrou && photoInfo(c.id) && S.photos !== false ? `<p class="credit" id="credit"></p>` : ""}
         ${!secretVerrou && typeof connecte === "function" ? `<p class="muted" style="font-size:12.5px;margin:4px 0 0"><a href="#" id="signalerPhoto">📷 Photo incorrecte ?</a></p>` : ""}
       </div></div>`);
   if ($("#credit")) creditPhoto(c, $("#credit"));
