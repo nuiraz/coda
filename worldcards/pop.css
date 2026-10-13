@@ -504,6 +504,70 @@ html:not(.metal-ok) .card:not(.locked) .in { background: linear-gradient(160deg,
 .vt-like.on .vt-coeur { animation: vtBattement .4s ease; }
 @keyframes vtBattement { 50% { transform: scale(1.35); } }
 
+/* ---------- Holo / Shiny / Dorée : ça brille fort, sur les bords, et l'image reste visible au centre ---------- */
+/* Le reflet WebGL est plein sur les bords, atténué au centre de l'image */
+.card.a-foil .foil-holo { opacity: .85; -webkit-mask-image: radial-gradient(ellipse 58% 44% at 50% 42%, rgba(0,0,0,.38) 0%, rgba(0,0,0,.45) 60%, #000 100%); mask-image: radial-gradient(ellipse 58% 44% at 50% 42%, rgba(0,0,0,.38) 0%, rgba(0,0,0,.45) 60%, #000 100%); }
+.card.a-foil:hover .foil-holo, .card.a-foil:focus-visible .foil-holo, #detail .card .foil-holo, .pk-carte .card .foil-holo, .carte3d .card .foil-holo, #modal .box .card .foil-holo { opacity: 1; }
+.card.shiny.a-foil .in::after, .card.shiny.a-foil .art::after, .card.shiny.a-foil::after, .card.shiny::before { content: none !important; }
+.card.shiny .art { filter: none; }
+.card.holo.a-metal .metal-plaque, .card.shiny.a-metal .metal-plaque, .card.doree.a-metal .metal-plaque { opacity: .5 !important; }
+/* Cadre épais et lumineux */
+.card.shiny, .card.holo, .card.doree { padding: 3.6% !important; background-size: 300% 300% !important; }
+.card.shiny { --r: conic-gradient(from var(--ang, 0deg), #ff4fd8, #ffd84f, #4fffb0, #4fc3ff, #b34fff, #ff4fd8) !important; background: var(--r) !important;
+  animation: cadreTourne 4s linear infinite, haloShiny 2.2s ease-in-out infinite !important; }
+.card.holo { --r: linear-gradient(115deg, #c9d6ff, #8fe3ff 15%, #ffffff 28%, #b48cff 42%, #7fffd4 56%, #ffffff 68%, #ffb3ec 82%, #9fc4ff) !important; background: var(--r) !important;
+  background-size: 250% 250% !important; animation: cadreHolo 3.5s linear infinite !important; box-shadow: 0 0 0 1.5px rgba(255,255,255,.8), 0 0 16px rgba(150, 190, 255, .9), 0 0 30px rgba(200, 160, 255, .45), 0 6px 18px rgba(10,10,40,.25) !important; }
+.card.doree { --r: linear-gradient(115deg, #fff6c9, #f5b21b 25%, #fff3b0 40%, #b9770e 60%, #ffe27a 80%, #c98a12) !important; background: var(--r) !important;
+  background-size: 250% 250% !important; animation: cadreHolo 3s linear infinite !important; box-shadow: 0 0 16px rgba(255, 196, 40, .8), 0 6px 18px rgba(10,10,40,.25) !important; }
+@property --ang { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@keyframes cadreTourne { to { --ang: 360deg; } }
+@keyframes cadreHolo { to { background-position: 250% 0; } }
+@keyframes haloShiny { 0%, 100% { box-shadow: 0 0 12px rgba(255, 79, 216, .75), 0 0 26px rgba(79, 195, 255, .5), 0 6px 18px rgba(10,10,40,.25); }
+  50% { box-shadow: 0 0 20px rgba(255, 216, 79, .9), 0 0 40px rgba(79, 255, 176, .55), 0 6px 18px rgba(10,10,40,.25); } }
+/* Éclat de lumière qui traverse la carte régulièrement */
+.card.shiny .rc-voile::after, .card.holo .rc-voile::after, .card.doree .rc-voile::after { content: ""; position: absolute; inset: -20%; pointer-events: none; mix-blend-mode: screen;
+  background: linear-gradient(110deg, transparent 40%, rgba(255,255,255,.0) 44%, rgba(255,255,255,.55) 50%, rgba(255,255,255,0) 56%, transparent 60%);
+  transform: translateX(-70%); animation: eclatCarte 3.4s ease-in-out infinite; }
+.card.shiny .rc-voile::after { background: linear-gradient(110deg, transparent 38%, rgba(255,120,220,.45) 45%, rgba(255,255,255,.7) 50%, rgba(120,255,220,.45) 55%, transparent 62%); }
+.card.doree .rc-voile::after { background: linear-gradient(110deg, transparent 40%, rgba(255,230,140,.6) 50%, transparent 60%); }
+.card .rc-voile { overflow: hidden; }
+@keyframes eclatCarte { 0%, 35% { transform: translateX(-70%); } 75%, 100% { transform: translateX(70%); } }
+/* Statut bien visible */
+.card.shiny .rc-statut, .card.holo .rc-statut, .card.doree .rc-statut { padding: .6cqw 3cqw; border-radius: 99px; font-weight: 800; text-shadow: none; }
+.card.shiny .rc-statut { color: #3a0f3a !important; background: linear-gradient(90deg, #ff9be9, #ffe78a, #8affd0, #9ad8ff); box-shadow: 0 0 3cqw rgba(255, 140, 230, .9); }
+.card.holo .rc-statut { color: #1c2533 !important; background: linear-gradient(90deg, #ffffff, #cfd9e6, #e6dcff, #cff4ff); box-shadow: 0 0 3cqw rgba(190, 220, 255, .9); }
+.card.doree .rc-statut { color: #4a3100 !important; background: linear-gradient(90deg, #fff1a8, #f5b21b, #ffe27a); box-shadow: 0 0 3cqw rgba(255, 200, 60, .9); }
+.card.shiny .rc-statut .rc-point, .card.holo .rc-statut .rc-point, .card.doree .rc-statut .rc-point { display: none; }
+/* Ancien badge « DORÉE » et voile doré : remplacés par le statut et l'éclat */
+.card.doree .in::before, .card.doree .in::after { content: none !important; }
+.card.doree:not(.locked) .name { color: #fff3b0 !important; }
+/* Coins arrondis proportionnels à la carte (les cqw prenaient la taille du conteneur parent) */
+.card:not(.locked) { border-radius: 7.5% / 5.2% !important; }
+.card:not(.locked) .in { border-radius: 5.5% / 3.8% !important; }
+@media (prefers-reduced-motion: reduce) { .card.shiny, .card.holo, .card.doree, .card .rc-voile::after { animation: none !important; } }
+
+/* ---------- Admin : boosters créés ---------- */
+.bp-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px 14px; }
+.bp-form label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; }
+.bp-form label.check { flex-direction: row; align-items: center; font-weight: 500; }
+.bp-cats { border: 2px solid var(--ligne, rgba(0,0,0,.15)); border-radius: 14px; padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0; }
+.bp-liste { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.bp-item { display: flex; gap: 12px; align-items: flex-start; margin: 0; }
+.bp-item .pack { flex: 0 0 74px; width: 74px; height: 111px; font-size: 11px; }
+.bp-infos { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.bp-infos .rbadge.muted { opacity: .65; }
+
+/* ---------- Vitrine 9 cartes + j'aime ---------- */
+.cards.vitrine9 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; max-width: 620px; }
+.cards.vitrine9 .slot { aspect-ratio: 5 / 7; min-height: 0; }
+.vt-tete { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.vt-like { display: inline-flex; align-items: center; gap: 6px; }
+.vt-like .vt-coeur svg { width: 18px; height: 18px; }
+.vt-like.on { background: #ff5f8a; color: #fff; }
+.vt-like.on .vt-coeur svg { fill: currentColor; }
+.vt-like.on .vt-coeur { animation: vtBattement .4s ease; }
+@keyframes vtBattement { 50% { transform: scale(1.35); } }
+
 /* ---------- Holo / Shiny : l'image de la carte reste bien visible ---------- */
 .card.a-foil .foil-holo { opacity: .42; }
 .card.a-foil:hover .foil-holo, .card.a-foil:focus-visible .foil-holo, #detail .card .foil-holo, .pk-carte .card .foil-holo, .carte3d .card .foil-holo, #modal .box .card .foil-holo { opacity: .62; }
