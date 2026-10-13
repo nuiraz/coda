@@ -110,6 +110,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS devine_defis ( code TEXT PRIMARY KEY, createur INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, cat TEXT NOT NULL, ids TEXT NOT NULL, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS devine_defis_scores ( code TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, score INTEGER NOT NULL, bonnes INTEGER NOT NULL, maj INTEGER NOT NULL, PRIMARY KEY (code, user_id) )`,
   `CREATE TABLE IF NOT EXISTS economie_jour ( jour TEXT PRIMARY KEY, joueurs INTEGER NOT NULL, actifs INTEGER NOT NULL, total INTEGER NOT NULL, moyenne INTEGER NOT NULL, distribues INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS avis ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE, note INTEGER NOT NULL, texte TEXT NOT NULL DEFAULT '', reponse TEXT, reponse_le INTEGER, cree_le INTEGER NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS devinettes_admin ( id TEXT PRIMARY KEY, cat TEXT NOT NULL, donnees TEXT, image TEXT, wiki TEXT, sans_image INTEGER NOT NULL DEFAULT 0, masque INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS cartes_admin ( id TEXT PRIMARY KEY, nom TEXT NOT NULL, type TEXT NOT NULL, pays TEXT NOT NULL, emoji TEXT, rarete TEXT NOT NULL, anecdote TEXT, wiki TEXT, evenement TEXT, sortie INTEGER NOT NULL, actif INTEGER NOT NULL DEFAULT 1, annoncee INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS propositions ( id INTEGER PRIMARY KEY AUTOINCREMENT, de_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, a_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, carte_donnee TEXT NOT NULL, carte_recue TEXT NOT NULL, statut TEXT NOT NULL DEFAULT 'ouverte', cree_le INTEGER NOT NULL, maj INTEGER NOT NULL )`,
@@ -3616,6 +3617,53 @@ route("GET", "defi-photo/source", async ({ env }) => {
   const c = await photoDuJour(env, jourBruxelles());
   return json({ t: btoa(String.fromCharCode(...new TextEncoder().encode(c.wiki))) }, 200, { "cache-control": "no-store" });
 });
+/* =====================================================================
+   Avis des joueurs : une note de 1 à 5 et un commentaire par compte (modifiable).
+   L'admin voit tout, répond (le joueur est prévenu) et peut supprimer un avis.
+   ===================================================================== */
+const ligneAvis = (x) => ({ id: x.id, pseudo: x.pseudo, note: x.note, texte: x.texte, reponse: x.reponse || null, reponse_le: x.reponse_le || null, cree_le: x.cree_le, maj: x.maj });
+route("GET", "avis", async ({ request, env, user }) => {
+  const page = Math.max(0, Math.min(50, Number(new URL(request.url).searchParams.get("page")) || 0));
+  const st = await env.DB.prepare("SELECT COUNT(*) AS total, AVG(note) AS moyenne, SUM(note = 1) AS n1, SUM(note = 2) AS n2, SUM(note = 3) AS n3, SUM(note = 4) AS n4, SUM(note = 5) AS n5 FROM avis a JOIN users u ON u.id = a.user_id WHERE u.banni = 0").first();
+  const { results } = await env.DB.prepare(`SELECT a.*, u.pseudo FROM avis a JOIN users u ON u.id = a.user_id WHERE u.banni = 0
+    ORDER BY (a.texte != '') DESC, a.maj DESC LIMIT 20 OFFSET ?`).bind(page * 20).all();
+  const moi = user ? await env.DB.prepare("SELECT a.*, u.pseudo FROM avis a JOIN users u ON u.id = a.user_id WHERE a.user_id = ?").bind(user.id).first() : null;
+  return json({ total: st.total || 0, moyenne: st.moyenne ? Math.round(st.moyenne * 10) / 10 : 0, repartition: [st.n1, st.n2, st.n3, st.n4, st.n5].map((n) => n || 0),
+    liste: results.map(ligneAvis), moi: moi ? ligneAvis(moi) : null, suite: results.length === 20 });
+});
+route("POST", "avis", async ({ request, env, user, ctx }) => {
+  const b = await corps(request), note = Math.round(Number(b.note));
+  if (!(note >= 1 && note <= 5)) return erreur("Choisissez une note de 1 à 5 étoiles.");
+  await verifierSourdine(env, user);
+  const texte = (await filtrerContacts(env, nettoyerTexte(b.texte || ""))).slice(0, 600);
+  await env.DB.prepare(`INSERT INTO avis (user_id, note, texte, cree_le, maj) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET note = excluded.note, texte = excluded.texte, maj = excluded.maj`).bind(user.id, note, texte, maintenant(), maintenant()).run();
+  if (note <= 2) enArrierePlan(ctx, annoncerDiscord(env, "avis", { titre: `Avis ${note}/5 de ${user.pseudo}`, texte: texte || "(sans commentaire)", couleur: 0xd9534f }).catch(() => {}));
+  return json({ ok: true });
+}, { connecte: true });
+route("DELETE", "avis", async ({ env, user }) => {
+  await env.DB.prepare("DELETE FROM avis WHERE user_id = ?").bind(user.id).run();
+  return json({ ok: true });
+}, { connecte: true });
+route("GET", "admin/avis", async ({ request, env }) => {
+  const filtre = new URL(request.url).searchParams.get("filtre") || "tous";
+  const where = filtre === "negatifs" ? "WHERE a.note <= 2" : filtre === "sans-reponse" ? "WHERE a.reponse IS NULL AND a.texte != ''" : "";
+  const { results } = await env.DB.prepare(`SELECT a.*, u.pseudo FROM avis a JOIN users u ON u.id = a.user_id ${where} ORDER BY a.maj DESC LIMIT 200`).all();
+  const st = await env.DB.prepare("SELECT COUNT(*) AS total, AVG(note) AS moyenne, SUM(note <= 2) AS negatifs, SUM(reponse IS NULL AND texte != '') AS sans_reponse FROM avis").first();
+  return json({ avis: results.map(ligneAvis), total: st.total || 0, moyenne: st.moyenne ? Math.round(st.moyenne * 10) / 10 : 0, negatifs: st.negatifs || 0, sansReponse: st.sans_reponse || 0 });
+}, { admin: true });
+route("POST", "admin/avis/(\\d+)/reponse", async ({ request, env, p }) => {
+  const b = await corps(request), texte = nettoyerTexte(b.texte || "").slice(0, 600);
+  const a = await env.DB.prepare("SELECT user_id FROM avis WHERE id = ?").bind(p[1]).first();
+  if (!a) return erreur("Avis introuvable.", 404);
+  await env.DB.prepare("UPDATE avis SET reponse = ?, reponse_le = ? WHERE id = ?").bind(texte || null, texte ? maintenant() : null, p[1]).run();
+  if (texte) await notifierUneFois(env, a.user_id, "avis-reponse", `${p[1]}:${maintenant()}`, { titre: "Play2F1 a répondu à votre avis", texte: texte.slice(0, 120), url: "./#avis" }).catch(() => {});
+  return json({ ok: true });
+}, { admin: true });
+route("DELETE", "admin/avis/(\\d+)", async ({ env, p }) => {
+  await env.DB.prepare("DELETE FROM avis WHERE id = ?").bind(p[1]).run();
+  return json({ ok: true });
+}, { admin: true });
 route("POST", "defi-photo/essai", async ({ request, env, user, ctx }) => {
   const b = await corps(request), jour = jourBruxelles(), c = await photoDuJour(env, jour), id = String(b.id || "");
   if (!POOL_PHOTO.some((x) => x.id === id)) return erreur("Choisissez un monument de la liste.");

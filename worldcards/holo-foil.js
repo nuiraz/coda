@@ -181,8 +181,8 @@ const HoloFoil = (() => {
   document.documentElement.classList.add("foil-ok");
   const FOIL = [0.76, 0.79, 0.84]; // argent #e2e6ec en linéaire
   const etats = new WeakMap(); // carte → { canvas, ctx, preset, tiltX, tiltY, lightX, lightY, cible…, horloge }
-  const GRANDES_VUES = ".detail, .pk-carte, .reveal, .hs-zoom, #modal .box";
-  const presetDe = (card) => card.classList.contains("shiny") ? "cosmos"
+  const GRANDES_VUES = ".detail, .pk-carte, .reveal, .hs-zoom, .carte3d, #modal .box";
+  const presetDe = (card) => card.classList.contains("shiny") ? "stars"
     : ["legendaire", "ultra-rare", "secrete"].includes(card.dataset.r) ? "stars" : card.dataset.r === "epique" ? "shards" : "bursts";
 
   function dessiner(card, e) {
@@ -202,13 +202,13 @@ const HoloFoil = (() => {
     e.ctx.drawImage(glCanvas, 0, glCanvas.height - h, w, h, 0, 0, w, h);
   }
   function taille(card, e) {
-    const zone = e.canvas.parentElement || card, r = zone.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2);
+    const zone = e.canvas.parentElement || card, r = { width: zone.offsetWidth || zone.getBoundingClientRect().width, height: zone.offsetHeight || zone.getBoundingClientRect().height }, dpr = Math.min(devicePixelRatio || 1, 2);
     const w = Math.max(1, Math.min(560, Math.round(r.width * dpr))), h = Math.max(1, Math.round(w * (r.height / Math.max(1, r.width))));
     if (e.canvas.width !== w || e.canvas.height !== h) { e.canvas.width = w; e.canvas.height = h; }
     e.rayon = parseFloat(getComputedStyle(zone).borderTopLeftRadius) || 12;
   }
   function attacher(card) {
-    if (etats.has(card) || card.classList.contains("locked") || card.closest(".vue3d")) return;
+    if (etats.has(card) || card.classList.contains("locked")) return;
     const zone = card.querySelector(".in") || card;
     const canvas = document.createElement("canvas"); canvas.className = "foil-holo"; canvas.setAttribute("aria-hidden", "true");
     zone.appendChild(canvas);
@@ -238,6 +238,13 @@ const HoloFoil = (() => {
       if (!card.isConnected) { animees.delete(card); visibles.delete(card); continue; }
       const e = etats.get(card); if (!e) continue;
       let tx, ty, lx, ly;
+      const c3d = card.closest(".carte3d");
+      if (c3d) {
+        const m = /rotateX\((-?[\d.]+)deg\) rotateY\((-?[\d.]+)deg\)/.exec(c3d.style.transform || "");
+        const rx = m ? +m[1] : 0, ry = m ? +m[2] : 0, a = Math.atan2(Math.sin(ry * Math.PI / 180), Math.cos(ry * Math.PI / 180)) * 180 / Math.PI;
+        tx = Math.max(-40, Math.min(40, rx)); ty = Math.max(-60, Math.min(60, a)); lx = 0.5 - ty / 140; ly = 0.32 + tx / 120;
+        e.tiltX = tx; e.tiltY = ty; e.lightX = lx; e.lightY = ly; dessiner(card, e); encore = true; continue;
+      }
       if (e.cible) [tx, ty, lx, ly] = e.cible;
       else {
         e.horloge += dt; const k = e.horloge;
@@ -261,7 +268,7 @@ const HoloFoil = (() => {
     if (ev.pointerType === "touch" && !ev.buttons && !card.closest(GRANDES_VUES)) return;
     const r = card.getBoundingClientRect(), x = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)), y = Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height));
     e.cible = [(0.5 - y) * 2 * 14, (x - 0.5) * 2 * 14, x, y]; e.repos = false;
-    if (!reduit && !card.closest(".pk-carte, .hs-carte")) {
+    if (!reduit && !card.closest(".pk-carte, .hs-carte, .carte3d")) {
       card.style.setProperty("--rx", `${(0.5 - y) * 18}deg`); card.style.setProperty("--ry", `${(x - 0.5) * 22}deg`); card.classList.add("tilt");
     }
     animees.add(card); reveiller();
