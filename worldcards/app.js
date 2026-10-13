@@ -39,7 +39,7 @@ const RARETES = {
 const TYPES = { pays: "Pays", ville: "Ville", monument: "Monument", nature: "Nature", animal: "Animal", plat: "Gastronomie", culture: "Culture", merveille: "Merveille", secrete: "Secrète" };
 const EMOJI_TYPE = { pays: "🌍", ville: "🏙️", monument: "🏛️", nature: "🏔️", animal: "🐾", plat: "🍜", culture: "🎭", merveille: "🌟", secrete: "✦" };
 const PLURIEL = { pays: "Pays", ville: "Villes", monument: "Monuments", nature: "Nature", animal: "Animaux", plat: "Gastronomie", culture: "Culture", merveille: "Merveilles", secrete: "Secrètes" };
-const VERSION_JEU = "v78"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
+const VERSION_JEU = "v79"; // affichée en bas de page : permet de vérifier que la dernière version est en ligne
 const CHANCE_SHINY = 1 / 45; // chaque carte d'un booster peut sortir en version Shiny
 const CHANCE_HOLO = 1 / 10;  // ou en version Holo (reflet irisé, purement décoratif)
 const GRATUIT_MS = 12 * 3600e3; // un booster gratuit toutes les 12 heures
@@ -228,7 +228,7 @@ for (const [k, ct] of Object.entries(CONTINENTS)) {
 }
 const PACKS_PRINCIPAUX = ["monde", "argent", "or", "mega", "prestige"];
 // Offre du jour : un booster à -40 %, une fois par jour
-const offreDuJour = () => { const cles = Object.keys(PACKS).filter((k) => k !== "monde" && k !== "prestige" && !PACKS[k].evenement && !PACKS[k].saison); return cles[COMBAT.hash(today()) % cles.length]; };
+const offreDuJour = () => { const cles = Object.keys(PACKS).filter((k) => k !== "monde" && k !== "prestige" && !PACKS[k].evenement && !PACKS[k].saison && !k.startsWith("perso-")); return cles[COMBAT.hash(today()) % cles.length]; };
 const prixOffre = (k) => Math.round(PACKS[k].prix * 0.6 / 10) * 10;
 
 /* =====================================================================

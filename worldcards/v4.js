@@ -516,7 +516,7 @@ async function profilComplet(pseudo) {
       <div class="stat"><b>${p.badges}</b><span>badges</span></div></div>
     ${p.moi ? "" : `<div class="row" style="gap:8px;flex-wrap:wrap;margin:10px 0"><button class="btn primary" id="pfDuel">⚔️ Défier</button><button class="btn" id="pfAmi">➕ Ami</button><button class="btn" id="pfMp">✉️ Message</button><button class="btn" id="pfCollec">📚 Collection</button><button class="btn" id="pfEchange">🤝 Échanger</button><button class="btn small" id="pfPlus">⋯</button></div>`}
     ${p.succes?.length ? `<h3>🏅 Succès (${p.succes.length})</h3><div class="succes-mini">${p.succes.map((x) => `<span title="${esc(x.nom + " : " + x.desc)}">${x.icone}</span>`).join("")}</div>` : ""}
-    ${vitrine.length ? `<h3>⭐ Cartes favorites</h3><div class="cards">${vitrine.map((c) => cardHTML(c, { locked: false })).join("")}</div>` : ""}
+    ${vitrine.length ? `<div class="vt-tete"><h3>Vitrine</h3><button class="btn small vt-like ${p.vitrineAime ? "on" : ""}" id="pfVtLike" ${p.moi ? "disabled" : ""} aria-pressed="${!!p.vitrineAime}"><span class="vt-coeur">${typeof icCarte === "function" ? icCarte("coeur") : ""}</span><b>${fmt(p.vitrineLikes || 0)}</b> j'aime</button></div><div class="cards vitrine9">${vitrine.map((c) => cardHTML(c, { locked: false })).join("")}</div>` : ""}
     ${p.deck?.length ? `<h3>🃏 Deck favori</h3><div class="deck-mini">${p.deck.map((id) => { const c = BY_ID[id]; return c ? `<span title="${esc(c.nom)}">${c.type === "pays" && c.code ? `<img src="flags/${esc(c.code.toLowerCase())}.svg" alt="" class="dm-drapeau">` : esc(c.emoji || "🃏")}<small>${esc(c.nom)}</small></span>` : ""; }).join("")}</div>` : ""}
     ${p.matchs ? `<h3>📜 Derniers matchs</h3>${p.matchs.length ? `<div class="matchs">${p.matchs.map((m) => `<div class="match ${m.gagne ? "v" : "d"}"><b>${m.gagne ? "Victoire" : "Défaite"}</b><span>${esc(m.mode)} contre ${esc(m.adversaire)}</span><span class="muted">${m.points ? `${m.points > 0 ? "+" : ""}${m.points} pts · ` : ""}${depuis(m.t)}${m.revoir ? ` <button class="btn small" data-revoir="${m.type}:${m.id}">▶ Revoir</button>` : ""}</span></div>`).join("")}</div>` : `<p class="muted">Aucun match pour l'instant.</p>`}` : ""}
     ${p.historiqueRangs?.length ? `<h3>📈 Rangs</h3>${p.historiqueRangs.map((h) => `<div class="codex-ligne"><span>${esc(RANGS.find((r) => r.cle === h.ancien)?.nom || h.ancien || "—")} → <b>${esc(RANGS.find((r) => r.cle === h.nouveau)?.nom || h.nouveau)}</b></span><small>${fmt(h.trophees)} pts · ${depuis(h.cree_le)}</small></div>`).join("")}` : ""}
@@ -525,6 +525,13 @@ async function profilComplet(pseudo) {
       <div class="bannieres">${Object.entries(COULEURS_BANNIERE).map(([k, c]) => `<label title="${k}"><input type="radio" name="banniere" value="${k}" ${p.banniere === k ? "checked" : ""}><span style="background:${c}"></span></label>`).join("")}</div>
       <button class="btn primary">Enregistrer</button> <button type="button" class="btn" data-aller="style">🎨 Titres et cadres</button> <button type="button" class="btn" id="pfVitrine">⭐ Choisir mes cartes favorites</button></form>` : ""}`;
   brancherLiens($("#modal"));
+  $("#pfVtLike")?.addEventListener("click", async (e) => {
+    if (typeof connecte !== "function" || !connecte()) return toast("Connectez-vous pour aimer une vitrine.");
+    const b = e.currentTarget; b.disabled = true;
+    try { const r = await api(`profil/${encodeURIComponent(p.pseudo)}/vitrine-like`, { methode: "POST", corps: {} }); b.classList.toggle("on", r.aime); b.setAttribute("aria-pressed", r.aime); $("b", b).textContent = fmt(r.likes); }
+    catch (err) { toast("⚠ " + err.message); }
+    b.disabled = false;
+  });
   $$("[data-revoir]", $("#modal")).forEach((b) => b.onclick = () => { const [t, i] = b.dataset.revoir.split(":"); revoirCombat(t, i); });
   if (!p.moi) {
     $("#pfDuel").onclick = () => defierEnDirect(p.pseudo);
@@ -1058,7 +1065,7 @@ async function vueAlbums(v) {
     const { albums } = await api("albums");
     $("#alListe").innerHTML = `<div class="albums">${albums.map((a) => {
       const manquantes = a.ids.filter((id) => !has(id)), local = a.ids.length - manquantes.length;
-      return `<article class="album"><header><span class="al-ic">${esc(a.icone)}</span><div><b>${esc(a.nom)}</b><small class="muted">${local}/${a.ids.length} cartes · ${a.termines} joueur(s) l'ont terminé</small></div></header>
+      return `<article class="album"><header><span class="al-ic">${typeof TRAITS === "object" && TRAITS[a.icone] && typeof svgCat === "function" ? svgCat(a.icone) : esc(a.icone)}</span><div><b>${esc(a.nom)}</b><small class="muted">${local}/${a.ids.length} cartes · ${a.termines} joueur(s) l'ont terminé</small></div></header>
         <div class="pvbar"><i style="width:${Math.round((local / a.ids.length) * 100)}%"></i></div>
         ${a.moi ? `<p class="sc-ok">✓ Terminé (${a.moi}${a.moi === 1 ? "er" : "e"})</p>` : manquantes.length ? `<details><summary>${manquantes.length} carte(s) manquante(s)</summary><p class="muted" style="font-size:13px">${manquantes.slice(0, 40).map((id) => esc(BY_ID[id]?.nom || id)).join(", ")}${manquantes.length > 40 ? "…" : ""}</p></details>`
           : `<button class="btn primary" data-album="${esc(a.cle)}">🏆 Valider l'album (+${fmt(a.pieces)} 🪙 ou plus)</button>`}

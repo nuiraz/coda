@@ -405,8 +405,8 @@ function vueCompte(v) {
       </div>
       <div class="panel" style="margin-top:16px">
         <h3 style="margin-top:0">🏆 Ma vitrine</h3>
-        <p class="muted" style="margin-top:0">Choisissez jusqu'à 5 cartes à montrer sur votre profil public.</p>
-        <div class="cards vitrine">${[0, 1, 2, 3, 4].map((i) => { const c = BY_ID[(S.vitrine || [])[i]]; return c && has(c.id) ? `<div data-slot="${i}" data-noclick>${cardHTML(c)}</div>` : `<button class="slot" data-slot="${i}">＋</button>`; }).join("")}</div>
+        <p class="muted" style="margin-top:0">Choisissez jusqu'à 9 cartes à montrer sur votre profil public. Les autres joueurs peuvent l'aimer.</p>
+        <div class="cards vitrine vitrine9">${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => { const c = BY_ID[(S.vitrine || [])[i]]; return c && has(c.id) ? `<div data-slot="${i}" data-noclick>${cardHTML(c)}</div>` : `<button class="slot" data-slot="${i}">＋</button>`; }).join("")}</div>
       </div>
       <div class="grid2" style="margin-top:16px">
         <form class="panel form" id="fMdp"><h3 style="margin:0">Changer de mot de passe</h3>
@@ -468,7 +468,7 @@ function vueCompte(v) {
   $("#syncBtn")?.addEventListener("click", async () => { await envoyerSauvegarde(); toast(SYNC.etat === "ok" ? "☁️ Sauvegardé." : "⚠ La sauvegarde a échoué."); aller("compte"); });
   $$(".vitrine [data-slot]", v).forEach((el) => el.addEventListener("click", () => choisirCarte("Carte de la vitrine", (id) => {
     S.vitrine = (S.vitrine || []).slice(); S.vitrine[Number(el.dataset.slot)] = id;
-    S.vitrine = S.vitrine.filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).slice(0, 5); sauver(); aller("compte");
+    S.vitrine = S.vitrine.filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).slice(0, 9); sauver(); aller("compte");
   }, (S.vitrine || [])[Number(el.dataset.slot)] ? () => { S.vitrine.splice(Number(el.dataset.slot), 1); sauver(); aller("compte"); } : null)));
   $("#fMdp")?.addEventListener("submit", async (e) => {
     e.preventDefault(); $("#mErr").textContent = "";
@@ -966,7 +966,7 @@ async function vueAdmin(v) {
   if (!COMPTE.admin) { v.innerHTML = `<div class="panel"><p>Accès réservé à l'administrateur.</p><button class="btn" data-aller="compte">Mon compte</button></div>`; brancherLiens(v); return; }
   v.innerHTML = `<div class="sectiontitle"><h3>👑 Administration</h3><span class="muted">Connecté en tant que ${esc(COMPTE.pseudo)}</span></div>
     <div class="statgrid" id="aStats"><div class="stat"><b>…</b><span>chargement</span></div></div>
-    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["retention", "📈 Rétention"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["avatars", "🖼️ Photos de profil"], ["moderation", "🛡️ Modération"], ["ventes", "💰 Ventes"], ["visuels", "🖼️ Visuels boosters"], ["offres", "🛍️ Packs & offres"], ["createurs", "🎙️ Créateurs & dédicaces"], ["combats", "📊 Combats"], ["ligues", "🏅 Ligues et rangs"], ["reglages", "🎲 Chances & règles"], ["images", "💾 Images & stockage"], ["integrations", "🔌 Intégrations"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux & packs"], ["notifs", "🔔 Notifications"], ["discord", "💬 Discord"], ["apps", "📱 Applis"], ["economie", "🪙 Économie"], ["avis", "⭐ Avis"], ["devinettes", "🧠 Devinettes"], ["cartes", "🃏 Nouvelles cartes"], ["categories", "🗂️ Catégories"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
+    <div class="toolbar" style="margin-top:16px">${[["joueurs", "👥 Joueurs"], ["metrics", "📊 Trafic & Métriques"], ["retention", "📈 Rétention"], ["securite", "🚨 Bouclier Anti-Bot"], ["bugs", "💡 Boîte à Idées & Bugs"], ["evenements", "🎉 Événements"], ["photos", "📷 Photos"], ["avatars", "🖼️ Photos de profil"], ["moderation", "🛡️ Modération"], ["ventes", "💰 Ventes"], ["visuels", "🖼️ Visuels boosters"], ["boosters", "📦 Boosters créés"], ["offres", "🛍️ Packs & offres"], ["createurs", "🎙️ Créateurs & dédicaces"], ["combats", "📊 Combats"], ["ligues", "🏅 Ligues et rangs"], ["reglages", "🎲 Chances & règles"], ["images", "💾 Images & stockage"], ["integrations", "🔌 Intégrations"], ["premium", "💎 Premium"], ["signalements", "🚩 Signalements"], ["cadeaux", "🎁 Cadeaux & packs"], ["notifs", "🔔 Notifications"], ["discord", "💬 Discord"], ["apps", "📱 Applis"], ["economie", "🪙 Économie"], ["avis", "⭐ Avis"], ["devinettes", "🧠 Devinettes"], ["cartes", "🃏 Nouvelles cartes"], ["categories", "🗂️ Catégories"], ["annonce", "📌 Annonce"], ["outils", "🧪 Outils de test"]].map(([k, l]) => `<button class="chip ${adminEtat.onglet === k ? "on" : ""}" data-a="${k}">${l}</button>`).join("")}</div>
     <div id="aCorps"></div>`;
   $$("[data-a]", v).forEach((b) => b.onclick = () => { adminEtat.onglet = b.dataset.a; aller("admin"); });
   api("admin/stats").then((s) => {
@@ -974,7 +974,7 @@ async function vueAdmin(v) {
       .map(([l, n]) => `<div class="stat"><b>${fmt(n)}</b><span>${l}</span></div>`).join("");
   }).catch((e) => { $("#aStats").innerHTML = `<p class="err">${esc(e.message)}</p>`; });
   const corps = $("#aCorps");
-  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, evenements: adminEvenements, photos: adminPhotos, avatars: adminAvatars, moderation: adminModeration, integrations: adminIntegrations, ventes: adminVentes, visuels: adminVisuels, offres: adminOffres, createurs: adminCreateurs, ligues: adminRangs, combats: adminCombats, images: adminImages, reglages: adminReglages, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, notifs: adminNotifs, discord: adminDiscord, apps: adminApps, economie: adminEconomie, avis: adminAvis, devinettes: (el) => { el.innerHTML = `<p>Les devinettes se gèrent sur leur propre page : images, textes, devinettes masquées ou créées.</p><button class="btn primary" data-aller="devine-admin">Ouvrir la gestion des devinettes</button>`; brancherLiens(el); }, cartes: adminCartes, categories: adminCategories, retention: adminRetention, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
+  ({ joueurs: adminJoueurs, metrics: adminMetrics, securite: adminSecurite, bugs: adminBugs, evenements: adminEvenements, photos: adminPhotos, avatars: adminAvatars, moderation: adminModeration, integrations: adminIntegrations, ventes: adminVentes, visuels: adminVisuels, boosters: (el) => adminBoosters(el), offres: adminOffres, createurs: adminCreateurs, ligues: adminRangs, combats: adminCombats, images: adminImages, reglages: adminReglages, premium: adminPremium, signalements: adminSignalements, cadeaux: adminCadeaux, notifs: adminNotifs, discord: adminDiscord, apps: adminApps, economie: adminEconomie, avis: adminAvis, devinettes: (el) => { el.innerHTML = `<p>Les devinettes se gèrent sur leur propre page : images, textes, devinettes masquées ou créées.</p><button class="btn primary" data-aller="devine-admin">Ouvrir la gestion des devinettes</button>`; brancherLiens(el); }, cartes: adminCartes, categories: adminCategories, retention: adminRetention, annonce: adminAnnonce, outils: adminOutils })[adminEtat.onglet](corps);
 }
 async function adminJoueurs(el) {
   el.innerHTML = `<input class="search" id="aq" type="search" placeholder="Rechercher un joueur…" value="${esc(adminEtat.q)}" style="max-width:none;width:100%;margin-bottom:10px">

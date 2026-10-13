@@ -295,9 +295,9 @@ function preparerVisuel(fichier, carte = false) {
 }
 async function adminVisuels(el) {
   try { VISUELS = (await api("visuels")).visuels || {}; } catch {}
-  const groupes = [["Boosters principaux", Object.keys(PACKS).filter((k) => !PACKS[k].theme && !PACKS[k].evenement)], ["Boosters thématiques", Object.keys(PACKS).filter((k) => PACKS[k].theme)], ["Événements et saisons", Object.keys(PACKS).filter((k) => PACKS[k].evenement)]];
+  const groupes = [["Boosters principaux", Object.keys(PACKS).filter((k) => !PACKS[k].theme && !PACKS[k].evenement)], ["Boosters thématiques", Object.keys(PACKS).filter((k) => PACKS[k].theme && !PACKS[k].perso)], ["Boosters créés", Object.keys(PACKS).filter((k) => PACKS[k].perso)], ["Événements et saisons", Object.keys(PACKS).filter((k) => PACKS[k].evenement)]];
   el.innerHTML = `<p class="muted">Envoyez l'image de chaque booster (créée avec Google Flow, Canva…). Format conseillé : <b>portrait 2:3</b> (par exemple 800 × 1200), PNG, JPEG ou WebP. L'image est réduite et compressée automatiquement, puis remplace le paquet dessiné dans la boutique et à l'ouverture.</p>
-    ${groupes.map(([titre, cles]) => `<h3>${titre}</h3><div class="visuels-grille">${cles.map((k) => `<div class="visuel-item">
+    ${groupes.filter(([, c]) => c.length).map(([titre, cles]) => `<h3>${titre}</h3><div class="visuels-grille">${cles.map((k) => `<div class="visuel-item">
       <div class="pack ${k} mini-visuel" ${PACKS[k].couleur ? `style="--pc:${PACKS[k].couleur}"` : ""}><span class="big">${PACKS[k].emoji}</span><b>${esc(PACKS[k].nom)}</b></div>
       <b>${esc(PACKS[k].nom)}</b><small class="muted">${VISUELS[k] ? "✅ image personnalisée" : "paquet dessiné"}</small>
       <label class="btn small primary">Envoyer une image<input type="file" accept="image/*" hidden data-vis="${k}"></label>

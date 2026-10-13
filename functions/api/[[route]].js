@@ -43,6 +43,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS users ( id INTEGER PRIMARY KEY AUTOINCREMENT, pseudo TEXT NOT NULL UNIQUE COLLATE NOCASE, hash TEXT NOT NULL, sel TEXT NOT NULL, admin INTEGER NOT NULL DEFAULT 0, banni INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL, derniere_co INTEGER, echecs INTEGER NOT NULL DEFAULT 0, bloque_jusqu INTEGER NOT NULL DEFAULT 0, cgu_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS sessions ( token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, expire INTEGER NOT NULL )`,
   `CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id)`,
+  `CREATE TABLE IF NOT EXISTS vitrine_likes ( cible INTEGER NOT NULL, user_id INTEGER NOT NULL, cree_le INTEGER NOT NULL, PRIMARY KEY (cible, user_id) )`,
   `CREATE TABLE IF NOT EXISTS sauvegardes ( user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, data TEXT NOT NULL, maj INTEGER NOT NULL, cartes INTEGER NOT NULL DEFAULT 0, secretes INTEGER NOT NULL DEFAULT 0, badges INTEGER NOT NULL DEFAULT 0, vitrine TEXT NOT NULL DEFAULT '[]' )`,
   `CREATE INDEX IF NOT EXISTS sauvegardes_cartes ON sauvegardes(cartes DESC)`,
   `CREATE TABLE IF NOT EXISTS posts ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, texte TEXT NOT NULL, carte TEXT, epingle INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
@@ -110,6 +111,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS devine_defis ( code TEXT PRIMARY KEY, createur INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, cat TEXT NOT NULL, ids TEXT NOT NULL, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS devine_defis_scores ( code TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, score INTEGER NOT NULL, bonnes INTEGER NOT NULL, maj INTEGER NOT NULL, PRIMARY KEY (code, user_id) )`,
   `CREATE TABLE IF NOT EXISTS economie_jour ( jour TEXT PRIMARY KEY, joueurs INTEGER NOT NULL, actifs INTEGER NOT NULL, total INTEGER NOT NULL, moyenne INTEGER NOT NULL, distribues INTEGER NOT NULL DEFAULT 0 )`,
+  `CREATE TABLE IF NOT EXISTS boosters_admin ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', prix INTEGER NOT NULL, cartes INTEGER NOT NULL DEFAULT 5, garantie TEXT NOT NULL DEFAULT 'rare', categories TEXT NOT NULL DEFAULT '[]', couleur TEXT, shiny REAL NOT NULL DEFAULT 1, debut INTEGER, fin INTEGER, actif INTEGER NOT NULL DEFAULT 1, ordre INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS categories_admin ( cle TEXT PRIMARY KEY, nom TEXT NOT NULL, icone TEXT NOT NULL DEFAULT 'etincelle', couleur TEXT, base TEXT NOT NULL DEFAULT 'culture', ordre INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS avis ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE, note INTEGER NOT NULL, texte TEXT NOT NULL DEFAULT '', reponse TEXT, reponse_le INTEGER, cree_le INTEGER NOT NULL, maj INTEGER NOT NULL )`,
   `CREATE TABLE IF NOT EXISTS devinettes_admin ( id TEXT PRIMARY KEY, cat TEXT NOT NULL, donnees TEXT, image TEXT, wiki TEXT, sans_image INTEGER NOT NULL DEFAULT 0, masque INTEGER NOT NULL DEFAULT 0, maj INTEGER NOT NULL )`,
@@ -472,7 +474,7 @@ route("PUT", "sauvegarde", async ({ request, env, user, ctx }) => {
     if (triche.statut === "refuse") return json({ erreur: "Progression impossible détectée : votre sauvegarde a été rétablie.", triche: true, data: triche.precedent ? JSON.parse(triche.precedent) : null }, 409);
   }
   const n = (x) => Math.max(0, Math.min(100000, Math.floor(Number(x) || 0)));
-  const vitrine = (Array.isArray(b.vitrine) ? b.vitrine : []).filter((id) => typeof id === "string" && CARTE_RE.test(id)).slice(0, 5);
+  const vitrine = (Array.isArray(b.vitrine) ? b.vitrine : []).filter((id) => typeof id === "string" && CARTE_RE.test(id)).slice(0, 9);
   await env.DB.prepare(`INSERT INTO sauvegardes (user_id, data, maj, cartes, secretes, badges, vitrine) VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, maj = excluded.maj, cartes = excluded.cartes,
     secretes = excluded.secretes, badges = excluded.badges, vitrine = excluded.vitrine`)
@@ -523,6 +525,20 @@ route("POST", "posts/(\\d+)/like", async ({ env, user, p }) => {
   return json({ aime: !r.meta.changes, likes: n.n });
 }, { connecte: true });
 
+// « J'aime » sur la vitrine d'un joueur (un par joueur, on peut le retirer)
+route("POST", "profil/([A-Za-z0-9_-]{3,20})/vitrine-like", async ({ env, user, p }) => {
+  const u = await env.DB.prepare("SELECT id FROM users WHERE pseudo = ? AND banni = 0").bind(p[1]).first();
+  if (!u) return erreur("Joueur introuvable.", 404);
+  if (u.id === user.id) return erreur("Vous ne pouvez pas aimer votre propre vitrine.");
+  const r = await env.DB.prepare("DELETE FROM vitrine_likes WHERE cible = ? AND user_id = ?").bind(u.id, user.id).run();
+  if (!r.meta.changes) {
+    await env.DB.prepare("INSERT OR IGNORE INTO vitrine_likes (cible, user_id, cree_le) VALUES (?, ?, ?)").bind(u.id, user.id, maintenant()).run();
+    await notifierUneFois(env, u.id, "vitrine", String(user.id), { titre: "Votre vitrine plaît !", texte: `${user.pseudo} aime votre vitrine de cartes.`, url: "/compte" }).catch(() => {});
+  }
+  const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM vitrine_likes WHERE cible = ?").bind(u.id).first();
+  return json({ aime: !r.meta.changes, likes: n.n });
+}, { connecte: true });
+
 route("POST", "posts/(\\d+)/signaler", async ({ request, env, user, p }) => {
   const b = await corps(request);
   await env.DB.prepare("INSERT OR IGNORE INTO signalements (post_id, user_id, motif, cree_le) SELECT id, ?, ?, ? FROM posts WHERE id = ?")
@@ -548,6 +564,8 @@ route("GET", "profil/([A-Za-z0-9_-]{3,20})", async ({ env, p, user }) => {
   const base = { pseudo: u.pseudo, admin: !!u.admin, creeLe: u.cree_le, cartes: u.cartes || 0, secretes: u.secretes || 0, badges: u.badges || 0, messages: u.messages, trophees: u.trophees || 0, premium: estPremium(u),
     tempsJeu: u.temps_jeu || 0, derniereCo: u.derniere_co, vitrine: voit("collection") ? JSON.parse(u.vitrine || "[]") : [], titre: u.titre, cadre: u.cadre, banniere: u.banniere || "corail",
     totalCartes: TOTAL_CARTES, rang: rangDe(a?.trophees ?? 1000, rangs), moi, confidentialite: moi ? conf : undefined };
+  const vl = await env.DB.prepare("SELECT COUNT(*) AS n, SUM(user_id = ?) AS moi FROM vitrine_likes WHERE cible = ?").bind(user?.id || 0, u.id).first();
+  Object.assign(base, { vitrineLikes: vl?.n || 0, vitrineAime: !!vl?.moi });
   if (voit("statistiques")) Object.assign(base, { victoires: a?.victoires || 0, defaites: a?.defaites || 0 });
   if (voit("deck") && a?.deck) base.deck = JSON.parse(a.deck).map((x) => x.id);
   if (voit("historique")) {
@@ -3290,6 +3308,41 @@ route("DELETE", "admin/cartes/([a-z0-9-]{2,40})", async ({ env, user, p }) => {
   return json({ ok: true });
 }, { admin: true });
 
+/* ---------- Boosters créés par l'admin (catégories choisies, prix, date de fin ; image dans « Visuels boosters ») ---------- */
+const ligneBooster = (b) => ({ cle: b.cle, nom: b.nom, description: b.description, prix: b.prix, cartes: b.cartes, garantie: b.garantie, categories: JSON.parse(b.categories || "[]"),
+  couleur: b.couleur || "", shiny: b.shiny, debut: b.debut, fin: b.fin, actif: !!b.actif, ordre: b.ordre });
+route("GET", "boosters/perso", async ({ env }) => {
+  const { results } = await env.DB.prepare("SELECT * FROM boosters_admin WHERE actif = 1 AND (debut IS NULL OR debut <= ?) ORDER BY ordre, cree_le").bind(maintenant()).all();
+  // Les boosters terminés restent connus du jeu pour qu'on puisse ouvrir ceux déjà achetés, mais ne sont plus vendus
+  const t = maintenant();
+  return json({ boosters: results.map((b) => ({ ...ligneBooster(b), enVente: !b.fin || b.fin > t })) }, 200, { "cache-control": "public, max-age=60" });
+});
+route("GET", "admin/boosters", async ({ env }) => {
+  const { results } = await env.DB.prepare("SELECT * FROM boosters_admin ORDER BY ordre, cree_le").all();
+  return json({ boosters: results.map(ligneBooster) });
+}, { admin: true });
+route("PUT", "admin/boosters/([a-z0-9-]{2,30})", async ({ request, env, user, p }) => {
+  const b = await corps(request);
+  const nom = String(b.nom || "").trim().slice(0, 40);
+  if (nom.length < 2) return erreur("Donnez un nom au booster.");
+  const prix = Math.round(Number(b.prix)); if (!(prix >= 10 && prix <= 100000)) return erreur("Prix invalide (de 10 à 100 000 pièces).");
+  const cartes = Math.round(Number(b.cartes) || 5); if (cartes < 1 || cartes > 15) return erreur("De 1 à 15 cartes par booster.");
+  const garantie = RARETES_ADMIN.includes(b.garantie) ? b.garantie : "rare";
+  const cats = (Array.isArray(b.categories) ? b.categories : []).map(String).filter((k) => CATEGORIE_RE.test(k)).slice(0, 20);
+  const couleur = /^#[0-9a-f]{6}$/i.test(String(b.couleur || "")) ? b.couleur : null;
+  const shiny = Math.max(0, Math.min(10, Number(b.shiny) || 1));
+  await env.DB.prepare(`INSERT INTO boosters_admin (cle, nom, description, prix, cartes, garantie, categories, couleur, shiny, debut, fin, actif, ordre, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(cle) DO UPDATE SET nom = excluded.nom, description = excluded.description, prix = excluded.prix, cartes = excluded.cartes, garantie = excluded.garantie, categories = excluded.categories,
+      couleur = excluded.couleur, shiny = excluded.shiny, debut = excluded.debut, fin = excluded.fin, actif = excluded.actif, ordre = excluded.ordre`)
+    .bind(p[1], nom, String(b.description || "").trim().slice(0, 160), prix, cartes, garantie, JSON.stringify(cats), couleur, shiny, Number(b.debut) || null, Number(b.fin) || null, b.actif === false ? 0 : 1, Math.round(Number(b.ordre) || 0), maintenant()).run();
+  await journaliser(env, user.id, "booster enregistré", `${nom} (${p[1]})`, "admin");
+  return json({ ok: true, cle: "perso-" + p[1] });
+}, { admin: true });
+route("DELETE", "admin/boosters/([a-z0-9-]{2,30})", async ({ env, p }) => {
+  await env.DB.prepare("DELETE FROM boosters_admin WHERE cle = ?").bind(p[1]).run();
+  return json({ ok: true });
+}, { admin: true });
+
 /* ---------- Catégories : renommer celles du jeu, en créer de nouvelles ---------- */
 route("GET", "categories", async ({ env }) => {
   const { results } = await env.DB.prepare("SELECT cle, nom, icone, couleur, base, ordre FROM categories_admin ORDER BY ordre, cree_le").all();
@@ -4068,17 +4121,29 @@ const ALBUMS = (() => {
   if (leg.length) a.push({ cle: "nature-legendaire", nom: "Nature légendaire", icone: "🏔️", ids: leg, pieces: 4000 });
   return a.filter((x) => x.ids.length && x.ids.every((id) => CATALOGUE[id]));
 })();
+async function albumsTous(env) {
+  await chargerCartesAdmin(env);
+  const { results } = await env.DB.prepare("SELECT id, type FROM cartes_admin WHERE sortie <= ? AND actif = 1").bind(maintenant()).all();
+  const extra = [];
+  for (const [cle, c] of Object.entries(categoriesPerso)) {
+    if (TYPES_DE_BASE.includes(cle)) continue;
+    const ids = results.filter((x) => x.type === cle).map((x) => x.id);
+    if (ids.length >= 2) extra.push({ cle: "cat-" + cle, nom: `Collection ${c.nom}`, icone: c.icone || "etincelle", ids, pieces: 400 + ids.length * 150, categorie: cle });
+  }
+  return [...ALBUMS, ...extra];
+}
 route("GET", "albums", async ({ env, user }) => {
+  const ALBUMS = await albumsTous(env);
   const owned = user ? (await saveDe(env, user.id)).owned || {} : {};
   const { results } = await env.DB.prepare("SELECT cle, pseudo, cree_le, user_id FROM albums_termines ORDER BY cree_le").all();
   return json({ albums: ALBUMS.map((al) => {
     const fin = results.filter((r) => r.cle === al.cle);
-    return { cle: al.cle, nom: al.nom, icone: al.icone, ids: al.ids, pieces: al.pieces, possedees: al.ids.filter((id) => owned[id] > 0).length,
+    return { cle: al.cle, nom: al.nom, icone: al.icone, ids: al.ids, pieces: al.pieces, categorie: al.categorie || null, possedees: al.ids.filter((id) => owned[id] > 0).length,
       premiers: fin.slice(0, 10).map((r) => ({ pseudo: r.pseudo, t: r.cree_le })), termines: fin.length, moi: user ? fin.findIndex((r) => r.user_id === user.id) + 1 || null : null };
   }) });
 });
 route("POST", "albums/([a-z0-9-]{2,30})/terminer", async ({ env, user, p }) => {
-  const al = ALBUMS.find((x) => x.cle === p[1]);
+  const al = (await albumsTous(env)).find((x) => x.cle === p[1]);
   if (!al) return erreur("Album inconnu.", 404);
   const owned = (await saveDe(env, user.id)).owned || {};
   const manque = al.ids.filter((id) => !(owned[id] > 0));
